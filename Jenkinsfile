@@ -11,7 +11,7 @@ pipeline {
     agent {
         docker {
             image "${params.BUILD_CONTAINER_IMAGE}"
-            args "${BUILD_CONTAINER_ARGS}" '-v /var/run/docker.sock:/var/run/docker.sock --group-add 999'
+            args "${BUILD_CONTAINER_ARGS}" 
         }
     }
     stages {
