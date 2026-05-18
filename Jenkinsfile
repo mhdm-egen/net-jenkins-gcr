@@ -50,7 +50,7 @@ pipeline {
 
         stage('Tag local docker image for GAR') {
             steps {
-                sh "docker tag ${params.WEBAPPHOST_CONTAINER_NAME}:latest ${params.GCP_REGION}-docker.pkg.dev/${params.GCP_REPOSITORY_NAME}/${params.GCP_REPOSITORY_NAME}:v1"
+                sh "docker tag ${params.WEBAPPHOST_CONTAINER_NAME}:latest ${params.GCP_REGION}-docker.pkg.dev/${params.GCP_REPOSITORY_NAME}/${params.GCP_APPHOST_CONTAINER_NAME}:v1"
             }
         }
 
