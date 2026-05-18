@@ -1,12 +1,13 @@
 pipeline {
     parameters {
         string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
-        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
+        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
         string(name: 'BUILD_FILE', defaultValue: 'cicd.sln', description: 'File to build (sln or csproj)')
         string(name: 'PACK_VER', defaultValue: '0.0.1', description: 'Explicit version for package')
         string(name: 'WEBAPPHOST_CONTAINER_NAME', defaultValue: 'webapphost-njg', description: 'Name for the local web app host container')
         string(name: 'GCP_REGION', defaultValue: 'us-west1', description: 'GCP region for artifact registry')
         string(name: 'GCP_REPOSITORY_NAME', defaultValue: 'egen-cicd-net', description: 'GCP artifact repository name')
+        string(name: 'GCP_APPHOST_CONTAINER_NAME', defaultValue: 'web-apphost', description: 'Name for the web app host container in GAR')
     }
     agent {
         docker {
@@ -50,6 +51,12 @@ pipeline {
         stage('Tag local docker image for GAR') {
             steps {
                 sh "docker tag ${params.WEBAPPHOST_CONTAINER_NAME}:latest ${params.GCP_REGION}-docker.pkg.dev/${params.GCP_REPOSITORY_NAME}/${params.GCP_REPOSITORY_NAME}:v1"
+            }
+        }
+
+        stage('Push to GAR') {
+            steps {
+                sh "docker push ${params.GCP_REGION}-docker.pkg.dev/${params.GCP_REPOSITORY_NAME}/${params.GCP_APPHOST_CONTAINER_NAME}:v1"
             }
         }
     }
