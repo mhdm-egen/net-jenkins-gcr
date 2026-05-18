@@ -11,7 +11,6 @@ pipeline {
         string(name: 'GCP_APPHOST_CONTAINER_NAME', defaultValue: 'web-apphost', description: 'Name for the web app host container in GAR')
         string(name: 'GCP_PROJECT_ID', defaultValue: 'egen-gcr', description: 'GCP project ID')
         string(name: 'GAR_SERVICE_ACCOUNT_ID', defaultValue: 'gar-service-account', description: 'Gar service account name')
-        string(name: 'GAR_SERVICE_ACCOUNT_ID', defaultValue: 'gar-service-account', description: 'Gar service account name')
     }
     agent {
         docker {
@@ -61,7 +60,7 @@ pipeline {
 
         stage('Push to GAR') {
             steps {
-                withCredentials([file(credentialsId: '${params.GAR_SERVICE_ACCOUNT_ID}', variable: 'GOOGLE_APPLICATION_CREDENTIALS')]) {
+                withCredentials([file(credentialsId: 'gar-service-account', variable: 'GOOGLE_APPLICATION_CREDENTIALS')]) {
                     sh '''
                         cat "$GOOGLE_APPLICATION_CREDENTIALS" | \
                           docker login -u _json_key --password-stdin \
