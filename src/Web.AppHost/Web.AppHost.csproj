@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Aspire\Aspire.ServiceDefaults\Aspire.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Model.Weather\Model.Weather.csproj" />
+    <ProjectReference Include="..\Web.Components.Weather\Web.Components.Weather.csproj" />
+    <ProjectReference Include="..\Web.Shared.Components.Layout\Web.Shared.Components.Layout.csproj" />
+    <ProjectReference Include="..\Web.Shared.Components.Pages\Web.Shared.Components.Pages.csproj" />
+    <ProjectReference Include="..\Web.Shared\Web.Shared.csproj" />
+    <ProjectReference Include="..\Web.Shared.Assets\Web.Shared.Assets.csproj" />
+    <ProjectReference Include="..\Web.Shared.Components\Web.Shared.Components.csproj" />
+  </ItemGroup>
+
+</Project>
+    

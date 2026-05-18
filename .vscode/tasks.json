@@ -1,0 +1,81 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "run-api",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/src/Api.Web.Weather/Api.Web.Weather.csproj"
+      ],
+      "isBackground": true,
+      "presentation": {
+        "panel": "dedicated",
+        "group": "run-all",
+        "reveal": "always"
+      },
+      "problemMatcher": {
+        "owner": "dotnet",
+        "pattern": {
+          "regexp": "^\\s*(.+?)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+([A-Z]+\\d+):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\s*(info|warn|fail|crit|dbug|trce):",
+          "endsPattern": "^\\s*Now listening on:\\s.*$|^\\s*Application started\\."
+        }
+      }
+    },
+    {
+      "label": "run-web",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/src/Web.AppHost/Web.AppHost.csproj"
+      ],
+      "isBackground": true,
+      "presentation": {
+        "panel": "dedicated",
+        "group": "run-all",
+        "reveal": "always"
+      },
+      "problemMatcher": {
+        "owner": "dotnet",
+        "pattern": {
+          "regexp": "^\\s*(.+?)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+([A-Z]+\\d+):\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\s*(info|warn|fail|crit|dbug|trce):",
+          "endsPattern": "^\\s*Now listening on:\\s.*$|^\\s*Application started\\."
+        }
+      }
+    },
+    {
+      "label": "run-all",
+      "dependsOrder": "sequence",
+      "dependsOn": ["run-api", "run-web"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.2.2">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>fe16db0d-e374-4ea7-ba4c-0172201d57da</UserSecretsId>
+    <IsAspireHost>true</IsAspireHost>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Api.Web.Weather.AppHost\Api.Web.Weather.AppHost.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\..\Web.AppHost\Web.AppHost.csproj" IsAspireProjectResource="true" />
+  </ItemGroup>
+
+</Project>

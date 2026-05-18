@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir *)",
+      "PowerShell(Rename-Item *)",
+      "PowerShell(dotnet build *)",
+      "PowerShell(Get-ChildItem 'E:\\\\dev\\\\egen\\\\cicd\\\\Model.Weather\\\\bin\\\\Debug\\\\net10.0' -File | ForEach-Object { Write-Output $_.Name }; Write-Output '---'; Get-ChildItem 'E:\\\\dev\\\\egen\\\\cicd\\\\Model.Weather\\\\obj' -File | ForEach-Object { Write-Output $_.Name })",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(Get-ChildItem 'E:\\\\dev\\\\egen\\\\cicd\\\\web.assets' -Force | ForEach-Object { Write-Output $_.Name })",
+      "PowerShell(Get-Process *)",
+      "Bash(handle.exe \"E:\\\\dev\\\\egen\\\\cicd\\\\web.components\")",
+      "Bash(powershell -NoProfile -Command 'Get-Process | Where-Object { try { $_.Modules | Where-Object { $_.FileName -like '\\\\''*web.components*'\\\\'' } } catch {} } | Select-Object Id, ProcessName')",
+      "Bash(powershell *)",
+      "PowerShell(dotnet build-server shutdown *)",
+      "PowerShell($lockedFiles = @\\(\\); Get-ChildItem E:\\\\dev\\\\egen\\\\cicd\\\\Web.Layout -Recurse -File | ForEach-Object { try { $fs = [System.IO.File]::Open\\($_.FullName, 'Open', 'ReadWrite', 'None'\\); $fs.Close\\(\\) } catch { $lockedFiles += $_.FullName } }; $lockedFiles)",
+      "PowerShell(New-Item *)",
+      "PowerShell(dotnet sln *)",
+      "Bash(dotnet add *)",
+      "Bash(dotnet build *)"
+    ]
+  }
+}

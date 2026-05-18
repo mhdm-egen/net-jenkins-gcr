@@ -1,0 +1,12 @@
+﻿<Router AppAssembly="typeof(App).Assembly" 
+        AdditionalAssemblies="new[] { 
+                  typeof(Web.Shared.Components.Pages.Home).Assembly
+                , typeof(Web.Shared.Components.Weather.Pages.Weather).Assembly
+                , typeof(Web.Shared.Components.Layout.MainLayout).Assembly
+                    }"
+        NotFoundPage="typeof(Web.Shared.Components.Pages.NotFound)">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(Web.Shared.Components.Layout.MainLayout)" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

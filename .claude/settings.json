@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(dotnet sln 'e:\\\\dev\\\\egen\\\\cicd\\\\cicd.sln' remove 'e:\\\\dev\\\\egen\\\\cicd\\\\web.host\\\\web.host.csproj')",
+      "PowerShell(try { Rename-Item 'e:\\\\dev\\\\egen\\\\cicd\\\\web.host' '__tmp_rename' -ErrorAction Stop; Rename-Item 'e:\\\\dev\\\\egen\\\\cicd\\\\__tmp_rename' 'Web.Host'; Write-Output 'OK' } catch { Write-Output \"FAILED: $_\" })",
+      "PowerShell($h = \\(Get-ChildItem 'e:\\\\dev\\\\egen\\\\cicd\\\\web.host' -Force | Where-Object { $_.PSIsContainer }\\).Name; $h | Out-String)",
+      "PowerShell(try { Remove-Item 'e:\\\\dev\\\\egen\\\\cicd\\\\web.host\\\\obj' -Recurse -Force -ErrorAction Stop; 'obj removed' } catch { \"obj remove failed: $_\" }; try { Rename-Item 'e:\\\\dev\\\\egen\\\\cicd\\\\web.host' '__tmp_rename' -ErrorAction Stop; Rename-Item 'e:\\\\dev\\\\egen\\\\cicd\\\\__tmp_rename' 'Web.Host' -ErrorAction Stop; 'OK' } catch { \"FAILED: $_\" })",
+      "PowerShell(dotnet sln 'e:\\\\dev\\\\egen\\\\cicd\\\\cicd.sln' add 'e:\\\\dev\\\\egen\\\\cicd\\\\Web.Host\\\\Web.Host.csproj')",
+      "PowerShell(Stop-Process -Id 127908 -Force -ErrorAction SilentlyContinue)"
+    ],
+    "additionalDirectories": [
+      "e:\\dev\\egen\\cicd\\src\\Web.AppHost"
+    ]
+  }
+}
