@@ -28,7 +28,7 @@ pipeline {
         stage('Init') {
             steps {
                 script {
-                    sh (script: git config --global --add safe.directory '*')
+                    sh "git config --global --add safe.directory '*'"
 
                     println "Initializing build for ${params.BUILD_FILE}"
                     println "Using build container image: ${params.BUILD_CONTAINER_IMAGE}"
