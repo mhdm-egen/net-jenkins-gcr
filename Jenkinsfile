@@ -74,11 +74,11 @@ pipeline {
 
         stage('Deploy to Cloud Run') {
             steps {
+                def image = "${params.GAR_REGION}-docker.pkg.dev/${params.GCP_PROJECT_ID}/${params.GAR_REPOSITORY_NAME}/${params.GAR_APPHOST_CONTAINER_NAME}:${params.GAR_APPHOST_VERSION}"
+                println "${image}"
+                def cmd = "gcloud run deploy ${params.GCR_APPHOST_SERVICE} --image=${image} --region=${params.GCR_REGION} --platform=managed --allow-unauthenticated --port=8080 --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1"
+                println "${cmd}"
                 sh """
-                    IMAGE="${params.GAR_REGION}-docker.pkg.dev/${params.GCP_PROJECT_ID}/${params.GAR_REPOSITORY_NAME}/${params.GAR_APPHOST_CONTAINER_NAME}:${params.GAR_APPHOST_VERSION}"
-                    echo "\$IMAGE"
-                    CMD = "gcloud run deploy ${params.GCR_APPHOST_SERVICE} --image=${IMAGE} --region=${params.GCR_REGION} --platform=managed --allow-unauthenticated --port=8080 --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1"
-                    echo "\$CMD"
                 """
             }
         }
