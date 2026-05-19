@@ -150,10 +150,10 @@ pipeline {
             """
         }
         success {
-            echo "Build #\${BUILD_NUMBER} deployed successfully as \${params.GAR_APPHOST_CONTAINER_NAME}:\${params.GAR_APPHOST_VERSION}"
+            echo "Build #${BUILD_NUMBER} deployed successfully as \${params.GAR_APPHOST_CONTAINER_NAME}:\${params.GAR_APPHOST_VERSION}"
         }
         failure {
-            echo "Build #\${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"
+            echo "Build #${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"
         }
     }
 }
