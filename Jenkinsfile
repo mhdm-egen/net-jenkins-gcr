@@ -120,7 +120,7 @@ pipeline {
             steps {
                 stript {
                     sh """
-                        SERVICE_URL=$(gcloud run services describe ${GCR_APPHOST_SERVICE} --region=${GCR_REGION} --project=${GCP_PROJECT_ID} --format='value(status.url)')
+                        SERVICE_URL=$(gcloud run services describe ${params.GCR_APPHOST_SERVICE} --region=${params.GCR_REGION} --project=${params.GCP_PROJECT_ID} --format='value(status.url)')
                         echo "Deployed to: $SERVICE_URL"
                     """
                 }
