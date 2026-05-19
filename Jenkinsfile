@@ -32,6 +32,9 @@ pipeline {
                     println "Using build container image: ${params.BUILD_CONTAINER_IMAGE}"
                     println "Build container arguments: ${params.BUILD_CONTAINER_ARGS}"
                     println "Build #${BUILD_NUMBER} started at ${new Date().format("yyyy-MM-dd HH:mm:ss")}"
+
+                    sh 'GIT_COMMIT_HASH = sh (script: "git log -n 1 --pretty=format:'%H'", returnStdout: true)'
+                    println "Git commit hash: ${GIT_COMMIT_HASH}"
                 }
             }
         }
