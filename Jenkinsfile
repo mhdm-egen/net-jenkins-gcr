@@ -19,6 +19,13 @@ pipeline {
         string(name: 'GCR_SERVICE_ACCOUNT_ID', defaultValue: 'gcr-service-account', description: 'GCR service account name')
         string(name: 'GCR_WEBAPPHOST_RUNTIME_SA', defaultValue: 'webapphost-runtime', description: 'GCR web app host runtime service account name')
     }
+    
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
     agent {
         docker {
             image "${params.BUILD_CONTAINER_IMAGE}"
@@ -26,6 +33,7 @@ pipeline {
             reuseNode true
         }
     }
+
     stages {
         stage('Init') {
             steps {
@@ -42,19 +50,21 @@ pipeline {
                 }
             }
         }
-        // stage('Clone') {
-        //     steps { 
-        //         sh 'rm -rf $"{params.REPO_DIR}"'
+        stage('Clone') {
+            steps { 
+                sh 'rm -rf $"{params.REPO_DIR}"'
 
-        //         git url: "${params.GIT_URL}",
-        //             branch: "${params.GIT_BRANCH}"
-        //     }
-        // }
-        // stage('Restore') {
-        //     steps { 
-        //         sh "dotnet restore ${params.BUILD_FILE}"
-        //     }
-        // }
+                git url: "${params.GIT_URL}",
+                    branch: "${params.GIT_BRANCH}"
+            }
+        }
+
+        stage('Restore') {
+            steps { 
+                sh "dotnet restore ${params.BUILD_FILE}"
+            }
+        }
+        
         // stage('Build') {
         //     steps { 
         //         sh "dotnet build --no-restore ${params.BUILD_FILE}"
@@ -114,11 +124,8 @@ pipeline {
                             echo "Authenticating to GCP with service account key from Jenkins credentials"
 
                             gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-                            echo "2"
                             gcloud config set project ${params.GCP_PROJECT_ID}
-                            echo "3"
                             gcloud auth configure-docker ${params.GCP_REGION}-docker.pkg.dev --quiet
-                            echo "4"
                             gcloud auth list
 
                             echo "Authentication successful, ready to push to GAR"
