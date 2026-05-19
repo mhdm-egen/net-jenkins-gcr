@@ -109,14 +109,16 @@ pipeline {
         stage('Authenticate to GCP') {
             steps {
                 withCredentials([file(credentialsId: 'gar-service-account', variable: 'GCP_KEY_FILE')]) {
-                    sh """
-                        gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-                        gcloud config set project \${params.GCP_PROJECT_ID}
-                        gcloud auth configure-docker \${params.GCP_REGION}-docker.pkg.dev --quiet
-                        gcloud auth list
-                        echo "Authentication successful, ready to push to GAR"
-                    """
                     script {
+                        sh """
+                            gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
+                            gcloud config set project \${params.GCP_PROJECT_ID}
+                            gcloud auth configure-docker \${params.GCP_REGION}-docker.pkg.dev --quiet
+                            gcloud auth list
+                            echo "Authentication successful, ready to push to GAR"
+                        """
+
+                        GCP_AUTHENTICATED = true
                     }
                 }
             }
