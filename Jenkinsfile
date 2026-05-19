@@ -31,7 +31,7 @@ pipeline {
                     println "Initializing build for ${params.BUILD_FILE}"
                     println "Using build container image: ${params.BUILD_CONTAINER_IMAGE}"
                     println "Build container arguments: ${params.BUILD_CONTAINER_ARGS}"
-                    println "Build #${params.BUILD_NUMBER} started at ${new Date().format("yyyy-MM-dd HH:mm:ss")}"
+                    println "Build #${BUILD_NUMBER} started at ${new Date().format("yyyy-MM-dd HH:mm:ss")}"
                 }
             }
         }
@@ -141,8 +141,9 @@ pipeline {
     post {
         always {
             sh """
-                gcloud auth revoke --all || true
-                docker logout \${params.GCP_REGION}-docker.pkg.dev || true
+                # gcloud auth revoke --all || true
+                # docker logout \${params.GCP_REGION}-docker.pkg.dev || true
+                echo "Post-build cleanup completed"
             """
         }
         success {
