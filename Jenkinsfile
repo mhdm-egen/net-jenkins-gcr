@@ -79,10 +79,8 @@ pipeline {
                     println "${image}"
                     def cmd = "gcloud run deploy ${params.GCR_APPHOST_SERVICE} --image=${image} --region=${params.GCR_REGION} --platform=managed --allow-unauthenticated --port=8080 --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1"
                     println "${cmd}"
+                    sh "${cmd}"
                 }
-                sh """
-                    ${cmd}
-                """
             }
         }
     }
