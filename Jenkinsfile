@@ -161,7 +161,7 @@ pipeline {
             steps {
                 script {
                     sh """
-                        curl -fsSL --max-time 30 "$SERVICE_URL/health" || echo "Health check skipped/failed"
+                        curl -fsSL --max-time 30 \$SERVICE_URL/alive || echo "Health check skipped/failed"
                     """
                 }
             }
