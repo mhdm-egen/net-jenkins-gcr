@@ -1,12 +1,14 @@
 def GCP_AUTHENTICATED = false
+def CONTAINER_TAG = "latest"
 
 pipeline {
     parameters {
         string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
         string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
         string(name: 'BUILD_FILE', defaultValue: 'cicd.sln', description: 'File to build (sln or csproj)')
+        string(name: 'DOCKER_BUILD_FILE', defaultValue: './src/Web.AppHost/Dockerfile', description: 'Path to the Dockerfile for building the web app host image')
         string(name: 'PACK_VER', defaultValue: '0.0.1', description: 'Explicit version for package')
-        string(name: 'WEBAPPHOST_CONTAINER_NAME', defaultValue: 'webapphost-njg', description: 'Name for the local web app host container')
+        string(name: 'CONTAINER_NAME', defaultValue: 'webapphost', description: 'Name for the local container')
         string(name: 'GCP_REGION', defaultValue: 'us-west1', description: 'GCP region for artifact registry')
         string(name: 'GAR_REGION', defaultValue: 'us-west1', description: 'GAR region for artifact registry')
         string(name: 'GAR_REPOSITORY_NAME', defaultValue: 'egen-cicd-net', description: 'GCP artifact repository name')
@@ -87,11 +89,11 @@ pipeline {
         // //     }
         // // }
 
-        // stage('Create local docker image') {
-        //     steps {
-        //         sh "docker build --file ./src/Web.AppHost/Dockerfile  -t webapphost-njg:latest ."
-        //     }
-        // }
+        stage('Create local docker image') {
+            steps {
+                sh "docker build --file ${params.DOCKER_BUILD_FILE} -t ${params.CONTAINER_NAME}:${CONTAINER_TAG} ."
+            }
+        }
 
         // stage('Tag local docker image for GAR') {
         //     steps {
