@@ -14,6 +14,7 @@ pipeline {
         string(name: 'GCR_APPHOST_SERVICE', defaultValue: 'webapphost', description: 'GCR web app host service name')
         string(name: 'GAR_APPHOST_VERSION', defaultValue: 'v1', description: 'GAR app host version')
         string(name: 'GCR_REGION', defaultValue: 'us-west1', description: 'GCR region')
+        string(name: 'GCR_SERVICE_ACCOUNT_ID', defaultValue: 'gcr-service-account', description: 'GCR service account name')
     }
     agent {
         docker {
@@ -89,7 +90,7 @@ pipeline {
 
         stage('Deploy to Cloud Run') {
             steps {
-                withCredentials([file(credentialsId: "${params.GAR_SERVICE_ACCOUNT_ID}", variable: 'GOOGLE_APPLICATION_CREDENTIALS')]) {
+                withCredentials([file(credentialsId: "${params.GCR_SERVICE_ACCOUNT_ID}", variable: 'GOOGLE_APPLICATION_CREDENTIALS')]) {
                     script{
                         sh """
                             gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
