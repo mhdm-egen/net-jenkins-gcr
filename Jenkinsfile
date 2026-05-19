@@ -25,6 +25,17 @@ pipeline {
         }
     }
     stages {
+        stage('Init'){
+            script {
+                GIT_COMMIT_HASH = sh (script: "git log -n 1 --pretty=format:'%H'", returnStdout: true)
+
+                println "Initializing build for ${params.BUILD_FILE}"
+                println "Using build container image: ${params.BUILD_CONTAINER_IMAGE}"
+                println "Build container arguments: ${params.BUILD_CONTAINER_ARGS}"
+                println "Build #${params.BUILD_NUMBER} started at ${new Date().format("yyyy-MM-dd HH:mm:ss")}"
+                println "Git commit hash: ${GIT_COMMIT_HASH}"
+            }
+        }
         // stage('Clone') {
         //     steps { 
         //         sh 'rm -rf $"{params.REPO_DIR}"'
@@ -131,17 +142,15 @@ pipeline {
     post {
         always {
             sh """
-                # gcloud auth revoke --all || true
-                # docker logout ${GCP_REGION}-docker.pkg.dev || true
+                gcloud auth revoke --all || true
+                docker logout \${params.GCP_REGION}-docker.pkg.dev || true
             """
         }
         success {
-            // echo "Build #${BUILD_NUMBER} deployed successfully as ${IMAGE_NAME}:${IMAGE_TAG}"
-            echo "Success"
+            echo "Build #\${BUILD_NUMBER} deployed successfully as \${params.GAR_APPHOST_CONTAINER_NAME}:\${params.GAR_APPHOST_VERSION}"
         }
         failure {
-            // echo "Build #${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"
-            echo "Failure"
+            echo "Build #\${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"
         }
     }
 }
