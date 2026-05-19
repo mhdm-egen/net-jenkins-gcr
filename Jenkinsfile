@@ -93,7 +93,7 @@ pipeline {
                     script{
                         sh """
                             gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-                            gcloud config set project $"{params.GCP_PROJECT_ID}"
+                            gcloud config set project "${params.GCP_PROJECT_ID}"
                         """
 
                         def image = "${params.GAR_REGION}-docker.pkg.dev/${params.GCP_PROJECT_ID}/${params.GAR_REPOSITORY_NAME}/${params.GAR_APPHOST_CONTAINER_NAME}:${params.GAR_APPHOST_VERSION}"
