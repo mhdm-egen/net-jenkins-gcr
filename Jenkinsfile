@@ -28,6 +28,8 @@ pipeline {
         stage('Init') {
             steps {
                 script {
+                    sh (script: sudo chown -R jenkins:jenkins /var/jenkins_home/workspace)
+                    
                     println "Initializing build for ${params.BUILD_FILE}"
                     println "Using build container image: ${params.BUILD_CONTAINER_IMAGE}"
                     println "Build container arguments: ${params.BUILD_CONTAINER_ARGS}"
@@ -35,6 +37,8 @@ pipeline {
 
                     GIT_COMMIT_HASH = sh (script: "git log -n 1 --pretty=format:'%H'", returnStdout: true)
                     println "Git commit hash: ${GIT_COMMIT_HASH}"
+
+                    def GCP_AUTHENTICATED = false
                 }
             }
         }
@@ -113,6 +117,8 @@ pipeline {
                         echo "Authentication successful, ready to push to GAR"
                     """
                 }
+
+                GCP_AUTHENTICATED = true
             }
         }
 
@@ -143,14 +149,15 @@ pipeline {
 
     post {
         always {
-            sh """
-                # gcloud auth revoke --all || true
-                # docker logout \${params.GCP_REGION}-docker.pkg.dev || true
-                echo "Post-build cleanup completed"
-            """
+            if (GCP_AUTHENTICATED) {
+                println "Cleaning up GCP authentication"
+                sh "gcloud auth revoke --all || true"
+                sh "docker logout ${params.GCP_REGION}-docker.pkg.dev || true"
+            }
+            echo "Post-build cleanup completed"
         }
         success {
-            echo "Build #${BUILD_NUMBER} deployed successfully as \${params.GAR_APPHOST_CONTAINER_NAME}:\${params.GAR_APPHOST_VERSION}"
+            echo "Build #${BUILD_NUMBER} deployed successfully as ${params.GAR_APPHOST_CONTAINER_NAME}:${params.GAR_APPHOST_VERSION}"
         }
         failure {
             echo "Build #${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"
