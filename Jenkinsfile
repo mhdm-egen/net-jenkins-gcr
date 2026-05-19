@@ -161,7 +161,9 @@ pipeline {
             steps {
                 script {
                     sh """
-                        curl -fsSL --max-time 30 \$SERVICE_URL/alive || echo "Health check skipped/failed"
+                        HEALTH_CHECK_URL=\$(gcloud run services describe ${params.GCR_APPHOST_SERVICE} --region=${params.GCR_REGION} --project=${params.GCP_PROJECT_ID} --format='value(status.url)')/alive
+                        echo \$HEALTH_CHECK_URL
+                        curl -fsSL --max-time 30 \$HEALTH_CHECK_URL || echo "Health check failed"
                     """
                 }
             }
