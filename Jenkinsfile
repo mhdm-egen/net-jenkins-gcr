@@ -1,4 +1,6 @@
 pipeline {
+    def GCP_AUTHENTICATED = false
+
     parameters {
         string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
         string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
@@ -38,7 +40,7 @@ pipeline {
                     GIT_COMMIT_HASH = sh (script: "git log -n 1 --pretty=format:'%H'", returnStdout: true)
                     println "Git commit hash: ${GIT_COMMIT_HASH}"
 
-                    def GCP_AUTHENTICATED = false
+                    // GCP_AUTHENTICATED = false
                 }
             }
         }
@@ -149,10 +151,12 @@ pipeline {
 
     post {
         always {
-            if (GCP_AUTHENTICATED) {
-                println "Cleaning up GCP authentication"
-                sh "gcloud auth revoke --all || true"
-                sh "docker logout ${params.GCP_REGION}-docker.pkg.dev || true"
+            script {
+                if (GCP_AUTHENTICATED) {
+                    println "Cleaning up GCP authentication"
+                    sh "gcloud auth revoke --all || true"
+                    sh "docker logout ${params.GCP_REGION}-docker.pkg.dev || true"
+                }
             }
             echo "Post-build cleanup completed"
         }
