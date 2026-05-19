@@ -97,12 +97,9 @@ pipeline {
                         gcloud config set project ${GCP_PROJECT}
                         gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev --quiet
                         gcloud auth list
+                        echo "Authentication successful, ready to push to GAR"
                     """
                 }
-
-                script {
-                    println "Authenticate"
-                }   
             }
         }
 
@@ -129,8 +126,8 @@ pipeline {
     post {
         always {
             sh """
-                // gcloud auth revoke --all || true
-                // docker logout ${GCP_REGION}-docker.pkg.dev || true
+                # gcloud auth revoke --all || true
+                # docker logout ${GCP_REGION}-docker.pkg.dev || true
             """
         }
         success {
