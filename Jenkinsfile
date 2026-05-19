@@ -117,7 +117,6 @@ pipeline {
                         echo "Authentication successful, ready to push to GAR"
                     """
                     script {
-                        GCP_AUTHENTICATED = true
                     }
                 }
             }
