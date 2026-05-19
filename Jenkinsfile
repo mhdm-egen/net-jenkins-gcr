@@ -103,24 +103,17 @@ pipeline {
             }
         }
 
-        // stage('Deploy to Cloud Run') {
-        //     steps {
-        //         withCredentials([file(credentialsId: "${params.GCR_SERVICE_ACCOUNT_ID}", variable: 'GOOGLE_APPLICATION_CREDENTIALS')]) {
-        //             script{
-        //                 sh """
-        //                     gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-        //                     gcloud config set project "${params.GCP_PROJECT_ID}"
-        //                 """
-
-        //                 def image = "${params.GAR_REGION}-docker.pkg.dev/${params.GCP_PROJECT_ID}/${params.GAR_REPOSITORY_NAME}/${params.GAR_APPHOST_CONTAINER_NAME}:${params.GAR_APPHOST_VERSION}"
-        //                 println "${image}"
-        //                 def cmd = "gcloud run deploy ${params.GCR_APPHOST_SERVICE} --image=${image} --project=${params.GCP_PROJECT_ID} --region=${params.GCR_REGION} --platform=managed --allow-unauthenticated --port=8080 --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1"
-        //                 println "${cmd}"
-        //                 sh "${cmd}"
-        //             }
-        //         }
-        //     }
-        // }
+        stage('Deploy to Cloud Run') {
+            steps {
+                script {
+                    def image = "${params.GAR_REGION}-docker.pkg.dev/${params.GCP_PROJECT_ID}/${params.GAR_REPOSITORY_NAME}/${params.GAR_APPHOST_CONTAINER_NAME}:${params.GAR_APPHOST_VERSION}"
+                    println "${image}"
+                    def cmd = "gcloud run deploy ${params.GCR_APPHOST_SERVICE} --image=${image} --project=${params.GCP_PROJECT_ID} --region=${params.GCR_REGION} --platform=managed --allow-unauthenticated --port=8080 --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1"
+                    println "${cmd}"
+                    sh "${cmd}"
+                }
+            }
+        }
     }
 
     post {
