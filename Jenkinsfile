@@ -94,7 +94,7 @@ pipeline {
                 withCredentials([file(credentialsId: 'gar-service-account', variable: 'GCP_KEY_FILE')]) {
                     sh """
                         gcloud auth activate-service-account --key-file="$GCP_KEY_FILE"
-                        gcloud config set project ${GCP_PROJECT}
+                        gcloud config set project ${GCP_PROJECT_ID}
                         gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev --quiet
                         gcloud auth list
                         echo "Authentication successful, ready to push to GAR"
