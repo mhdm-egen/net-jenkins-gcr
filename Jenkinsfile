@@ -12,7 +12,7 @@ pipeline {
         string(name: 'GCP_PROJECT_ID', defaultValue: 'egen-gcr', description: 'GCP project ID')
         string(name: 'GAR_SERVICE_ACCOUNT_ID', defaultValue: 'gar-service-account', description: 'Gar service account name')
         string(name: 'GCR_APPHOST_SERVICE', defaultValue: 'webapphost', description: 'GCR web app host service name')
-        string(name: 'GCR_APPHOST_VERSION', defaultValue: 'v1', description: 'GAR app host version')
+        string(name: 'GAR_APPHOST_VERSION', defaultValue: 'v1', description: 'GAR app host version')
         string(name: 'GCR_REGION', defaultValue: 'us-west1', description: 'GCR region')
     }
     agent {
@@ -76,8 +76,10 @@ pipeline {
             steps {
                 sh """
                     IMAGE="${params.GAR_REGION}-docker.pkg.dev/${params.GCP_PROJECT_ID}/${params.GAR_REPOSITORY_NAME}/${params.GAR_APPHOST_CONTAINER_NAME}:${params.GAR_APPHOST_VERSION}"
-                    echo "$IMAGE"
-                    gcloud run deploy ${params.GCR_APPHOST_SERVICE} --image=${IMAGE} --region=${params.GCR_REGION} --platform=managed --allow-unauthenticated --port=8080 --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1
+                    echo "\$IMAGE"
+                    CMD = "gcloud run deploy ${params.GCR_APPHOST_SERVICE} --image=${IMAGE} --region=${params.GCR_REGION} --platform=managed --allow-unauthenticated --port=8080 --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1"
+                    echo "\$CMD"
+                    "\$CMD"
                 """
             }
         }
