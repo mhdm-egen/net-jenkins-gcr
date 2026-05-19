@@ -66,11 +66,19 @@ pipeline {
             }
         }
 
-        // stage('Build') {
-        //     steps { 
-        //         sh "dotnet build --no-restore ${params.BUILD_FILE}"
-        //     }
-        // }
+        stage('Build') {
+            steps { 
+                sh "dotnet build --no-restore -c Release ${params.BUILD_FILE}"
+            }
+        }
+
+        stage ('Test') {
+            steps { 
+                //  sh "dotnet test --no-restore --no-build -c Release ${params.BUILD_FILE} --logger trx"
+                echo "Skipping tests for now"
+            }
+        }
+
         // // stage('Pack') {
         // //     steps{
         // //         print("${params.PACK_VER}")
