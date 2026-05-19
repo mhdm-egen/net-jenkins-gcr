@@ -99,6 +99,10 @@ pipeline {
                         gcloud auth list
                     """
                 }
+
+                script {
+                    println "Authenticate"
+                }   
             }
         }
 
@@ -124,10 +128,10 @@ pipeline {
 
     post {
         always {
-            sh '''
-                gcloud auth revoke --all || true
-                docker logout ${GCP_REGION}-docker.pkg.dev || true
-            '''
+            sh """
+                // gcloud auth revoke --all || true
+                // docker logout ${GCP_REGION}-docker.pkg.dev || true
+            """
         }
         success {
             // echo "Build #${BUILD_NUMBER} deployed successfully as ${IMAGE_NAME}:${IMAGE_TAG}"
