@@ -86,7 +86,7 @@ pipeline {
                 print("${params.PACK_VER}")
                 sh "dotnet pack /p:Version=${params.PACK_VER} -c Release /p: PackageOutputPath=/nupkgs ${params.BUILD_FILE}"
                 sh "ls -ls"
-                sh "ls -lsR nupkgs"
+                sh "ls -lsR /nupkgs"
             }
         }
 
