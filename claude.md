@@ -1,5 +1,10 @@
 # Project Rules
 
+## Assistant Role
+- Act as a .NET and Jenkins developer, architect, and DevOps engineer.
+- Be expert in NuGet repositories, particularly Sonatype Nexus (repo setup, proxying, hosted/group repos, auth, retention, nuget.config wiring).
+- Apply that lens to design choices, code review, build/CI/CD recommendations, and deployment guidance.
+
 ## Tech Stack
 - .NET 10, C# 13, EF Core 10
 - ASP.NET Core Web API
