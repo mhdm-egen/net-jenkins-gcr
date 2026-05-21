@@ -7,7 +7,7 @@ pipeline {
         string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
         string(name: 'BUILD_FILE', defaultValue: 'cicd.sln', description: 'File to build (sln or csproj)')
         string(name: 'DOCKER_BUILD_FILE', defaultValue: './src/Web.AppHost/Dockerfile', description: 'Path to the Dockerfile for building the web app host image')
-        string(name: 'PACK_VER', defaultValue: '0.0.1', description: 'Explicit version for package')
+        string(name: 'PACK_VER', defaultValue: '1.0.0', description: 'Explicit version for package')
         string(name: 'CONTAINER_NAME', defaultValue: 'webapphost', description: 'Name for the local container')
         string(name: 'GCP_REGION', defaultValue: 'us-west1', description: 'GCP region for artifact registry')
         string(name: 'GAR_REGION', defaultValue: 'us-west1', description: 'GAR region for artifact registry')
@@ -81,13 +81,13 @@ pipeline {
             }
         }
 
-        // // stage('Pack') {
-        // //     steps{
-        // //         print("${params.PACK_VER}")
-        // //         sh 'dotnet pack /p:Version=${params.PACK_VER} -c Release /p: ./src/YourOrg.Common.Core/YourOrg.Common.Core.csproj'
-        // //         sh "ls -ls ./src/YourOrg.Common.Core/bin/Release"
-        // //     }
-        // // }
+        stage('Pack') {
+            steps{
+                print("${params.PACK_VER}")
+                sh 'dotnet pack /p:Version=${params.PACK_VER} -c Release /p: PackageOutputPath=./nupkgs ${params.BUILD_FILE}'
+                sh "ls -ls ./nupkgs"
+            }
+        }
 
         stage('Create local docker image') {
             steps {

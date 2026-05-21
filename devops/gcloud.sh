@@ -73,16 +73,31 @@ gcloud iam service-accounts keys create key.json \
 
 
 #configure GCR for pull/run
-JENKINS_GCR_RUNNER="jenkins-gcr-runner"
-gcloud iam service-accounts create $JENKINS_GCR_RUNNER \
+GCR_SA="jenkins-gcr-runner"
+gcloud iam service-accounts create $GCR_SA \
     --display-name="MyApp Cloud Run runtime" \
     --project=$PROJECT_ID
 
-GCR_SA_EMAIL="$JENKINS_GCR_RUNNER@$PROJECT_ID.iam.gserviceaccount.com"
+GCR_SA_EMAIL="$GCR_SA@$PROJECT_ID.iam.gserviceaccount.com"
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:$GCR_SA_EMAIL" \
   --role="roles/artifactregistry.reader"
 
-gcloud iam service-accounts add-iam-policy-binding $GCR_SA_EMAIL \
-    --member="serviceAccount:$JENKINS_GCR_RUNNER@${PROJECT_ID}.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
+    --member="serviceAccount:$GCR_SA_EMAIL" \
+    --role="roles/run.admin"
+
+gcloud iam service-accounts add-iam-policy-binding \
+    myapp-runtime@${PROJECT_ID}.iam.gserviceaccount.com \
+    --member="serviceAccount:${JENKINS_SA}" \
     --role="roles/iam.serviceAccountUser"
+
+gcloud iam service-accounts keys create gcrkey.json \
+  --iam-account=$GCR_SA@$PROJECT_ID.iam.gserviceaccount.com
+
+gcloud iam service-accounts delete $GCR_SA_EMAIL --quiet
+
+
+DEPLOYER_SA="jenkins-deployer@$PROJECT_ID.iam.gserviceaccount.com"
+RUNTIME_SA="webapphost-runtime@egen-gcr.iam.gserviceaccount.com"
+gcloud iam service-accounts get-iam-policy $RUNTIME_SA --format=json
