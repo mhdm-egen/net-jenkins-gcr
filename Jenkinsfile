@@ -122,28 +122,64 @@ pipeline {
         //     }
         // }
 
-        stage('Create local docker image') {
-            steps {
-                sh "docker build --file ${params.DOCKER_BUILD_FILE} -t ${params.CONTAINER_NAME}:${CONTAINER_TAG} ."
-            }
-        }
+        // stage('Create local docker image') {
+        //     steps {
+        //         sh "docker build --file ${params.DOCKER_BUILD_FILE} -t ${params.CONTAINER_NAME}:${CONTAINER_TAG} ."
+        //     }
+        // }
 
-        stage('Push to Nexus') {
+        // stage('Push to Nexus') {
+        //     steps {
+        //         withCredentials([usernamePassword(credentialsId: "${params.NEXUS_DOCKER_CREDENTIAL_ID}", usernameVariable: 'NEXUS_DOCKER_USER', passwordVariable: 'NEXUS_DOCKER_PASS')]) {
+        //             script {
+        //                 sh """
+        //                     set -e
+        //                     echo "Tagging local image ${params.CONTAINER_NAME}:${CONTAINER_TAG} for Nexus registry ${params.NEXUS_DOCKER_HOST}"
+        //                     docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${params.NEXUS_DOCKER_HOST}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
+
+        //                     echo "Logging in to Nexus docker registry ${params.NEXUS_DOCKER_HOST}"
+        //                     echo "\$NEXUS_DOCKER_PASS" | docker login ${NEXUS_DOCKER_PROTOCOL}${params.NEXUS_DOCKER_HOST} -u "\$NEXUS_DOCKER_USER" --password-stdin
+
+        //                     echo "Pushing image to Nexus registry ${params.NEXUS_DOCKER_HOST}"
+        //                     docker push ${params.NEXUS_DOCKER_HOST}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
+        //                 """
+        //                 NEXUS_DOCKER_AUTHENTICATED = true
+        //             }
+        //         }
+        //     }
+        // }
+
+        stage('Push Nexus to GAR') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "${params.NEXUS_DOCKER_CREDENTIAL_ID}", usernameVariable: 'NEXUS_DOCKER_USER', passwordVariable: 'NEXUS_DOCKER_PASS')]) {
+                withCredentials([
+                    usernamePassword(credentialsId: "${params.NEXUS_DOCKER_CREDENTIAL_ID}", usernameVariable: 'NEXUS_DOCKER_USER', passwordVariable: 'NEXUS_DOCKER_PASS'),
+                    file(credentialsId: "${params.GAR_SERVICE_ACCOUNT_ID}", variable: 'GCP_KEY_FILE')
+                ]) {
                     script {
+                        def nexusImage = "${params.NEXUS_DOCKER_HOST}/${params.CONTAINER_NAME}:${CONTAINER_TAG}"
+                        def garImage = "${params.GAR_REGION}-docker.pkg.dev/${params.GCP_PROJECT_ID}/${params.GAR_REPOSITORY_NAME}/${params.GAR_APPHOST_CONTAINER_NAME}:${params.GAR_APPHOST_VERSION}"
                         sh """
                             set -e
-                            echo "Tagging local image ${params.CONTAINER_NAME}:${CONTAINER_TAG} for Nexus registry ${params.NEXUS_DOCKER_HOST}"
-                            docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${params.NEXUS_DOCKER_HOST}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
 
                             echo "Logging in to Nexus docker registry ${params.NEXUS_DOCKER_HOST}"
-                            echo "\$NEXUS_DOCKER_PASS" | docker login ${NEXUS_DOCKER_PROTOCOL}${params.NEXUS_DOCKER_HOST} -u "\$NEXUS_DOCKER_USER" --password-stdin
+                            echo "\$NEXUS_DOCKER_PASS" | docker login ${params.NEXUS_DOCKER_PROTOCOL}${params.NEXUS_DOCKER_HOST} -u "\$NEXUS_DOCKER_USER" --password-stdin
 
-                            echo "Pushing image to Nexus registry ${params.NEXUS_DOCKER_HOST}"
-                            docker push ${params.NEXUS_DOCKER_HOST}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
+                            echo "Pulling ${nexusImage} from Nexus"
+                            docker pull ${nexusImage}
+
+                            echo "Authenticating to GCP"
+                            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
+                            gcloud config set project ${params.GCP_PROJECT_ID}
+                            gcloud auth configure-docker ${params.GAR_REGION}-docker.pkg.dev --quiet
+
+                            echo "Tagging ${nexusImage} as ${garImage}"
+                            docker tag ${nexusImage} ${garImage}
+
+                            echo "Pushing ${garImage} to GAR"
+                            docker push ${garImage}
                         """
                         NEXUS_DOCKER_AUTHENTICATED = true
+                        GCP_AUTHENTICATED = true
                     }
                 }
             }
