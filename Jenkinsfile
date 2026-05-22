@@ -114,7 +114,7 @@ pipeline {
                                 --api-key "\$NUGET_API_KEY" \\
                                 --skip-duplicate \\
                                 --allow-insecure-connections \\
-                                --api-key "${NUGET_API_KEY}"
+                                --api-key "\$NUGET_API_KEY"
                         done
                     """
                 }
