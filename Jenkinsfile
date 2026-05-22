@@ -113,7 +113,7 @@ pipeline {
                                 --source "${params.NUGET_SOURCE}" \\
                                 --api-key "\$NUGET_API_KEY" \\
                                 --skip-duplicate \\
-                                --allow-untrusted
+                                --allow-insecure-connections
                         done
                     """
                 }
