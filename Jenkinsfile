@@ -99,16 +99,15 @@ pipeline {
             steps {
                 withCredentials([string(credentialsId: "${params.NUGET_API_KEY_CREDENTIAL_ID}", variable: 'NUGET_API_KEY')]) {
                     sh """
-                        ls -lsR ${env.WORKSPACE}/nupkgs
                         set -e
-                        echo "Publishing NuGet packages from ${env.WORKSPACE}/nupkgs to ${params.NUGET_SOURCE}"
-                        shopt -s nullglob
-                        pkgs=(${env.WORKSPACE}/nupkgs/*.nupkg)
-                        if [ \${#pkgs[@]} -eq 0 ]; then
-                            echo "ERROR: No .nupkg files found in ${env.WORKSPACE}/nupkgs"
+                        pkg_dir="${env.WORKSPACE}/nupkgs"
+                        ls -lsR "\$pkg_dir"
+                        echo "Publishing NuGet packages from \$pkg_dir to ${params.NUGET_SOURCE}"
+                        if ! ls "\$pkg_dir"/*.nupkg >/dev/null 2>&1; then
+                            echo "ERROR: No .nupkg files found in \$pkg_dir"
                             exit 1
                         fi
-                        for pkg in "\${pkgs[@]}"; do
+                        for pkg in "\$pkg_dir"/*.nupkg; do
                             echo "Pushing \$pkg"
                             dotnet nuget push "\$pkg" \\
                                 --source "${params.NUGET_SOURCE}" \\
