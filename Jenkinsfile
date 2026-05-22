@@ -133,10 +133,13 @@ pipeline {
                     script {
                         sh """
                             set -e
+                            echo "Tagging local image ${params.CONTAINER_NAME}:${CONTAINER_TAG} for Nexus registry ${params.NEXUS_DOCKER_REGISTRY}"
+                            docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
+
                             echo "Logging in to Nexus docker registry ${params.NEXUS_DOCKER_REGISTRY}"
                             echo "\$NEXUS_DOCKER_PASS" | docker login ${params.NEXUS_DOCKER_REGISTRY} -u "\$NEXUS_DOCKER_USER" --password-stdin
 
-                            docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
+                            echo "Pushing image to Nexus registry ${params.NEXUS_DOCKER_REGISTRY}"
                             docker push ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
                         """
                         NEXUS_DOCKER_AUTHENTICATED = true
