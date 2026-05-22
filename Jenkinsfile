@@ -112,7 +112,8 @@ pipeline {
                             dotnet nuget push "\$pkg" \\
                                 --source "${params.NUGET_SOURCE}" \\
                                 --api-key "\$NUGET_API_KEY" \\
-                                --skip-duplicate
+                                --skip-duplicate \\
+                                --allow-untrusted
                         done
                     """
                 }
