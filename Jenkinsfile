@@ -25,6 +25,7 @@ pipeline {
         string(name: 'NUGET_API_KEY_CREDENTIAL_ID', defaultValue: 'rhythm-nuget', description: 'Jenkins credential id (Secret Text) holding the NuGet API key for the target feed')
         string(name: 'NEXUS_DOCKER_REGISTRY', defaultValue: 'http://nexus:8081', description: 'Nexus docker registry host:port (port determines the target hosted repo via the Nexus connector)')
         string(name: 'NEXUS_DOCKER_CREDENTIAL_ID', defaultValue: 'nexus-docker-credentials', description: 'Jenkins credential id (Username/Password) for the Nexus docker registry')
+        string(name: 'NEXUS_DOCKER_USER', defaultValue: 'admin', description: 'Nexus docker registray username (for Jenkins credentials)')
     }
     
     options {
@@ -95,57 +96,57 @@ pipeline {
             }
         }
 
-        stage('Publish Artifacts') {
-            steps {
-                withCredentials([string(credentialsId: "${params.NUGET_API_KEY_CREDENTIAL_ID}", variable: 'NUGET_API_KEY')]) {
-                    sh """
-                        set -e
-                        pkg_dir="${env.WORKSPACE}/nupkgs"
-                        ls -lsR "\$pkg_dir"
-                        echo "Publishing NuGet packages from \$pkg_dir to ${params.NUGET_SOURCE}"
-                        if ! ls "\$pkg_dir"/*.nupkg >/dev/null 2>&1; then
-                            echo "ERROR: No .nupkg files found in \$pkg_dir"
-                            exit 1
-                        fi
-                        for pkg in "\$pkg_dir"/*.nupkg; do
-                            echo "Pushing \$pkg"
-                            dotnet nuget push "\$pkg" \\
-                                --source "${params.NUGET_SOURCE}" \\
-                                --api-key "\$NUGET_API_KEY" \\
-                                --skip-duplicate \\
-                                --allow-insecure-connections 
-                        done
-                    """
-                }
-            }
-        }
-
-        // stage('Create local docker image') {
+        // stage('Publish Artifacts') {
         //     steps {
-        //         sh "docker build --file ${params.DOCKER_BUILD_FILE} -t ${params.CONTAINER_NAME}:${CONTAINER_TAG} ."
-        //     }
-        // }
-
-        // stage('Push to Nexus') {
-        //     steps {
-        //         withCredentials([usernamePassword(credentialsId: "${params.NEXUS_DOCKER_CREDENTIAL_ID}", usernameVariable: 'NEXUS_DOCKER_USER', passwordVariable: 'NEXUS_DOCKER_PASS')]) {
-        //             script {
-        //                 sh """
-        //                     set -e
-        //                     echo "Logging in to Nexus docker registry ${params.NEXUS_DOCKER_REGISTRY}"
-        //                     echo "\$NEXUS_DOCKER_PASS" | docker login ${params.NEXUS_DOCKER_REGISTRY} -u "\$NEXUS_DOCKER_USER" --password-stdin
-
-        //                     docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
-        //                     docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${BUILD_NUMBER}
-
-        //                     docker push ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
-        //                     docker push ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${BUILD_NUMBER}
-        //                 """
-        //                 NEXUS_DOCKER_AUTHENTICATED = true
-        //             }
+        //         withCredentials([string(credentialsId: "${params.NUGET_API_KEY_CREDENTIAL_ID}", variable: 'NUGET_API_KEY')]) {
+        //             sh """
+        //                 set -e
+        //                 pkg_dir="${env.WORKSPACE}/nupkgs"
+        //                 ls -lsR "\$pkg_dir"
+        //                 echo "Publishing NuGet packages from \$pkg_dir to ${params.NUGET_SOURCE}"
+        //                 if ! ls "\$pkg_dir"/*.nupkg >/dev/null 2>&1; then
+        //                     echo "ERROR: No .nupkg files found in \$pkg_dir"
+        //                     exit 1
+        //                 fi
+        //                 for pkg in "\$pkg_dir"/*.nupkg; do
+        //                     echo "Pushing \$pkg"
+        //                     dotnet nuget push "\$pkg" \\
+        //                         --source "${params.NUGET_SOURCE}" \\
+        //                         --api-key "\$NUGET_API_KEY" \\
+        //                         --skip-duplicate \\
+        //                         --allow-insecure-connections 
+        //                 done
+        //             """
         //         }
         //     }
         // }
+
+        stage('Create local docker image') {
+            steps {
+                sh "docker build --file ${params.DOCKER_BUILD_FILE} -t ${params.CONTAINER_NAME}:${CONTAINER_TAG} ."
+            }
+        }
+
+        stage('Push to Nexus') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${params.NEXUS_DOCKER_CREDENTIAL_ID}", usernameVariable: 'NEXUS_DOCKER_USER', passwordVariable: 'NEXUS_DOCKER_PASS')]) {
+                    script {
+                        sh """
+                            set -e
+                            echo "Logging in to Nexus docker registry ${params.NEXUS_DOCKER_REGISTRY}"
+                            echo "\$NEXUS_DOCKER_PASS" | docker login ${params.NEXUS_DOCKER_REGISTRY} -u "\$NEXUS_DOCKER_USER" --password-stdin
+
+                            docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
+                            docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${BUILD_NUMBER}
+
+                            docker push ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${CONTAINER_TAG}
+                            docker push ${params.NEXUS_DOCKER_REGISTRY}/${params.CONTAINER_NAME}:${BUILD_NUMBER}
+                        """
+                        NEXUS_DOCKER_AUTHENTICATED = true
+                    }
+                }
+            }
+        }
 
         // stage('Tag local docker image for GAR') {
         //     steps {
