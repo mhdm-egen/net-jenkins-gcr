@@ -1,0 +1,139 @@
+pipeline {
+    parameters {
+        string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
+        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
+        string(name: 'NUGET_SOURCE', defaultValue: 'http://nexus:8081/repository/nuget-hosted/', description: 'NuGet feed URL (Nexus hosted repo, internal proxy, or https://api.nuget.org/v3/index.json)')
+        string(name: 'NUGET_API_KEY_CREDENTIAL_ID', defaultValue: 'rhythm-nuget', description: 'Jenkins credential id (Secret Text) holding the NuGet API key for the target feed')
+        string(name: 'SOURCE_BUILD_JOB', defaultValue: 'cicd-build', description: 'Name of the upstream build job whose build-info.json will be pulled in')
+        string(name: 'SOURCE_BUILD_NUMBER', defaultValue: '', description: 'Specific upstream build number to publish. Leave empty for the last successful build.')
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    agent {
+        docker {
+            image "${params.BUILD_CONTAINER_IMAGE}"
+            args "${BUILD_CONTAINER_ARGS}"
+            reuseNode true
+        }
+    }
+
+    stages {
+        stage ('Init') {
+            steps {
+                script {
+                    sh "git config --global --add safe.directory '*'"
+
+                    println "Initializing publish to NuGet"
+                    println "Using build container image: ${params.BUILD_CONTAINER_IMAGE}"
+                    println "Build container arguments: ${params.BUILD_CONTAINER_ARGS}"
+                    println "Build #${BUILD_NUMBER} started at ${new Date().format("yyyy-MM-dd HH:mm:ss")}"
+                }
+            }
+        }
+
+        stage ('Resolve build') {
+            steps {
+                script {
+                    def srcBuild = params.SOURCE_BUILD_NUMBER?.trim()
+                    def selector = srcBuild ? specificBuild(buildNumber: srcBuild) : lastSuccessful()
+                    def srcLabel = srcBuild ? "build #${srcBuild}" : "lastSuccessful()"
+                    println "Fetching build-info.json from ${params.SOURCE_BUILD_JOB} (${srcLabel})"
+
+                    copyArtifacts(
+                        projectName: params.SOURCE_BUILD_JOB,
+                        selector: selector,
+                        filter: 'build-info.json',
+                        fingerprintArtifacts: true
+                    )
+
+                    def info = readJSON file: 'build-info.json'
+
+                    PACKAGE_VERSION  = info.packageVersion
+                    FILE_VERSION     = info.fileVersion
+                    ASSEMBLY_VERSION = info.assemblyVersion
+                    INFO_VERSION     = info.informationalVersion
+                    GIT_COMMIT_HASH  = info.gitCommitHash
+                    GIT_COMMIT_SHORT = info.gitCommitShort
+                    SOURCE_BUILD_NUM = info.buildNumber
+                    PACK_VER         = info.packVer
+                    BUILD_FILE       = info.buildFile
+
+                    println "Resolved upstream build: #${SOURCE_BUILD_NUM}"
+                    println "  packageVersion : ${PACKAGE_VERSION}"
+                    println "  fileVersion    : ${FILE_VERSION}"
+                    println "  assemblyVersion: ${ASSEMBLY_VERSION}"
+                    println "  infoVersion    : ${INFO_VERSION}"
+                    println "  packVer        : ${PACK_VER}"
+                    println "  buildFile      : ${BUILD_FILE}"
+                    println "  gitCommitHash  : ${GIT_COMMIT_HASH}"
+                    println "  gitCommitShort : ${GIT_COMMIT_SHORT}"
+
+                    currentBuild.description = "publish ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM} (${PACKAGE_VERSION})"
+                }
+            }
+        }
+
+        stage ('Pack') {
+            steps {
+                script {
+                    sh """
+                        dotnet pack ${BUILD_FILE} \\
+                            -c Release \\
+                            /p:Version=${PACK_VER} \\
+                            /p:PackageVersion=${PACKAGE_VERSION} \\
+                            /p:AssemblyVersion=${ASSEMBLY_VERSION} \\
+                            /p:FileVersion=${FILE_VERSION} \\
+                            /p:InformationalVersion="${INFO_VERSION}" \\
+                            /p:PackageOutputPath=${env.WORKSPACE}/nupkgs
+                    """
+                    sh "ls -lsR ${env.WORKSPACE}/nupkgs"
+                }
+            }
+        }
+
+        stage ('Publish Artifacts') {
+            steps {
+                withCredentials([string(credentialsId: "${params.NUGET_API_KEY_CREDENTIAL_ID}", variable: 'NUGET_API_KEY')]) {
+                    sh """
+                        set -e
+                        pkg_dir="${env.WORKSPACE}/nupkgs"
+                        ls -lsR "\$pkg_dir"
+                        echo "Publishing NuGet packages from \$pkg_dir to ${params.NUGET_SOURCE}"
+                        if ! ls "\$pkg_dir"/*.nupkg >/dev/null 2>&1; then
+                            echo "ERROR: No .nupkg files found in \$pkg_dir"
+                            exit 1
+                        fi
+                        for pkg in "\$pkg_dir"/*.nupkg; do
+                            echo "Pushing \$pkg"
+                            dotnet nuget push "\$pkg" \\
+                                --source "${params.NUGET_SOURCE}" \\
+                                --api-key "\$NUGET_API_KEY" \\
+                                --skip-duplicate \\
+                                --allow-insecure-connections
+                        done
+                    """
+                }
+            }
+        }
+
+        stage ('Archive Build Info') {
+            steps {
+                archiveArtifacts artifacts: 'build-info.json', fingerprint: true, onlyIfSuccessful: true
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Build #${BUILD_NUMBER} published ${PACKAGE_VERSION} to ${params.NUGET_SOURCE} (from ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM})"
+        }
+        failure {
+            echo "Build #${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"
+        }
+    }
+}

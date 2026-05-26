@@ -1,0 +1,159 @@
+def GCP_AUTHENTICATED = false
+def NEXUS_DOCKER_AUTHENTICATED = false
+
+pipeline {
+    parameters {
+        string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
+        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
+        string(name: 'CONTAINER_NAME', defaultValue: 'webapphost', description: 'Name of the container in Nexus (the image name pushed by the publish-nexus-docker pipeline)')
+        string(name: 'GAR_REGION', defaultValue: 'us-west1', description: 'GAR region for artifact registry')
+        string(name: 'GAR_REPOSITORY_NAME', defaultValue: 'egen-cicd-net', description: 'GCP artifact repository name')
+        string(name: 'GAR_APPHOST_CONTAINER_NAME', defaultValue: 'web-apphost', description: 'Name for the web app host container in GAR')
+        string(name: 'GAR_APPHOST_VERSION', defaultValue: 'v1', description: 'GAR app host floating release tag')
+        string(name: 'GCP_PROJECT_ID', defaultValue: 'egen-gcr', description: 'GCP project ID')
+        string(name: 'GAR_SERVICE_ACCOUNT_ID', defaultValue: 'gar-service-account', description: 'Jenkins credential id (Secret File) for the GCP service-account key')
+        string(name: 'NEXUS_DOCKER_HOST', defaultValue: 'nexus:8082', description: 'Nexus docker registry host:port to pull the image from')
+        string(name: 'NEXUS_DOCKER_CREDENTIAL_ID', defaultValue: 'rhythm-docker', description: 'Jenkins credential id (Username/Password) for the Nexus docker registry')
+        string(name: 'NEXUS_DOCKER_PROTOCOL', defaultValue: 'http://', description: 'Nexus communications protocol (http or https)')
+        string(name: 'SOURCE_BUILD_JOB', defaultValue: 'cicd-publish-nexus-docker', description: 'Name of the upstream publish job whose forwarded build-info.json will be pulled in')
+        string(name: 'SOURCE_BUILD_NUMBER', defaultValue: '', description: 'Specific upstream build number to publish. Leave empty for the last successful build.')
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    agent {
+        docker {
+            image "${params.BUILD_CONTAINER_IMAGE}"
+            args "${BUILD_CONTAINER_ARGS}"
+            reuseNode true
+        }
+    }
+
+    stages {
+        stage ('Init') {
+            steps {
+                script {
+                    sh "git config --global --add safe.directory '*'"
+
+                    println "Initializing publish to GAR"
+                    println "Using build container image: ${params.BUILD_CONTAINER_IMAGE}"
+                    println "Build container arguments: ${params.BUILD_CONTAINER_ARGS}"
+                    println "Build #${BUILD_NUMBER} started at ${new Date().format("yyyy-MM-dd HH:mm:ss")}"
+                }
+            }
+        }
+
+        stage ('Resolve build') {
+            steps {
+                script {
+                    def srcBuild = params.SOURCE_BUILD_NUMBER?.trim()
+                    def selector = srcBuild ? specificBuild(buildNumber: srcBuild) : lastSuccessful()
+                    def srcLabel = srcBuild ? "build #${srcBuild}" : "lastSuccessful()"
+                    println "Fetching build-info.json from ${params.SOURCE_BUILD_JOB} (${srcLabel})"
+
+                    copyArtifacts(
+                        projectName: params.SOURCE_BUILD_JOB,
+                        selector: selector,
+                        filter: 'build-info.json',
+                        fingerprintArtifacts: true
+                    )
+
+                    def info = readJSON file: 'build-info.json'
+
+                    PACKAGE_VERSION  = info.packageVersion
+                    INFO_VERSION     = info.informationalVersion
+                    GIT_COMMIT_HASH  = info.gitCommitHash
+                    GIT_COMMIT_SHORT = info.gitCommitShort
+                    SOURCE_BUILD_NUM = info.buildNumber
+
+                    println "Resolved upstream build: #${SOURCE_BUILD_NUM}"
+                    println "  packageVersion : ${PACKAGE_VERSION}"
+                    println "  infoVersion    : ${INFO_VERSION}"
+                    println "  gitCommitHash  : ${GIT_COMMIT_HASH}"
+                    println "  gitCommitShort : ${GIT_COMMIT_SHORT}"
+
+                    currentBuild.description = "promote ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM} (${PACKAGE_VERSION})"
+                }
+            }
+        }
+
+        stage('Push Nexus to GAR') {
+            steps {
+                withCredentials([
+                    usernamePassword(credentialsId: "${params.NEXUS_DOCKER_CREDENTIAL_ID}", usernameVariable: 'NEXUS_DOCKER_USER', passwordVariable: 'NEXUS_DOCKER_PASS'),
+                    file(credentialsId: "${params.GAR_SERVICE_ACCOUNT_ID}", variable: 'GCP_KEY_FILE')
+                ]) {
+                    script {
+                        def nexusBuildImage = "${params.NEXUS_DOCKER_HOST}/${params.CONTAINER_NAME}:ci-${SOURCE_BUILD_NUM}"
+                        def garRepo         = "${params.GAR_REGION}-docker.pkg.dev/${params.GCP_PROJECT_ID}/${params.GAR_REPOSITORY_NAME}/${params.GAR_APPHOST_CONTAINER_NAME}"
+                        def garReleaseTag   = "${garRepo}:${params.GAR_APPHOST_VERSION}"
+                        def garBuildTag     = "${garRepo}:ci-${SOURCE_BUILD_NUM}"
+                        def garCommitTag    = "${garRepo}:${GIT_COMMIT_SHORT}"
+
+                        println "Promoting ${nexusBuildImage} -> ${garReleaseTag}, ${garBuildTag}, ${garCommitTag}"
+
+                        sh """
+                            set -e
+
+                            echo "Logging in to Nexus docker registry ${params.NEXUS_DOCKER_HOST}"
+                            echo "\$NEXUS_DOCKER_PASS" | docker login ${params.NEXUS_DOCKER_PROTOCOL}${params.NEXUS_DOCKER_HOST} -u "\$NEXUS_DOCKER_USER" --password-stdin
+
+                            echo "Pulling ${nexusBuildImage} from Nexus (immutable per-build tag)"
+                            docker pull ${nexusBuildImage}
+
+                            echo "Authenticating to GCP"
+                            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
+                            gcloud config set project ${params.GCP_PROJECT_ID}
+                            gcloud auth configure-docker ${params.GAR_REGION}-docker.pkg.dev --quiet
+
+                            echo "Tagging for GAR: ${garReleaseTag}, ${garBuildTag}, ${garCommitTag}"
+                            docker tag ${nexusBuildImage} ${garReleaseTag}
+                            docker tag ${nexusBuildImage} ${garBuildTag}
+                            docker tag ${nexusBuildImage} ${garCommitTag}
+
+                            echo "Pushing tags to GAR"
+                            docker push ${garReleaseTag}
+                            docker push ${garBuildTag}
+                            docker push ${garCommitTag}
+                        """
+                        NEXUS_DOCKER_AUTHENTICATED = true
+                        GCP_AUTHENTICATED = true
+                    }
+                }
+            }
+        }
+
+        stage ('Archive Build Info') {
+            steps {
+                archiveArtifacts artifacts: 'build-info.json', fingerprint: true, onlyIfSuccessful: true
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                if (GCP_AUTHENTICATED) {
+                    println "Cleaning up GCP authentication"
+                    sh "gcloud auth revoke --all || true"
+                    sh "docker logout ${params.GAR_REGION}-docker.pkg.dev || true"
+                }
+                if (NEXUS_DOCKER_AUTHENTICATED) {
+                    println "Cleaning up Nexus docker authentication"
+                    sh "docker logout ${params.NEXUS_DOCKER_PROTOCOL}${params.NEXUS_DOCKER_HOST} || true"
+                }
+            }
+            echo "Post-publish cleanup completed"
+        }
+        success {
+            echo "Build #${BUILD_NUMBER} promoted ${params.GAR_APPHOST_CONTAINER_NAME}:ci-${SOURCE_BUILD_NUM} to GAR (from ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM})"
+        }
+        failure {
+            echo "Build #${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"
+        }
+    }
+}

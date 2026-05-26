@@ -1,0 +1,152 @@
+def GCP_AUTHENTICATED = false
+
+pipeline {
+    parameters {
+        string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
+        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
+        string(name: 'GAR_REGION', defaultValue: 'us-west1', description: 'GAR region for artifact registry')
+        string(name: 'GAR_REPOSITORY_NAME', defaultValue: 'egen-cicd-net', description: 'GCP artifact repository name')
+        string(name: 'GAR_APPHOST_CONTAINER_NAME', defaultValue: 'web-apphost', description: 'Name of the web app host container in GAR')
+        string(name: 'GAR_APPHOST_VERSION', defaultValue: 'v1', description: 'GAR app host floating release tag (the tag deploy pulls)')
+        string(name: 'GCP_PROJECT_ID', defaultValue: 'egen-gcr', description: 'GCP project ID')
+        string(name: 'GAR_SERVICE_ACCOUNT_ID', defaultValue: 'gar-service-account', description: 'Jenkins credential id (Secret File) for the GCP service-account key')
+        string(name: 'GCR_APPHOST_SERVICE', defaultValue: 'webapphost', description: 'Cloud Run service name')
+        string(name: 'GCR_REGION', defaultValue: 'us-west1', description: 'Cloud Run region')
+        string(name: 'GCR_WEBAPPHOST_RUNTIME_SA', defaultValue: 'webapphost-runtime', description: 'Cloud Run runtime service account name (suffix; the @-domain is appended)')
+        string(name: 'SOURCE_BUILD_JOB', defaultValue: 'cicd-publish-gar', description: 'Name of the upstream publish job whose forwarded build-info.json will be pulled in')
+        string(name: 'SOURCE_BUILD_NUMBER', defaultValue: '', description: 'Specific upstream build number to deploy. Leave empty for the last successful build.')
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    agent {
+        docker {
+            image "${params.BUILD_CONTAINER_IMAGE}"
+            args "${BUILD_CONTAINER_ARGS}"
+            reuseNode true
+        }
+    }
+
+    stages {
+        stage ('Init') {
+            steps {
+                script {
+                    sh "git config --global --add safe.directory '*'"
+
+                    println "Initializing publish to Cloud Run"
+                    println "Using build container image: ${params.BUILD_CONTAINER_IMAGE}"
+                    println "Build container arguments: ${params.BUILD_CONTAINER_ARGS}"
+                    println "Build #${BUILD_NUMBER} started at ${new Date().format("yyyy-MM-dd HH:mm:ss")}"
+                }
+            }
+        }
+
+        stage ('Resolve build') {
+            steps {
+                script {
+                    def srcBuild = params.SOURCE_BUILD_NUMBER?.trim()
+                    def selector = srcBuild ? specificBuild(buildNumber: srcBuild) : lastSuccessful()
+                    def srcLabel = srcBuild ? "build #${srcBuild}" : "lastSuccessful()"
+                    println "Fetching build-info.json from ${params.SOURCE_BUILD_JOB} (${srcLabel})"
+
+                    copyArtifacts(
+                        projectName: params.SOURCE_BUILD_JOB,
+                        selector: selector,
+                        filter: 'build-info.json',
+                        fingerprintArtifacts: true
+                    )
+
+                    def info = readJSON file: 'build-info.json'
+
+                    PACKAGE_VERSION  = info.packageVersion
+                    INFO_VERSION     = info.informationalVersion
+                    GIT_COMMIT_HASH  = info.gitCommitHash
+                    GIT_COMMIT_SHORT = info.gitCommitShort
+                    SOURCE_BUILD_NUM = info.buildNumber
+
+                    println "Resolved upstream build: #${SOURCE_BUILD_NUM}"
+                    println "  packageVersion : ${PACKAGE_VERSION}"
+                    println "  infoVersion    : ${INFO_VERSION}"
+                    println "  gitCommitHash  : ${GIT_COMMIT_HASH}"
+                    println "  gitCommitShort : ${GIT_COMMIT_SHORT}"
+
+                    currentBuild.description = "from ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM} (${PACKAGE_VERSION})"
+                }
+            }
+        }
+
+        stage('Authenticate to GCP') {
+            steps {
+                withCredentials([file(credentialsId: "${params.GAR_SERVICE_ACCOUNT_ID}", variable: 'GCP_KEY_FILE')]) {
+                    script {
+                        sh """
+                            set -e
+                            echo "Authenticating to GCP with service account key from Jenkins credentials"
+                            gcloud auth activate-service-account --key-file="\$GCP_KEY_FILE"
+                            gcloud config set project ${params.GCP_PROJECT_ID}
+                        """
+                        GCP_AUTHENTICATED = true
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Cloud Run') {
+            steps {
+                script {
+                    def runtimeSA = "${params.GCR_WEBAPPHOST_RUNTIME_SA}@${params.GCP_PROJECT_ID}.iam.gserviceaccount.com"
+                    def image = "${params.GAR_REGION}-docker.pkg.dev/${params.GCP_PROJECT_ID}/${params.GAR_REPOSITORY_NAME}/${params.GAR_APPHOST_CONTAINER_NAME}:${params.GAR_APPHOST_VERSION}"
+                    println "${image}"
+                    def cmd = "gcloud run deploy ${params.GCR_APPHOST_SERVICE} --image=${image} --project=${params.GCP_PROJECT_ID} --region=${params.GCR_REGION} --service-account=${runtimeSA} --platform=managed --allow-unauthenticated --port=8080 --memory=512Mi --cpu=1 --min-instances=0 --max-instances=1"
+                    println "${cmd}"
+                    sh "${cmd}"
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                script {
+                    sh """
+                        SERVICE_URL=\$(gcloud run services describe ${params.GCR_APPHOST_SERVICE} --region=${params.GCR_REGION} --project=${params.GCP_PROJECT_ID} --format='value(status.url)')
+                        echo "Deployed to: \$SERVICE_URL"
+                    """
+                }
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                script {
+                    sh """
+                        HEALTH_CHECK_URL=\$(gcloud run services describe ${params.GCR_APPHOST_SERVICE} --region=${params.GCR_REGION} --project=${params.GCP_PROJECT_ID} --format='value(status.url)')/alive
+                        echo \$HEALTH_CHECK_URL
+                        curl -fsSL --max-time 30 \$HEALTH_CHECK_URL || echo "Health check failed"
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                if (GCP_AUTHENTICATED) {
+                    println "Cleaning up GCP authentication"
+                    sh "gcloud auth revoke --all || true"
+                }
+            }
+            echo "Post-deploy cleanup completed"
+        }
+        success {
+            echo "Build #${BUILD_NUMBER} deployed successfully as ${params.GAR_APPHOST_CONTAINER_NAME}:${params.GAR_APPHOST_VERSION} (from ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM})"
+        }
+        failure {
+            echo "Build #${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"
+        }
+    }
+}
