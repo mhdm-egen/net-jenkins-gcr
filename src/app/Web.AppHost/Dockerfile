@@ -18,21 +18,21 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["src/app/Web.AppHost/Web.AppHost.csproj", "src/Web.AppHost/"]
-COPY ["src/app/Aspire/Aspire.ServiceDefaults/Aspire.ServiceDefaults.csproj", "src/Aspire/Aspire.ServiceDefaults/"]
-COPY ["src/app/Model.Weather/Model.Weather.csproj", "src/Model.Weather/"]
-COPY ["src/app/Web.Components.Weather/Web.Components.Weather.csproj", "src/Web.Components.Weather/"]
-COPY ["src/app/Web.Shared.Components.Layout/Web.Shared.Components.Layout.csproj", "src/Web.Shared.Components.Layout/"]
-COPY ["src/app/Web.Shared.Components.Pages/Web.Shared.Components.Pages.csproj", "src/Web.Shared.Components.Pages/"]
-COPY ["src/app/Web.Shared/Web.Shared.csproj", "src/Web.Shared/"]
-COPY ["src/app/Web.Shared.Assets/Web.Shared.Assets.csproj", "src/Web.Shared.Assets/"]
-COPY ["src/app/Web.Shared.Components/Web.Shared.Components.csproj", "src/Web.Shared.Components/"]
+COPY ["src/app/Web.AppHost/Web.AppHost.csproj", "Web.AppHost/"]
+COPY ["src/app/Aspire/Aspire.ServiceDefaults/Aspire.ServiceDefaults.csproj", "./Aspire/Aspire.ServiceDefaults/"]
+COPY ["src/app/Model.Weather/Model.Weather.csproj", "./Model.Weather/"]
+COPY ["src/app/Web.Components.Weather/Web.Components.Weather.csproj", "./Web.Components.Weather/"]
+COPY ["src/app/Web.Shared.Components.Layout/Web.Shared.Components.Layout.csproj", "./Web.Shared.Components.Layout/"]
+COPY ["src/app/Web.Shared.Components.Pages/Web.Shared.Components.Pages.csproj", "./Web.Shared.Components.Pages/"]
+COPY ["src/app/Web.Shared/Web.Shared.csproj", "./Web.Shared/"]
+COPY ["src/app/Web.Shared.Assets/Web.Shared.Assets.csproj", "./Web.Shared.Assets/"]
+COPY ["src/app/Web.Shared.Components/Web.Shared.Components.csproj", "./Web.Shared.Components/"]
 RUN pwd
-RUN ls ./src
-RUN dotnet restore "./src/Web.AppHost/Web.AppHost.csproj"
+RUN ls .
+RUN dotnet restore "./Web.AppHost/Web.AppHost.csproj"
 COPY . .
-WORKDIR "/src/src/Web.AppHost"
-RUN dotnet build "./Web.AppHost.csproj" -c $BUILD_CONFIGURATION -o /app/build
+WORKDIR "/src/Web.AppHost"
+RUN dotnet build "./Web.AppHost/Web.AppHost.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 # This stage is used to publish the service project to be copied to the final stage
 FROM build AS publish
