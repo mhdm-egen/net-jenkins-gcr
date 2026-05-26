@@ -47,7 +47,9 @@ pipeline {
             steps {
                 script {
                     def srcBuild = params.SOURCE_BUILD_NUMBER?.trim()
-                    def selector = srcBuild ? specificBuild(buildNumber: srcBuild) : lastSuccessful()
+                    def selector = srcBuild
+                        ? [$class: 'SpecificBuildSelector', buildNumber: srcBuild]
+                        : [$class: 'StatusBuildSelector']
                     def srcLabel = srcBuild ? "build #${srcBuild}" : "lastSuccessful()"
                     println "Fetching build-info.json from ${params.SOURCE_BUILD_JOB} (${srcLabel})"
 

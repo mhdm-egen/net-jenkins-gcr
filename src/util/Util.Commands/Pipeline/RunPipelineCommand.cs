@@ -110,7 +110,7 @@ public sealed class RunPipelineCommand : ICommand
 
             Runs the canonical cicd pipeline against Jenkins:
               cicd-build
-                -> cicd-publish-nuget
+                -> cicd-publish-nexus-nuget
                 -> cicd-publish-nexus-docker
                   -> cicd-publish-gar
                     -> cicd-publish-gcr

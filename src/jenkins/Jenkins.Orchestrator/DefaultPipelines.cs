@@ -10,7 +10,7 @@ public static class DefaultPipelines
     public static IReadOnlyList<PipelineStep> CicdMain() => new[]
     {
         new PipelineStep("cicd-build"),
-        new PipelineStep("cicd-publish-nuget",        UpstreamJob: "cicd-build"),
+        new PipelineStep("cicd-publish-nexus-nuget",  UpstreamJob: "cicd-build"),
         new PipelineStep("cicd-publish-nexus-docker", UpstreamJob: "cicd-build"),
         new PipelineStep("cicd-publish-gar",          UpstreamJob: "cicd-publish-nexus-docker"),
         new PipelineStep("cicd-publish-gcr",          UpstreamJob: "cicd-publish-gar"),

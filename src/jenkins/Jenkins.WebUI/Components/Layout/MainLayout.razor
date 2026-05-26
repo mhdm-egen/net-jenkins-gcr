@@ -8,11 +8,29 @@
 
 <MudLayout>
     <MudAppBar Elevation="1" Dense="true">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu"
+                       Color="Color.Inherit"
+                       Edge="Edge.Start"
+                       OnClick="@ToggleDrawer"
+                       aria-label="Toggle menu" />
         <MudText Typo="Typo.h6">Jenkins WebUI</MudText>
         <MudSpacer />
         <ThemeSwitcher CurrentThemeId="@_active.Id" ThemeChanged="OnThemeChangedAsync" />
         <JenkinsStatusBadge />
     </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen"
+               Elevation="1"
+               Variant="DrawerVariant.Responsive"
+               ClipMode="DrawerClipMode.Always">
+        <MudNavMenu>
+            <MudNavLink Href=""
+                        Match="NavLinkMatch.All"
+                        Icon="@Icons.Material.Filled.AccountTree">
+                Pipeline
+            </MudNavLink>
+        </MudNavMenu>
+    </MudDrawer>
 
     <MudMainContent>
         <MudContainer MaxWidth="MaxWidth.Large" Class="my-4">
@@ -30,7 +48,10 @@
 @code {
     private const string LocalStorageKey = "jenkins-webui-theme";
 
+    private bool _drawerOpen = true;
     private AppThemes.Entry _active = AppThemes.Resolve(AppThemes.SolarizedDarkId);
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
