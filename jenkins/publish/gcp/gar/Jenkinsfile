@@ -28,7 +28,7 @@ pipeline {
     agent {
         docker {
             image "${params.BUILD_CONTAINER_IMAGE}"
-            args "${BUILD_CONTAINER_ARGS}"
+            args "${params.BUILD_CONTAINER_ARGS}"
             reuseNode true
         }
     }

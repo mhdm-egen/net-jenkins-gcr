@@ -1,0 +1,24 @@
+<MudSelect T="string"
+           Value="@CurrentThemeId"
+           ValueChanged="OnValueChanged"
+           Dense="true"
+           Variant="Variant.Outlined"
+           Margin="Margin.Dense"
+           Class="theme-switcher mr-3"
+           Style="min-width: 11rem;">
+    @foreach (var entry in AppThemes.All)
+    {
+        <MudSelectItem T="string" Value="@entry.Id">@entry.Label</MudSelectItem>
+    }
+</MudSelect>
+
+@code {
+    [Parameter, EditorRequired] public string CurrentThemeId { get; set; } = AppThemes.SolarizedDarkId;
+    [Parameter] public EventCallback<string> ThemeChanged { get; set; }
+
+    private async Task OnValueChanged(string newValue)
+    {
+        if (string.IsNullOrEmpty(newValue) || newValue == CurrentThemeId) return;
+        await ThemeChanged.InvokeAsync(newValue);
+    }
+}

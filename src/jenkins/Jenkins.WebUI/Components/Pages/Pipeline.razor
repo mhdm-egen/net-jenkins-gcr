@@ -1,46 +1,58 @@
 @page "/"
-@rendermode InteractiveServer
 @inject IPipelineRunner Runner
 @implements IDisposable
 
 <PageTitle>CICD Pipeline</PageTitle>
 
-<div class="header">
-    <h1>CICD Pipeline</h1>
-    <div class="state state-@_snapshot.State.ToString().ToLowerInvariant()">@_snapshot.State</div>
-    <div class="actions">
-        @if (_snapshot.State == PipelineState.Running)
-        {
-            <button class="btn btn-danger" @onclick="OnCancel">Cancel</button>
-        }
-        else
-        {
-            <button class="btn btn-primary" @onclick="OnRun">Run Pipeline</button>
-        }
-    </div>
-</div>
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">CICD Pipeline</MudText>
+    <MudChip T="string" Color="@StateChipColor()" Variant="Variant.Filled" Size="Size.Small">
+        @_snapshot.State.ToString()
+    </MudChip>
+    <MudSpacer />
+    @if (_snapshot.State == PipelineState.Running)
+    {
+        <MudButton Color="Color.Error"
+                   Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.Stop"
+                   OnClick="OnCancel">
+            Cancel
+        </MudButton>
+    }
+    else
+    {
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                   OnClick="OnRun">
+            Run Pipeline
+        </MudButton>
+    }
+</MudStack>
 
 @if (_snapshot.State is PipelineState.Completed or PipelineState.Failed && _snapshot.Result is { } result)
 {
-    <div class="banner banner-@(result.Success ? "success" : "failure")">
+    <MudAlert Severity="@(result.Success ? Severity.Success : Severity.Error)"
+              Variant="Variant.Filled"
+              Class="mb-4">
         Pipeline @(result.Success ? "succeeded" : "failed")
         @if (!result.Success && result.FailureReason is { Length: > 0 } reason)
         {
             <span> — @reason</span>
         }
-    </div>
+    </MudAlert>
 }
 
-<section>
-    <h2>Steps</h2>
-    <table class="steps">
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudText Typo="Typo.h6" Class="mb-2">Steps</MudText>
+    <MudSimpleTable Dense="true" Hover="true" Striped="true" Style="font-family: ui-monospace, monospace;">
         <thead>
             <tr>
-                <th></th>
+                <th style="width: 2rem;"></th>
                 <th>Job</th>
-                <th>Build</th>
+                <th style="width: 6rem;">Build</th>
                 <th>Status</th>
-                <th>Duration</th>
+                <th style="width: 6rem;">Duration</th>
             </tr>
         </thead>
         <tbody>
@@ -48,20 +60,26 @@
             {
                 var view = StepStatusFor(step.JobName);
                 <tr>
-                    <td class="indicator">@view.Icon</td>
-                    <td class="job">@step.JobName</td>
-                    <td class="build">@(view.BuildNumber is int n ? $"#{n}" : "-")</td>
-                    <td class="status status-@view.StatusKey">@view.Status</td>
-                    <td class="duration">@(view.Duration is TimeSpan d ? $"{d.TotalSeconds:F1}s" : "-")</td>
+                    <td>
+                        <MudIcon Icon="@view.Icon"
+                                 Color="@view.IconColor"
+                                 Size="Size.Small" />
+                    </td>
+                    <td>@step.JobName</td>
+                    <td>@(view.BuildNumber is int n ? $"#{n}" : "-")</td>
+                    <td>
+                        <MudText Color="@view.IconColor" Typo="Typo.body2">@view.Status</MudText>
+                    </td>
+                    <td>@(view.Duration is TimeSpan d ? $"{d.TotalSeconds:F1}s" : "-")</td>
                 </tr>
             }
         </tbody>
-    </table>
-</section>
+    </MudSimpleTable>
+</MudPaper>
 
-<section>
-    <h2>Events</h2>
-    <div class="events">
+<MudPaper Elevation="1" Class="pa-4">
+    <MudText Typo="Typo.h6" Class="mb-2">Events</MudText>
+    <div class="events-log">
         @if (_snapshot.Events.Count == 0)
         {
             <div class="empty">No events yet — click <em>Run Pipeline</em>.</div>
@@ -78,7 +96,7 @@
             }
         }
     </div>
-</section>
+</MudPaper>
 
 @code {
     private static readonly IReadOnlyList<PipelineStep> _steps = DefaultPipelines.CicdMain();
@@ -100,22 +118,20 @@
         });
     }
 
-    private void OnRun()
-    {
-        Runner.TryStart(_steps);
-    }
+    private void OnRun()    => Runner.TryStart(_steps);
+    private void OnCancel() => Runner.Cancel();
 
-    private void OnCancel()
-    {
-        Runner.Cancel();
-    }
+    public void Dispose() => Runner.StateChanged -= OnStateChanged;
 
-    public void Dispose()
+    private Color StateChipColor() => _snapshot.State switch
     {
-        Runner.StateChanged -= OnStateChanged;
-    }
+        PipelineState.Running   => Color.Info,
+        PipelineState.Completed => Color.Success,
+        PipelineState.Failed    => Color.Error,
+        _                       => Color.Default
+    };
 
-    private sealed record StepView(string Icon, string Status, string StatusKey, int? BuildNumber, TimeSpan? Duration);
+    private sealed record StepView(string Icon, Color IconColor, string Status, int? BuildNumber, TimeSpan? Duration);
 
     private StepView StepStatusFor(string jobName)
     {
@@ -131,12 +147,12 @@
 
         return latest switch
         {
-            PipelineStepCompleted c => new("●", $"{c.Result}", "success", c.BuildNumber, c.Duration),
-            PipelineStepFailed f    => new("●", $"failed: {f.Reason}", "failure", null, null),
-            PipelineStepRunning r   => new("⟳", "running", "running", r.BuildNumber, null),
-            PipelineStepQueued q    => new("⟳", $"queued ({q.QueueId})", "running", null, null),
-            PipelineStepStarted s   => new("⟳", "starting", "running", null, null),
-            _                       => new("○", "pending", "pending", null, null)
+            PipelineStepCompleted c => new(Icons.Material.Filled.CheckCircle,    Color.Success, $"{c.Result}", c.BuildNumber, c.Duration),
+            PipelineStepFailed f    => new(Icons.Material.Filled.Cancel,         Color.Error,   $"failed: {f.Reason}", null, null),
+            PipelineStepRunning r   => new(Icons.Material.Filled.PlayCircle,     Color.Info,    "running", r.BuildNumber, null),
+            PipelineStepQueued q    => new(Icons.Material.Filled.Schedule,       Color.Info,    $"queued ({q.QueueId})", null, null),
+            PipelineStepStarted s   => new(Icons.Material.Filled.HourglassTop,   Color.Info,    "starting", null, null),
+            _                       => new(Icons.Material.Filled.RadioButtonUnchecked, Color.Default, "pending", null, null)
         };
     }
 

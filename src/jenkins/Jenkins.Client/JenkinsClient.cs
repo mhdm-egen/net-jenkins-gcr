@@ -55,23 +55,55 @@ public sealed class JenkinsClient : IJenkinsClient, IDisposable
         IDictionary<string, string>? parameters = null,
         CancellationToken cancellationToken = default)
     {
-        var path = (parameters is { Count: > 0 })
-            ? $"{JobPath(jobName)}/buildWithParameters?{BuildQuery(parameters)}"
-            : $"{JobPath(jobName)}/build";
+        // Prefer /buildWithParameters: works for parameterized jobs both with caller-
+        // supplied values and without (Jenkins fills in defaults for missing params).
+        // /build only works on non-parameterized jobs — Jenkins returns 400 with
+        // "This job is parameterized" if you call /build on one that has parameters.
+        var queryStr = parameters is { Count: > 0 } ? "?" + BuildQuery(parameters) : string.Empty;
+        var withParamsPath = $"{JobPath(jobName)}/buildWithParameters{queryStr}";
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, path);
-        using var resp = await SendWithCrumbAsync(req, cancellationToken);
-        resp.EnsureSuccessStatusCode();
-
-        var location = resp.Headers.Location
-            ?? throw new InvalidOperationException("Jenkins did not return a Location header for the queued build.");
-        // Location is typically: <jenkinsUrl>/queue/item/<id>/
-        var segments = location.AbsolutePath.TrimEnd('/').Split('/');
-        if (segments.Length < 2 || !long.TryParse(segments[^1], out var queueId))
+        HttpResponseMessage? resp = null;
+        try
         {
-            throw new InvalidOperationException($"Unexpected queue Location: {location}");
+            using (var req = new HttpRequestMessage(HttpMethod.Post, withParamsPath))
+            {
+                resp = await SendWithCrumbAsync(req, cancellationToken);
+            }
+
+            // Non-parameterized jobs don't expose /buildWithParameters. Fall back to
+            // /build, but only when the caller didn't supply parameters (we can't
+            // pass params through /build).
+            if ((resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
+                && parameters is null or { Count: 0 })
+            {
+                resp.Dispose();
+                using var fallbackReq = new HttpRequestMessage(HttpMethod.Post, $"{JobPath(jobName)}/build");
+                resp = await SendWithCrumbAsync(fallbackReq, cancellationToken);
+            }
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(cancellationToken);
+                throw new HttpRequestException(
+                    $"Jenkins build trigger for '{jobName}' failed: {(int)resp.StatusCode} {resp.StatusCode}. {body}".Trim(),
+                    inner: null,
+                    statusCode: resp.StatusCode);
+            }
+
+            var location = resp.Headers.Location
+                ?? throw new InvalidOperationException("Jenkins did not return a Location header for the queued build.");
+            // Location is typically: <jenkinsUrl>/queue/item/<id>/
+            var segments = location.AbsolutePath.TrimEnd('/').Split('/');
+            if (segments.Length < 2 || !long.TryParse(segments[^1], out var queueId))
+            {
+                throw new InvalidOperationException($"Unexpected queue Location: {location}");
+            }
+            return queueId;
         }
-        return queueId;
+        finally
+        {
+            resp?.Dispose();
+        }
     }
 
     public async Task<QueueItem> GetQueueItemAsync(long queueId, CancellationToken cancellationToken = default)

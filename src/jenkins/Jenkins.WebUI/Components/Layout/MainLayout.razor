@@ -1,17 +1,63 @@
 @inherits LayoutComponentBase
+@inject IJSRuntime JS
 
-<div class="topbar">
-    <span class="brand">Jenkins WebUI</span>
-    <span class="spacer"></span>
-    <JenkinsStatusBadge @rendermode="InteractiveServer" />
-</div>
+<MudThemeProvider Theme="@_active.Theme" IsDarkMode="@_active.IsDarkMode" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
 
-<main class="page">
-    @Body
-</main>
+<MudLayout>
+    <MudAppBar Elevation="1" Dense="true">
+        <MudText Typo="Typo.h6">Jenkins WebUI</MudText>
+        <MudSpacer />
+        <ThemeSwitcher CurrentThemeId="@_active.Id" ThemeChanged="OnThemeChangedAsync" />
+        <JenkinsStatusBadge />
+    </MudAppBar>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="my-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private const string LocalStorageKey = "jenkins-webui-theme";
+
+    private AppThemes.Entry _active = AppThemes.Resolve(AppThemes.SolarizedDarkId);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // Persisted theme lives in localStorage; read it once on first interactive render.
+        try
+        {
+            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", LocalStorageKey);
+            var resolved = AppThemes.Resolve(stored);
+            if (resolved.Id != _active.Id)
+            {
+                _active = resolved;
+                StateHasChanged();
+            }
+        }
+        catch (JSDisconnectedException) { /* page tearing down */ }
+    }
+
+    private async Task OnThemeChangedAsync(string themeId)
+    {
+        _active = AppThemes.Resolve(themeId);
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", LocalStorageKey, _active.Id);
+        }
+        catch (JSDisconnectedException) { /* page tearing down */ }
+        StateHasChanged();
+    }
+}

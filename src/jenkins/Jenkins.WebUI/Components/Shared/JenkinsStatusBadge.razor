@@ -1,11 +1,15 @@
 @inject IJenkinsHealth Health
 @implements IDisposable
 
-<div class="badge status-@_snapshot.Status.ToString().ToLowerInvariant()" title="@Tooltip()">
-    <span class="dot"></span>
-    <span class="label">Jenkins</span>
-    <span class="value">@StatusLabel()</span>
-</div>
+<MudTooltip Text="@Tooltip()">
+    <MudChip T="string"
+             Color="@ChipColor()"
+             Icon="@ChipIcon()"
+             Variant="Variant.Filled"
+             Size="Size.Small">
+        Jenkins: @StatusLabel()
+    </MudChip>
+</MudTooltip>
 
 @code {
     private JenkinsHealthSnapshot _snapshot = new(JenkinsHealthStatus.Unknown, null, null, null);
@@ -36,6 +40,22 @@
         JenkinsHealthStatus.Degraded    => "degraded",
         JenkinsHealthStatus.Unreachable => "unreachable",
         _                               => "checking…"
+    };
+
+    private Color ChipColor() => _snapshot.Status switch
+    {
+        JenkinsHealthStatus.Healthy     => Color.Success,
+        JenkinsHealthStatus.Degraded    => Color.Warning,
+        JenkinsHealthStatus.Unreachable => Color.Error,
+        _                               => Color.Default
+    };
+
+    private string ChipIcon() => _snapshot.Status switch
+    {
+        JenkinsHealthStatus.Healthy     => Icons.Material.Filled.CheckCircle,
+        JenkinsHealthStatus.Degraded    => Icons.Material.Filled.Warning,
+        JenkinsHealthStatus.Unreachable => Icons.Material.Filled.Error,
+        _                               => Icons.Material.Filled.HourglassEmpty
     };
 
     private string Tooltip()

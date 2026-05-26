@@ -2,11 +2,14 @@ using Jenkins.Client;
 using Jenkins.Orchestrator;
 using Jenkins.WebUI.Components;
 using Jenkins.WebUI.Services;
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+builder.Services.AddMudServices();
 
 // Jenkins config — read once at startup from configuration / env vars.
 // Required: Jenkins:ApiToken (env: Jenkins__ApiToken)
