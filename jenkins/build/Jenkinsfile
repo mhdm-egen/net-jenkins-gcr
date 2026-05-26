@@ -1,0 +1,125 @@
+pipeline {
+    parameters {
+        string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
+        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
+        string(name: 'BUILD_FILE', defaultValue: 'cicd.sln', description: 'File to build (sln or csproj)')
+        string(name: 'PACK_VER', defaultValue: '1.0.0', description: 'Explicit version for package')
+        string(name: 'NUGET_SOURCE', defaultValue: 'http://nexus:8081/repository/nuget-hosted/', description: 'NuGet feed URL (Nexus hosted repo, internal proxy, or https://api.nuget.org/v3/index.json)')
+        string(name: 'NUGET_API_KEY_CREDENTIAL_ID', defaultValue: 'rhythm-nuget', description: 'Jenkins credential id (Secret Text) holding the NuGet API key for the target feed')
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    agent {
+        docker {
+            image "${params.BUILD_CONTAINER_IMAGE}"
+            args "${BUILD_CONTAINER_ARGS}"
+            reuseNode true
+        }
+    }
+
+    stages {
+        stage ('Init') {
+            steps {
+                script {
+                    sh "git config --global --add safe.directory '*'"
+
+                    println "Initializing build for ${params.BUILD_FILE}"
+                    println "Using build container image: ${params.BUILD_CONTAINER_IMAGE}"
+                    println "Build container arguments: ${params.BUILD_CONTAINER_ARGS}"
+                    println "Build #${BUILD_NUMBER} started at ${new Date().format("yyyy-MM-dd HH:mm:ss")}"
+
+                    GIT_COMMIT_HASH = sh(script: "git log -n 1 --pretty=format:%H", returnStdout: true).trim()
+                    GIT_COMMIT_SHORT = GIT_COMMIT_HASH.take(7)
+                    println "Git commit hash: ${GIT_COMMIT_HASH}"
+                    println "Git commit short: ${GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+
+        stage ('Restore') {
+            steps {
+                sh "dotnet restore ${params.BUILD_FILE}"
+            }
+        }
+
+        stage ('Build') {
+            steps {
+                sh "dotnet build --no-restore -c Release ${params.BUILD_FILE}"
+            }
+        }
+
+        stage ('Test') {
+            steps {
+                //  sh "dotnet test --no-restore --no-build -c Release ${params.BUILD_FILE} --logger trx"
+                echo "Skipping tests for now"
+            }
+        }
+
+        stage ('Pack') {
+            steps {
+                script {
+                    def packageVersion = "${params.PACK_VER}-ci.${env.BUILD_NUMBER}"
+                    def fileVersion    = "${params.PACK_VER}.${env.BUILD_NUMBER}"
+                    def assemblyVersion = "${params.PACK_VER}.0"
+                    def infoVersion    = "${packageVersion}+${GIT_COMMIT_SHORT}"
+
+                    println "PackageVersion:  ${packageVersion}"
+                    println "AssemblyVersion: ${assemblyVersion}"
+                    println "FileVersion:     ${fileVersion}"
+                    println "InfoVersion:     ${infoVersion}"
+
+                    sh """
+                        dotnet pack ${params.BUILD_FILE} \\
+                            -c Release \\
+                            /p:Version=${params.PACK_VER} \\
+                            /p:PackageVersion=${packageVersion} \\
+                            /p:AssemblyVersion=${assemblyVersion} \\
+                            /p:FileVersion=${fileVersion} \\
+                            /p:InformationalVersion="${infoVersion}" \\
+                            /p:PackageOutputPath=${env.WORKSPACE}/nupkgs
+                    """
+                    sh "ls -lsR ${env.WORKSPACE}/nupkgs"
+                }
+            }
+        }
+
+        stage ('Publish Artifacts') {
+            steps {
+                withCredentials([string(credentialsId: "${params.NUGET_API_KEY_CREDENTIAL_ID}", variable: 'NUGET_API_KEY')]) {
+                    sh """
+                        set -e
+                        pkg_dir="${env.WORKSPACE}/nupkgs"
+                        ls -lsR "\$pkg_dir"
+                        echo "Publishing NuGet packages from \$pkg_dir to ${params.NUGET_SOURCE}"
+                        if ! ls "\$pkg_dir"/*.nupkg >/dev/null 2>&1; then
+                            echo "ERROR: No .nupkg files found in \$pkg_dir"
+                            exit 1
+                        fi
+                        for pkg in "\$pkg_dir"/*.nupkg; do
+                            echo "Pushing \$pkg"
+                            dotnet nuget push "\$pkg" \\
+                                --source "${params.NUGET_SOURCE}" \\
+                                --api-key "\$NUGET_API_KEY" \\
+                                --skip-duplicate \\
+                                --allow-insecure-connections
+                        done
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Build #${BUILD_NUMBER} packaged and published successfully (PackageVersion ${params.PACK_VER}-ci.${BUILD_NUMBER})"
+        }
+        failure {
+            echo "Build #${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"
+        }
+    }
+}
