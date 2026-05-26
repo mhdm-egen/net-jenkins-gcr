@@ -37,7 +37,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Web", "Web", "{82D85888-941
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Model", "Model", "{C00FFD41-3D31-43FC-B29C-FC99C86697AC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aspire.Api.WeatherService", "..\..\Aspire.Api.WeatherService\Aspire.Api.WeatherService.csproj", "{0BD5EBA1-1444-44AD-9B4F-542E84A2FCC8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Aspire.Api.WeatherService", "Aspire\Aspire.Api.WeatherService\Aspire.Api.WeatherService.csproj", "{0BD5EBA1-1444-44AD-9B4F-542E84A2FCC8}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Api.Web.Weather.AppHost", "Api.Web.Weather.AppHost\Api.Web.Weather.AppHost.csproj", "{8BD51F6F-C2E2-4713-AC78-C8BB204C7169}"
 EndProject

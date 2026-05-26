@@ -18,21 +18,21 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["src/app/Web.AppHost/Web.AppHost.csproj", "Web.AppHost/"]
-COPY ["src/app/Aspire/Aspire.ServiceDefaults/Aspire.ServiceDefaults.csproj", "./Aspire/Aspire.ServiceDefaults/"]
-COPY ["src/app/Model.Weather/Model.Weather.csproj", "./Model.Weather/"]
-COPY ["src/app/Web.Components.Weather/Web.Components.Weather.csproj", "./Web.Components.Weather/"]
-COPY ["src/app/Web.Shared.Components.Layout/Web.Shared.Components.Layout.csproj", "./Web.Shared.Components.Layout/"]
-COPY ["src/app/Web.Shared.Components.Pages/Web.Shared.Components.Pages.csproj", "./Web.Shared.Components.Pages/"]
-COPY ["src/app/Web.Shared/Web.Shared.csproj", "./Web.Shared/"]
-COPY ["src/app/Web.Shared.Assets/Web.Shared.Assets.csproj", "./Web.Shared.Assets/"]
-COPY ["src/app/Web.Shared.Components/Web.Shared.Components.csproj", "./Web.Shared.Components/"]
+COPY ["Web.AppHost/Web.AppHost.csproj", "Web.AppHost/"]
+COPY ["Aspire/Aspire.ServiceDefaults/Aspire.ServiceDefaults.csproj", "./Aspire/Aspire.ServiceDefaults/"]
+COPY ["Model.Weather/Model.Weather.csproj", "./Model.Weather/"]
+COPY ["Web.Components.Weather/Web.Components.Weather.csproj", "./Web.Components.Weather/"]
+COPY ["Web.Shared.Components.Layout/Web.Shared.Components.Layout.csproj", "./Web.Shared.Components.Layout/"]
+COPY ["Web.Shared.Components.Pages/Web.Shared.Components.Pages.csproj", "./Web.Shared.Components.Pages/"]
+COPY ["Web.Shared/Web.Shared.csproj", "./Web.Shared/"]
+COPY ["Web.Shared.Assets/Web.Shared.Assets.csproj", "./Web.Shared.Assets/"]
+COPY ["Web.Shared.Components/Web.Shared.Components.csproj", "./Web.Shared.Components/"]
 RUN pwd
 RUN ls .
 RUN dotnet restore "./Web.AppHost/Web.AppHost.csproj"
 COPY . .
 WORKDIR "/src/Web.AppHost"
-RUN dotnet build "./Web.AppHost/Web.AppHost.csproj" -c $BUILD_CONFIGURATION -o /app/build
+RUN dotnet build "./Web.AppHost.csproj" --no-restore -c $BUILD_CONFIGURATION -o /app/build
 
 # This stage is used to publish the service project to be copied to the final stage
 FROM build AS publish
