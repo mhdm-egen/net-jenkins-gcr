@@ -25,3 +25,14 @@ public sealed record DockerImage(
     string Tag,                         // e.g. "v1", "latest"
     long? SizeBytes,
     DateTimeOffset? UploadedAt);
+
+/// <summary>
+/// One raw asset in a Nexus repository — Docker manifests and individual blob
+/// layers each surface here. Deleting the asset removes the metadata record
+/// but does NOT free the underlying blob bytes (the "Compact blob store" task does that).
+/// </summary>
+public sealed record NexusAsset(
+    string Id,
+    string Path,                        // e.g. "v2/myimage/manifests/v1" or "v2/myimage/blobs/sha256:…"
+    long? FileSize,
+    DateTimeOffset? LastModified);

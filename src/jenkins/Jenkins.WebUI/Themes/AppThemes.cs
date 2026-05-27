@@ -15,6 +15,7 @@ public static class AppThemes
     public const string NordId           = "nord";
     public const string OneDarkId        = "one-dark";
     public const string MonokaiId        = "monokai";
+    public const string MaterialDarkId   = "material-dark";
     public const string DefaultId        = "default";
 
     public sealed record Entry(string Id, string Label, MudTheme Theme, bool IsDarkMode);
@@ -26,6 +27,7 @@ public static class AppThemes
         new Entry(NordId,           "Nord",            CreateNord(),           IsDarkMode: true),
         new Entry(OneDarkId,        "One Dark",        CreateOneDark(),        IsDarkMode: true),
         new Entry(MonokaiId,        "Monokai",         CreateMonokai(),        IsDarkMode: true),
+        new Entry(MaterialDarkId,   "Material Dark",   CreateMaterialDark(),   IsDarkMode: true),
         new Entry(DefaultId,        "Default",         CreateDefault(),        IsDarkMode: false),
     };
 
@@ -233,6 +235,50 @@ public static class AppThemes
             TableHover        = new MudColor("#75715e").SetAlpha(0.15).ToString(),
             Divider           = "#49483e",
             DividerLight      = "#75715e",
+        },
+    };
+
+    // --- Material Dark palette (Material Design 2 dark spec) ---
+    //   Background  #121212  Elevated surfaces ramp by overlay opacity
+    //   Surface     #1e1e1e (≈ 1dp)   Surface higher #242424 (≈ 8dp)
+    //   Primary     #bb86fc (purple 200)   Primary variant #3700b3
+    //   Secondary   #03dac6 (teal 200)
+    //   Error       #cf6679
+    //   On-surface  #ffffff at 87% (primary text), 60% (secondary), 38% (disabled)
+
+    private static MudTheme CreateMaterialDark() => new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Primary           = "#bb86fc",
+            Secondary         = "#03dac6",
+            Tertiary          = "#3700b3",
+            Info              = "#03dac6",
+            Success           = "#00c853",
+            Warning           = "#ffb74d",
+            Error             = "#cf6679",
+            Black             = "#000000",
+            Background        = "#121212",
+            BackgroundGray    = "#1e1e1e",
+            Surface           = "#1e1e1e",
+            AppbarBackground  = "#242424",
+            AppbarText        = new MudColor("#ffffff").SetAlpha(0.87).ToString(),
+            DrawerBackground  = "#1e1e1e",
+            DrawerText        = new MudColor("#ffffff").SetAlpha(0.87).ToString(),
+            DrawerIcon        = new MudColor("#ffffff").SetAlpha(0.87).ToString(),
+            TextPrimary       = new MudColor("#ffffff").SetAlpha(0.87).ToString(),
+            TextSecondary     = new MudColor("#ffffff").SetAlpha(0.60).ToString(),
+            TextDisabled      = new MudColor("#ffffff").SetAlpha(0.38).ToString(),
+            ActionDefault     = new MudColor("#ffffff").SetAlpha(0.87).ToString(),
+            ActionDisabled    = new MudColor("#ffffff").SetAlpha(0.38).ToString(),
+            ActionDisabledBackground = "#1e1e1e",
+            LinesDefault      = new MudColor("#ffffff").SetAlpha(0.12).ToString(),
+            LinesInputs       = new MudColor("#ffffff").SetAlpha(0.38).ToString(),
+            TableLines        = new MudColor("#ffffff").SetAlpha(0.12).ToString(),
+            TableStriped      = new MudColor("#ffffff").SetAlpha(0.04).ToString(),
+            TableHover        = new MudColor("#ffffff").SetAlpha(0.08).ToString(),
+            Divider           = new MudColor("#ffffff").SetAlpha(0.12).ToString(),
+            DividerLight      = new MudColor("#ffffff").SetAlpha(0.06).ToString(),
         },
     };
 

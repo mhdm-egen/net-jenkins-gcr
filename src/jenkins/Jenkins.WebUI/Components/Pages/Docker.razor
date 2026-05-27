@@ -199,11 +199,11 @@ else if (_error is { Length: > 0 })
 
         var parameters = new DialogParameters
         {
-            // Note on shared blobs: Nexus retains layer blobs that other tags still
-            // reference; the cleanup happens on the next compact-blob-store task run.
-            ["Message"] = $"Delete ALL {images.Count} image tag(s) from " +
-                          $"'{Nexus.DockerRepositoryName}'? Layer blobs shared with other tags " +
-                          "are retained until the next blob-store compact task. This cannot be undone.",
+            ["Message"] = $"Delete ALL {images.Count} image tag(s) from '{Nexus.DockerRepositoryName}'? " +
+                          "Runs three phases: (1) component delete, (2) orphan asset sweep " +
+                          "(manifests + blob refs), (3) trigger compact-blob-store task to free disk. " +
+                          "Phases 1–2 are immediate and cannot be undone; phase 3 runs async on Nexus " +
+                          "and needs admin perms — it'll be skipped silently if your account lacks them.",
             ["Items"]   = (IReadOnlyList<string>)preview,
         };
         var dialog = await DialogService.ShowAsync<ConfirmDeleteDialog>(
@@ -214,12 +214,14 @@ else if (_error is { Length: > 0 })
 
         _deleting = true;
         _deleteLog.Clear();
-        AppendLog($"Starting delete of {images.Count} image tag(s) from {Nexus.DockerRepositoryName}…");
         StateHasChanged();
 
-        var success = 0;
-        var failures = new List<(string Item, string Error)>();
+        // --- Phase 1 of 3 — component delete ---
+        AppendLog($"Phase 1/3 — deleting {images.Count} image tag(s) from {Nexus.DockerRepositoryName}…");
+        StateHasChanged();
 
+        var compSuccess = 0;
+        var compFailures = new List<(string Item, string Error)>();
         foreach (var img in images)
         {
             var label = $"{img.Name}:{img.Tag}";
@@ -229,27 +231,99 @@ else if (_error is { Length: > 0 })
             try
             {
                 await Nexus.DeleteDockerImageAsync(img);
-                success++;
+                compSuccess++;
                 AppendLog($"✓ Deleted {label}");
             }
             catch (Exception ex)
             {
-                failures.Add((label, ex.Message));
+                compFailures.Add((label, ex.Message));
                 AppendLog($"✗ Failed: {label} — {ex.Message}");
             }
             StateHasChanged();
         }
+        AppendLog($"Phase 1 done: {compSuccess} deleted, {compFailures.Count} failed.");
+        StateHasChanged();
 
-        AppendLog($"Done: {success} deleted, {failures.Count} failed.");
+        // --- Phase 2 of 3 — orphan asset sweep ---
+        // Manifests + blob layer refs survive component delete; sweep what remains.
+        AppendLog("Phase 2/3 — sweeping orphan assets (manifests + blob refs)…");
+        StateHasChanged();
+
+        var assetSuccess = 0;
+        var assetFailures = new List<(string Item, string Error)>();
+        try
+        {
+            var assets = await Nexus.ListDockerAssetsAsync();
+            if (assets.Count == 0)
+            {
+                AppendLog("Phase 2: no orphan assets found.");
+            }
+            else
+            {
+                AppendLog($"Phase 2: {assets.Count} asset(s) to remove.");
+                foreach (var a in assets)
+                {
+                    AppendLog($"→ Deleting asset {a.Path}…");
+                    StateHasChanged();
+
+                    try
+                    {
+                        await Nexus.DeleteAssetAsync(a);
+                        assetSuccess++;
+                        AppendLog($"✓ Deleted {a.Path}");
+                    }
+                    catch (Exception ex)
+                    {
+                        assetFailures.Add((a.Path, ex.Message));
+                        AppendLog($"✗ Failed: {a.Path} — {ex.Message}");
+                    }
+                    StateHasChanged();
+                }
+                AppendLog($"Phase 2 done: {assetSuccess} cleared, {assetFailures.Count} failed.");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Phase 2 failed before iterating: {ex.Message}");
+        }
+        StateHasChanged();
+
+        // --- Phase 3 of 3 — compact-blob-store task (async, fire-and-forget) ---
+        AppendLog("Phase 3/3 — triggering compact-blob-store task(s)…");
+        StateHasChanged();
+        try
+        {
+            var triggered = await Nexus.TriggerCompactBlobStoreTasksAsync();
+            if (triggered.Count == 0)
+            {
+                AppendLog("Phase 3: no compact-blob-store task configured, or admin permission missing — skipped.");
+            }
+            else
+            {
+                foreach (var id in triggered)
+                {
+                    AppendLog($"✓ Triggered compact-blob-store task {id} (running async on Nexus)");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Phase 3 failed: {ex.Message}");
+        }
+
+        AppendLog($"All phases complete: {compSuccess} tags + {assetSuccess} assets cleared.");
+        StateHasChanged();
 
         _deleting = false;
         await RefreshAsync();
 
-        if (success > 0)
+        if (compSuccess > 0)
         {
-            Snackbar.Add($"Deleted {success} image tag(s) from {Nexus.DockerRepositoryName}", Severity.Success);
+            Snackbar.Add(
+                $"Deleted {compSuccess} tag(s) and {assetSuccess} asset(s) from {Nexus.DockerRepositoryName}",
+                Severity.Success);
         }
-        foreach (var (item, error) in failures)
+        foreach (var (item, error) in compFailures.Concat(assetFailures))
         {
             Snackbar.Add($"Failed: {item} — {error}", Severity.Error);
         }

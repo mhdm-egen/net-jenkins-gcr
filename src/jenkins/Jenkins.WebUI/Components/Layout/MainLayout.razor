@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @inject IJSRuntime JS
+@inject JenkinsOptions JenkinsOpts
 
 <MudThemeProvider Theme="@_active.Theme" IsDarkMode="@_active.IsDarkMode" />
 <MudPopoverProvider />
@@ -37,6 +38,12 @@
                             Icon="@Icons.Material.Filled.PlayArrow">
                     Pipelines
                 </MudNavLink>
+                @* External link to the Jenkins server's own UI — opens in a new tab. *@
+                <MudNavLink Href="@JenkinsOpts.BaseUrl"
+                            Target="_blank"
+                            Icon="@Icons.Material.Filled.OpenInNew">
+                    Admin
+                </MudNavLink>
             </MudNavGroup>
             <MudNavGroup Title="Nexus"
                          Icon="@Icons.Material.Filled.Inventory2"
@@ -50,6 +57,25 @@
                             Match="NavLinkMatch.Prefix"
                             Icon="@Icons.Material.Filled.ViewInAr">
                     Docker
+                </MudNavLink>
+                @* External link to the Nexus server's own UI — opens in a new tab.
+                   Uses the host-reachable URL (localhost) rather than NexusOpts.Url,
+                   which is the docker network alias used by the server-side client. *@
+                <MudNavLink Href="http://localhost:8081"
+                            Target="_blank"
+                            Icon="@Icons.Material.Filled.OpenInNew">
+                    Admin
+                </MudNavLink>
+                @* Deep links to Nexus UI browse views (last so they're grouped). *@
+                <MudNavLink Href="http://localhost:8081/#browse/browse:nuget-hosted"
+                            Target="_blank"
+                            Icon="@Icons.Material.Filled.FolderOpen">
+                    Nuget Repo
+                </MudNavLink>
+                <MudNavLink Href="http://localhost:8081/#browse/browse:docker-private"
+                            Target="_blank"
+                            Icon="@Icons.Material.Filled.FolderOpen">
+                    Docker Repo
                 </MudNavLink>
             </MudNavGroup>
             <MudNavLink Href="google"

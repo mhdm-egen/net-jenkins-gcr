@@ -82,6 +82,119 @@ public sealed class NexusClient : INexusClient, IDisposable
         return DeleteComponentAsync(image.ComponentId, $"{image.Name}:{image.Tag}", cancellationToken);
     }
 
+    public async Task<IReadOnlyList<NexusAsset>> ListDockerAssetsAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        var items = await ListAllAssetsAsync(_options.DockerHostedRepository, ToNexusAsset, cancellationToken);
+        // Delete order: manifests first, then blobs. Manifests reference blobs, so
+        // removing manifests first reduces orphan-reference noise Nexus has to track.
+        return items
+            .OrderByDescending(a => a.Path.Contains("/manifests/", StringComparison.OrdinalIgnoreCase))
+            .ThenBy(a => a.Path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    public Task DeleteAssetAsync(NexusAsset asset, CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        return DeleteAssetByIdAsync(asset.Id, asset.Path, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> TriggerCompactBlobStoreTasksAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+
+        TaskListDto? tasks;
+        try
+        {
+            tasks = await _http!.GetFromJsonAsync<TaskListDto>("service/rest/v1/tasks", JsonOpts, cancellationToken);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Forbidden
+                                                              or System.Net.HttpStatusCode.Unauthorized)
+        {
+            // Admin perm missing — surface as "skipped" to the caller rather than throwing.
+            return Array.Empty<string>();
+        }
+        if (tasks?.Items is null) return Array.Empty<string>();
+
+        var triggered = new List<string>();
+        foreach (var t in tasks.Items)
+        {
+            // There may be multiple compact tasks (one per configured blob store);
+            // trigger all of them so disk is freed wherever the docker repo lives.
+            if (!string.Equals(t.Type, "blobstore.compact", StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.IsNullOrEmpty(t.Id)) continue;
+
+            using var resp = await _http!.PostAsync(
+                $"service/rest/v1/tasks/{Uri.EscapeDataString(t.Id)}/run",
+                content: null,
+                cancellationToken);
+            if (resp.IsSuccessStatusCode)
+            {
+                triggered.Add(t.Id);
+            }
+        }
+        return triggered;
+    }
+
+    private async Task<List<T>> ListAllAssetsAsync<T>(
+        string repository,
+        Func<AssetDto, T> map,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<T>();
+        string? token = null;
+        do
+        {
+            var path = $"service/rest/v1/assets?repository={Uri.EscapeDataString(repository)}";
+            if (token is { Length: > 0 })
+            {
+                path += $"&continuationToken={Uri.EscapeDataString(token)}";
+            }
+
+            var page = await _http!.GetFromJsonAsync<AssetListDto>(path, JsonOpts, cancellationToken)
+                ?? throw new InvalidOperationException("Nexus returned empty body for assets listing.");
+
+            if (page.Items is { Length: > 0 })
+            {
+                foreach (var a in page.Items) results.Add(map(a));
+            }
+            token = page.ContinuationToken;
+        }
+        while (!string.IsNullOrEmpty(token));
+
+        return results;
+    }
+
+    private async Task DeleteAssetByIdAsync(string assetId, string displayLabel, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(assetId))
+        {
+            throw new InvalidOperationException(
+                $"Cannot delete asset '{displayLabel}': id was not populated by the listing call.");
+        }
+
+        using var resp = await _http!.DeleteAsync(
+            $"service/rest/v1/assets/{Uri.EscapeDataString(assetId)}",
+            cancellationToken);
+
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return;
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException(
+                $"Nexus delete of asset {displayLabel} failed: {(int)resp.StatusCode} {resp.StatusCode}. {body}".Trim(),
+                inner: null,
+                statusCode: resp.StatusCode);
+        }
+    }
+
+    private static NexusAsset ToNexusAsset(AssetDto a) => new(
+        Id:           a.Id   ?? string.Empty,
+        Path:         a.Path ?? string.Empty,
+        FileSize:     a.FileSize,
+        LastModified: a.LastModified);
+
     /// <summary>
     /// Walks Nexus's continuation-token paging for a single repository and projects
     /// each component into <typeparamref name="T"/>. Shared by the NuGet + Docker list calls.
@@ -222,4 +335,15 @@ public sealed class NexusClient : INexusClient, IDisposable
         long? FileSize);
 
     private sealed record ChecksumDto(string? Sha1, string? Md5, string? Sha256, string? Sha512);
+
+    private sealed record AssetListDto(AssetDto[]? Items, string? ContinuationToken);
+
+    private sealed record TaskListDto(TaskDto[]? Items);
+
+    private sealed record TaskDto(
+        string? Id,
+        string? Name,
+        string? Type,
+        string? CurrentState,
+        string? LastRunResult);
 }
