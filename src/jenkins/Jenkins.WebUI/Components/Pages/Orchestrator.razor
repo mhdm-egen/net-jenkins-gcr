@@ -1,11 +1,12 @@
 @page "/"
+@page "/jenkins/orchestrator"
 @inject IPipelineRunner Runner
 @implements IDisposable
 
-<PageTitle>CICD Pipeline</PageTitle>
+<PageTitle>Orchestrator</PageTitle>
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
-    <MudText Typo="Typo.h4">CICD Pipeline</MudText>
+    <MudText Typo="Typo.h4">Orchestrator</MudText>
     <MudChip T="string" Color="@StateChipColor()" Variant="Variant.Filled" Size="Size.Small">
         @_snapshot.State.ToString()
     </MudChip>
@@ -77,6 +78,26 @@
     </MudSimpleTable>
 </MudPaper>
 
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudText Typo="Typo.h6" Class="mb-2">
+        Console
+        @if (_snapshot.CurrentStepJob is { Length: > 0 } job)
+        {
+            <MudText Typo="Typo.body2" Class="d-inline ml-2" Style="color: var(--mud-palette-text-secondary);">— @job</MudText>
+        }
+    </MudText>
+    <div class="console-log">
+        @if (CurrentLog() is { Length: > 0 } logHtml)
+        {
+            @((MarkupString)logHtml)
+        }
+        else
+        {
+            <div class="empty">No console output yet.</div>
+        }
+    </div>
+</MudPaper>
+
 <MudPaper Elevation="1" Class="pa-4">
     <MudText Typo="Typo.h6" Class="mb-2">Events</MudText>
     <div class="events-log">
@@ -101,7 +122,12 @@
 @code {
     private static readonly IReadOnlyList<PipelineStep> _steps = DefaultPipelines.CicdMain();
 
-    private PipelineSnapshot _snapshot = new(PipelineState.Idle, Array.Empty<PipelineEvent>(), null);
+    private PipelineSnapshot _snapshot = new(
+    PipelineState.Idle,
+    Array.Empty<PipelineEvent>(),
+    CurrentStepJob: null,
+    Logs: new Dictionary<string, string>(),
+    Result: null);
 
     protected override void OnInitialized()
     {
@@ -120,6 +146,12 @@
 
     private void OnRun()    => Runner.TryStart(_steps);
     private void OnCancel() => Runner.Cancel();
+
+    private string? CurrentLog()
+    {
+        if (_snapshot.CurrentStepJob is not { Length: > 0 } job) return null;
+        return _snapshot.Logs.TryGetValue(job, out var html) ? html : null;
+    }
 
     public void Dispose() => Runner.StateChanged -= OnStateChanged;
 

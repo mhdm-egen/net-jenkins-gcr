@@ -1,0 +1,44 @@
+<MudDialog>
+    <DialogContent>
+        <MudText Class="mb-3">@Message</MudText>
+
+        @if (Items.Count > 0)
+        {
+            <MudPaper Outlined="true" Class="pa-2 mb-3" Style="max-height: 280px; overflow-y: auto;">
+                <MudList T="string" Dense="true" Class="py-0">
+                    @foreach (var item in Items)
+                    {
+                        <MudListItem T="string"
+                                     Icon="@Icons.Material.Filled.FiberManualRecord"
+                                     IconSize="Size.Small"
+                                     Text="@item" />
+                    }
+                </MudList>
+            </MudPaper>
+        }
+
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+            This cannot be undone. Deletion may take several seconds per item.
+        </MudAlert>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton OnClick="OnCancel">Cancel</MudButton>
+        <MudButton Color="Color.Error"
+                   Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.Delete"
+                   OnClick="OnConfirm">
+            Delete
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+
+    [Parameter] public string Message { get; set; } = "Delete the following item(s)?";
+    [Parameter] public IReadOnlyList<string> Items { get; set; } = Array.Empty<string>();
+
+    private void OnCancel()  => Dialog.Cancel();
+    private void OnConfirm() => Dialog.Close(DialogResult.Ok(true));
+}

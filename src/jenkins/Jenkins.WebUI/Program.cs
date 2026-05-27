@@ -2,6 +2,8 @@ using Jenkins.Client;
 using Jenkins.Orchestrator;
 using Jenkins.WebUI.Components;
 using Jenkins.WebUI.Services;
+using Jenkins.WebUI.Services.Gcp;
+using Jenkins.WebUI.Services.Nexus;
 using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -44,6 +46,20 @@ builder.Services.AddSingleton(healthOptions);
 builder.Services.AddSingleton<JenkinsHealthService>();
 builder.Services.AddSingleton<IJenkinsHealth>(sp => sp.GetRequiredService<JenkinsHealthService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<JenkinsHealthService>());
+
+// Nexus — Url + repository name come from configuration; Password MUST come from
+// env var (Nexus__Password) per project security policy. Missing creds don't fail
+// startup; the Nuget page surfaces the configuration error.
+var nexusOptions = builder.Configuration.GetSection("Nexus").Get<NexusOptions>() ?? new NexusOptions();
+builder.Services.AddSingleton(nexusOptions);
+builder.Services.AddSingleton<INexusClient, NexusClient>();
+
+// Google Cloud — projects list comes from configuration; the GcpClient resolves
+// Application Default Credentials at construction. If creds are missing, the
+// client records the error but doesn't fail startup (the Google page surfaces it).
+var gcpOptions = builder.Configuration.GetSection("Google").Get<GcpOptions>() ?? new GcpOptions();
+builder.Services.AddSingleton(gcpOptions);
+builder.Services.AddSingleton<IGcpClient, GcpClient>();
 
 var app = builder.Build();
 

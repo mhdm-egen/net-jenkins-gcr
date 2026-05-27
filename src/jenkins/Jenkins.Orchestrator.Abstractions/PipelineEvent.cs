@@ -18,3 +18,11 @@ public sealed record PipelineStepCompleted(string JobName, DateTimeOffset Timest
 
 public sealed record PipelineStepFailed(string JobName, DateTimeOffset Timestamp, string Reason)
     : PipelineEvent(JobName, Timestamp);
+
+/// <summary>
+/// A chunk of streamed console output from a running build. Text payload is HTML
+/// pre-rendered by Jenkins (progressiveHtml) — already escaped, may include
+/// ANSI-color &lt;span&gt; tags, timestamp prefixes, and log decorator markup.
+/// </summary>
+public sealed record PipelineStepLogChunk(string JobName, DateTimeOffset Timestamp, int BuildNumber, string Text)
+    : PipelineEvent(JobName, Timestamp);

@@ -1,0 +1,51 @@
+<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+    <MudTooltip Text="Refresh now">
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                       Disabled="@Loading"
+                       Color="Color.Default"
+                       OnClick="@OnRefreshClicked"
+                       aria-label="Refresh now" />
+    </MudTooltip>
+
+    <MudTooltip Text="@(AutoRefreshOn ? $"Stop auto-refresh ({IntervalSec}s)" : $"Start auto-refresh ({IntervalSec}s)")">
+        <MudIconButton Icon="@(AutoRefreshOn ? Icons.Material.Filled.Pause : Icons.Material.Filled.PlayArrow)"
+                       Color="@(AutoRefreshOn ? Color.Primary : Color.Default)"
+                       OnClick="@OnToggleClicked"
+                       aria-label="@(AutoRefreshOn ? "Stop auto-refresh" : "Start auto-refresh")" />
+    </MudTooltip>
+
+    <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">
+        @LabelText()
+    </MudText>
+
+    @if (Loading)
+    {
+        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+    }
+</MudStack>
+
+@code {
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public bool AutoRefreshOn { get; set; }
+    [Parameter] public DateTimeOffset? LastFetchedAt { get; set; }
+    [Parameter] public int IntervalSec { get; set; } = 30;
+    [Parameter] public EventCallback OnRefresh { get; set; }
+    [Parameter] public EventCallback OnToggleAuto { get; set; }
+
+    private Task OnRefreshClicked() => OnRefresh.InvokeAsync();
+    private Task OnToggleClicked()  => OnToggleAuto.InvokeAsync();
+
+    private string LabelText()
+    {
+        if (LastFetchedAt is not { } t) return "not yet fetched";
+        var ago = DateTimeOffset.UtcNow - t;
+        var rel = ago switch
+        {
+            { TotalSeconds: < 5 }  => "just now",
+            { TotalSeconds: < 60 } => $"{(int)ago.TotalSeconds}s ago",
+            { TotalMinutes: < 60 } => $"{(int)ago.TotalMinutes}m ago",
+            _                      => t.LocalDateTime.ToString("HH:mm:ss")
+        };
+        return AutoRefreshOn ? $"auto • {rel}" : rel;
+    }
+}

@@ -77,8 +77,23 @@ public sealed class PipelineOrchestrator : IPipelineOrchestrator
                 currentBuildNumber = buildNumber;
                 progress?.Report(new PipelineStepRunning(step.JobName, DateTimeOffset.UtcNow, buildNumber));
 
+                // Stream console output in parallel with the status poll. The status
+                // poll owns the completion signal; once it returns, the log task is
+                // given a short grace period to drain final bytes before cancellation.
+                using var logCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var logTask = StreamLogsAsync(step.JobName, buildNumber, progress, logCts.Token);
+
                 var build = await _client.WaitForBuildToFinishAsync(step.JobName, buildNumber, cancellationToken: cancellationToken);
                 sw.Stop();
+
+                // Give the log loop ~5s to publish trailing chunks Jenkins still has
+                // queued. If it doesn't self-terminate by then, force-cancel it.
+                var drained = await Task.WhenAny(logTask, Task.Delay(TimeSpan.FromSeconds(5), cancellationToken));
+                if (drained != logTask)
+                {
+                    logCts.Cancel();
+                    try { await logTask; } catch { /* swallowed in helper */ }
+                }
 
                 stepResult = new PipelineRunStep(step.JobName, buildNumber, build.Result, sw.Elapsed, null);
 
@@ -123,6 +138,22 @@ public sealed class PipelineOrchestrator : IPipelineOrchestrator
         }
 
         return new PipelineRun(results, Success: failureReason is null, FailureReason: failureReason);
+    }
+
+    private async Task StreamLogsAsync(string jobName, int buildNumber, IProgress<PipelineEvent>? progress, CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var chunk in _client.StreamConsoleLogAsync(jobName, buildNumber, cancellationToken: ct))
+            {
+                progress?.Report(new PipelineStepLogChunk(jobName, DateTimeOffset.UtcNow, buildNumber, chunk));
+            }
+        }
+        catch (OperationCanceledException) { /* expected on cancellation */ }
+        catch (Exception)
+        {
+            // Log streaming is diagnostic — its failure must not fail the build.
+        }
     }
 
     private async Task TryStopBuildAsync(string? jobName, int? buildNumber)

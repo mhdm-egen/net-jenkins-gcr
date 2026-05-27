@@ -1,0 +1,277 @@
+@inject IGcpClient Gcp
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@implements IDisposable
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Cloud Run</MudText>
+        @if (Environment is { } env)
+        {
+            <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                @env.ProjectId / @env.Region
+            </MudText>
+        }
+        <MudSpacer />
+        <MudButton Color="Color.Error"
+                   Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.Delete"
+                   Disabled="@(_selectedServices.Count == 0 || _deleting || _loading)"
+                   OnClick="OnDeleteClickedAsync">
+            Delete (@_selectedServices.Count)
+        </MudButton>
+        <RefreshControls Loading="@(_loading || _deleting)"
+                         AutoRefreshOn="@_autoOn"
+                         LastFetchedAt="@_lastFetchedAt"
+                         IntervalSec="@IntervalSec"
+                         OnRefresh="RefreshAsync"
+                         OnToggleAuto="ToggleAuto" />
+    </MudStack>
+
+    @if (!Gcp.IsConfigured)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="my-2">
+            GCP credentials are not configured.
+            <span style="font-family: ui-monospace, monospace;">@Gcp.ConfigurationError</span>
+        </MudAlert>
+    }
+    else if (_error is { Length: > 0 })
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">
+            @_error
+        </MudAlert>
+    }
+
+    <DeleteLog Lines="_deleteLog" />
+
+    @if (_services is { Count: > 0 })
+    {
+        <MudTable Items="@_services"
+                  MultiSelection="true"
+                  @bind-SelectedItems="_selectedServices"
+                  Dense="true"
+                  Hover="true"
+                  Striped="true"
+                  T="CloudRunService">
+            <HeaderContent>
+                <MudTh>Service</MudTh>
+                <MudTh>URL</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh>Revision</MudTh>
+                <MudTh>Image</MudTh>
+                <MudTh>Updated</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>
+                    @if (!string.IsNullOrEmpty(context.Url))
+                    {
+                        <MudLink Href="@context.Url" Target="_blank">@context.Url</MudLink>
+                    }
+                </MudTd>
+                <MudTd>
+                    <MudChip T="string"
+                             Size="Size.Small"
+                             Color="@StatusColor(context.Status)"
+                             Variant="Variant.Filled">
+                        @context.Status
+                    </MudChip>
+                </MudTd>
+                <MudTd>@context.LatestRevision</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@ShortImage(context.Image)</MudTd>
+                <MudTd>@FormatRelative(context.UpdatedAt)</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+    else if (!_loading && _error is null && Gcp.IsConfigured)
+    {
+        <MudText Typo="Typo.body2" Class="mt-2" Style="color: var(--mud-palette-text-secondary);">
+            No services. Refresh to fetch.
+        </MudText>
+    }
+</MudPaper>
+
+@code {
+    public const int IntervalSec = 30;
+
+    [Parameter] public GcpEnvironment? Environment { get; set; }
+
+    private bool _loading;
+    private bool _deleting;
+    private bool _autoOn;
+    private string? _error;
+    private DateTimeOffset? _lastFetchedAt;
+    private IReadOnlyList<CloudRunService>? _services;
+    private HashSet<CloudRunService> _selectedServices = new();
+    private readonly List<string> _deleteLog = new();
+    private CancellationTokenSource? _inflightCts;
+    private Timer? _timer;
+    private GcpEnvironment? _lastEnv;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!ReferenceEquals(_lastEnv, Environment))
+        {
+            _lastEnv = Environment;
+            _services = null;
+            _error = null;
+            _lastFetchedAt = null;
+            _selectedServices.Clear();
+            _deleteLog.Clear();
+            if (Environment is not null && Gcp.IsConfigured)
+            {
+                await RefreshAsync();
+            }
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (Environment is not { } env) return;
+
+        _inflightCts?.Cancel();
+        _inflightCts = new CancellationTokenSource();
+        var ct = _inflightCts.Token;
+
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await Gcp.ListCloudRunServicesAsync(env, ct);
+            _services = result;
+            _lastFetchedAt = DateTimeOffset.UtcNow;
+            _selectedServices.IntersectWith(result);
+        }
+        catch (OperationCanceledException) { /* superseded — ignore */ }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleAuto()
+    {
+        _autoOn = !_autoOn;
+        if (_autoOn)
+        {
+            _timer ??= new Timer(_ =>
+            {
+                if (!_deleting) _ = InvokeAsync(RefreshAsync);
+            }, null, Timeout.Infinite, Timeout.Infinite);
+            _timer.Change(TimeSpan.FromSeconds(IntervalSec), TimeSpan.FromSeconds(IntervalSec));
+        }
+        else
+        {
+            _timer?.Change(Timeout.Infinite, Timeout.Infinite);
+        }
+    }
+
+    private async Task OnDeleteClickedAsync()
+    {
+        if (Environment is not { } env) return;
+        var selected = _selectedServices.ToList();
+        if (selected.Count == 0) return;
+
+        var parameters = new DialogParameters
+        {
+            ["Message"] = $"Delete {selected.Count} Cloud Run service(s) in {env.Region}? Each service will be torn down completely — URL will stop resolving immediately.",
+            ["Items"]   = (IReadOnlyList<string>)selected.Select(s => s.Name).ToList(),
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDeleteDialog>(
+            title: $"Delete {selected.Count} Cloud Run service(s)",
+            parameters: parameters);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled) return;
+
+        _deleting = true;
+        _deleteLog.Clear();
+        AppendLog($"Starting delete of {selected.Count} Cloud Run service(s) in {env.Region}…");
+        StateHasChanged();
+
+        var success = 0;
+        var failures = new List<(string Item, string Error)>();
+
+        foreach (var svc in selected)
+        {
+            AppendLog($"→ Deleting {svc.Name}…");
+            StateHasChanged();
+
+            try
+            {
+                await Gcp.DeleteCloudRunServiceAsync(env, svc);
+                success++;
+                AppendLog($"✓ Deleted {svc.Name}");
+            }
+            catch (Exception ex)
+            {
+                failures.Add((svc.Name, ex.Message));
+                AppendLog($"✗ Failed: {svc.Name} — {ex.Message}");
+            }
+            StateHasChanged();
+        }
+
+        AppendLog($"Done: {success} deleted, {failures.Count} failed.");
+
+        _deleting = false;
+        _selectedServices.Clear();
+        await RefreshAsync();
+
+        if (success > 0)
+        {
+            Snackbar.Add($"Deleted {success} Cloud Run service(s) in {env.Region}", Severity.Success);
+        }
+        foreach (var (item, error) in failures)
+        {
+            Snackbar.Add($"Failed: {item} — {error}", Severity.Error);
+        }
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _inflightCts?.Cancel();
+        _inflightCts?.Dispose();
+    }
+
+    private void AppendLog(string line)
+    {
+        _deleteLog.Add($"[{DateTime.Now:HH:mm:ss}] {line}");
+    }
+
+    private static Color StatusColor(string status) => status switch
+    {
+        "Ready"       => Color.Success,
+        "Failed"      => Color.Error,
+        "Pending"     => Color.Warning,
+        "Reconciling" => Color.Info,
+        _             => Color.Default
+    };
+
+    private static string ShortImage(string image)
+    {
+        if (string.IsNullOrEmpty(image)) return "—";
+        var lastSlash = image.LastIndexOf('/');
+        return lastSlash >= 0 ? image[(lastSlash + 1)..] : image;
+    }
+
+    private static string FormatRelative(DateTimeOffset t)
+    {
+        if (t == DateTimeOffset.MinValue) return "—";
+        var ago = DateTimeOffset.UtcNow - t;
+        return ago switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalHours: < 1 }   => $"{(int)ago.TotalMinutes}m ago",
+            { TotalDays: < 1 }    => $"{(int)ago.TotalHours}h ago",
+            { TotalDays: < 30 }   => $"{(int)ago.TotalDays}d ago",
+            _                     => t.LocalDateTime.ToString("yyyy-MM-dd")
+        };
+    }
+}

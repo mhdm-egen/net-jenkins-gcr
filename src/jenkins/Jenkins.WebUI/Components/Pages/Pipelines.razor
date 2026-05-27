@@ -1,0 +1,531 @@
+@page "/jenkins/pipelines"
+@inject IJenkinsClient Jenkins
+@inject IPipelineRunner Runner
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<PageTitle>Pipelines</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Pipelines</MudText>
+    <MudSpacer />
+</MudStack>
+
+@* ---------- Section 1: Jobs list ---------- *@
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Jobs</MudText>
+        <MudSpacer />
+        <MudButton Variant="Variant.Outlined"
+                   StartIcon="@Icons.Material.Filled.Refresh"
+                   Disabled="@_jobsLoading"
+                   OnClick="LoadJobsAsync">
+            Refresh
+        </MudButton>
+    </MudStack>
+
+    @if (_jobsError is { Length: > 0 })
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_jobsError</MudAlert>
+    }
+
+    @if (_jobsLoading && _jobs is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_jobs is { Count: > 0 })
+    {
+        <MudTable Items="@_jobs"
+                  Dense="true"
+                  Hover="true"
+                  Striped="true"
+                  T="JenkinsJobSummary">
+            <HeaderContent>
+                <MudTh Style="width: 2rem;"></MudTh>
+                <MudTh>Job</MudTh>
+                <MudTh Style="width: 7rem;">Last #</MudTh>
+                <MudTh Style="width: 12rem; text-align: right;"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <MudIcon Icon="@JobIcon(context.Color)"
+                             Color="@JobIconColor(context.Color)"
+                             Size="Size.Small" />
+                </MudTd>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>@(context.LastBuildNumber is int n ? $"#{n}" : "-")</MudTd>
+                <MudTd Style="text-align: right;">
+                    <MudButton Size="Size.Small"
+                               Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Filled.Tune"
+                               Disabled="@(!context.Buildable || _detailsLoading)"
+                               OnClick="@(() => OnViewParametersAsync(context))">
+                        View parameters
+                    </MudButton>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+    else if (!_jobsLoading)
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+            No jobs found.
+        </MudText>
+    }
+</MudPaper>
+
+@* ---------- Section 2: Parameters form ---------- *@
+@if (_selectedJob is { } selJob)
+{
+    <MudPaper Elevation="1" Class="pa-4 mb-4">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudText Typo="Typo.h6">
+                Parameters
+                <MudText Typo="Typo.body2" Class="d-inline ml-2" Style="color: var(--mud-palette-text-secondary);">
+                    — @selJob.Name
+                </MudText>
+            </MudText>
+            <MudSpacer />
+            <MudButton Color="Color.Primary"
+                       Variant="Variant.Filled"
+                       StartIcon="@Icons.Material.Filled.PlayArrow"
+                       Disabled="@(_detailsLoading || _starting)"
+                       OnClick="OnRunAsync">
+                Run
+            </MudButton>
+        </MudStack>
+
+        @if (_detailsError is { Length: > 0 })
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_detailsError</MudAlert>
+        }
+
+        @if (_detailsLoading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_selectedJobDetails is { } details)
+        {
+            @if (!string.IsNullOrWhiteSpace(details.Description))
+            {
+                <MudText Typo="Typo.body2" Class="mb-3" Style="color: var(--mud-palette-text-secondary);">
+                    @details.Description
+                </MudText>
+            }
+
+            @if (details.Parameters.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="my-2">
+                    This job has no parameters. Click Run to start a build.
+                </MudAlert>
+            }
+            else
+            {
+                <MudStack Spacing="3">
+                    @foreach (var p in details.Parameters)
+                    {
+                        @RenderParameter(p)
+                    }
+                </MudStack>
+            }
+        }
+    </MudPaper>
+}
+
+@* ---------- Section 3: Run progress (Events + Console) ---------- *@
+@if (_runStartedOnce)
+{
+    <MudPaper Elevation="1" Class="pa-4 mb-4">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudText Typo="Typo.h6">Run</MudText>
+            <MudChip T="string" Color="@StateChipColor()" Variant="Variant.Filled" Size="Size.Small">
+                @_snapshot.State.ToString()
+            </MudChip>
+            <MudSpacer />
+            @if (_snapshot.State == PipelineState.Running)
+            {
+                <MudButton Color="Color.Error"
+                           Variant="Variant.Filled"
+                           StartIcon="@Icons.Material.Filled.Stop"
+                           OnClick="OnCancel">
+                    Cancel
+                </MudButton>
+            }
+        </MudStack>
+
+        @if (_snapshot.State is PipelineState.Completed or PipelineState.Failed && _snapshot.Result is { } result)
+        {
+            <MudAlert Severity="@(result.Success ? Severity.Success : Severity.Error)"
+                      Variant="Variant.Filled"
+                      Class="mb-3">
+                Build @(result.Success ? "succeeded" : "failed")
+                @if (!result.Success && result.FailureReason is { Length: > 0 } reason)
+                {
+                    <span> — @reason</span>
+                }
+            </MudAlert>
+        }
+
+        <MudText Typo="Typo.subtitle2" Class="mb-1">
+            Console
+            @if (_snapshot.CurrentStepJob is { Length: > 0 } job)
+            {
+                <MudText Typo="Typo.body2" Class="d-inline ml-2" Style="color: var(--mud-palette-text-secondary);">— @job</MudText>
+            }
+        </MudText>
+        <div class="console-log mb-3">
+            @if (CurrentLog() is { Length: > 0 } logHtml)
+            {
+                @((MarkupString)logHtml)
+            }
+            else
+            {
+                <div class="empty">No console output yet.</div>
+            }
+        </div>
+
+        <MudText Typo="Typo.subtitle2" Class="mb-1">Events</MudText>
+        <div class="events-log">
+            @if (_snapshot.Events.Count == 0)
+            {
+                <div class="empty">No events yet.</div>
+            }
+            else
+            {
+                @foreach (var evt in _snapshot.Events)
+                {
+                    <div class="event event-@EventKind(evt)">
+                        <span class="ts">[@evt.Timestamp.ToString("HH:mm:ss")]</span>
+                        <span class="job">@evt.JobName</span>
+                        <span class="text">@EventText(evt)</span>
+                    </div>
+                }
+            }
+        </div>
+    </MudPaper>
+}
+
+@code {
+    // --- Section 1 state ---
+    private bool _jobsLoading;
+    private string? _jobsError;
+    private IReadOnlyList<JenkinsJobSummary>? _jobs;
+
+    // --- Section 2 state ---
+    private JenkinsJobSummary? _selectedJob;
+    private JenkinsJobDetails? _selectedJobDetails;
+    private bool _detailsLoading;
+    private string? _detailsError;
+    private bool _starting;
+    // String values for all parameter types — Jenkins receives them as form strings
+    // regardless of declared type (booleans serialize as "true"/"false").
+    private readonly Dictionary<string, string> _paramValues = new(StringComparer.Ordinal);
+
+    // --- Section 3 state ---
+    private bool _runStartedOnce;
+    private PipelineSnapshot _snapshot = new(
+        PipelineState.Idle,
+        Array.Empty<PipelineEvent>(),
+        CurrentStepJob: null,
+        Logs: new Dictionary<string, string>(),
+        Result: null);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _snapshot = Runner.Snapshot;
+        Runner.StateChanged += OnStateChanged;
+        await LoadJobsAsync();
+    }
+
+    public void Dispose() => Runner.StateChanged -= OnStateChanged;
+
+    private void OnStateChanged()
+    {
+        _ = InvokeAsync(() =>
+        {
+            _snapshot = Runner.Snapshot;
+            StateHasChanged();
+        });
+    }
+
+    // --- Section 1 ---
+
+    private async Task LoadJobsAsync()
+    {
+        _jobsLoading = true;
+        _jobsError = null;
+        StateHasChanged();
+        try
+        {
+            _jobs = await Jenkins.ListJobsAsync();
+        }
+        catch (Exception ex)
+        {
+            _jobsError = ex.Message;
+        }
+        finally
+        {
+            _jobsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // --- Section 2 ---
+
+    private async Task OnViewParametersAsync(JenkinsJobSummary job)
+    {
+        _selectedJob = job;
+        _selectedJobDetails = null;
+        _detailsError = null;
+        _paramValues.Clear();
+        _detailsLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var details = await Jenkins.GetJobDetailsAsync(job.Name);
+            _selectedJobDetails = details;
+            foreach (var p in details.Parameters)
+            {
+                _paramValues[p.Name] = p.DefaultValue ?? string.Empty;
+            }
+        }
+        catch (Exception ex)
+        {
+            _detailsError = ex.Message;
+        }
+        finally
+        {
+            _detailsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private RenderFragment RenderParameter(JenkinsParameterDefinition p) => builder =>
+    {
+        // Each parameter type binds back into _paramValues by name; we pass the raw
+        // string Jenkins expects (booleans as "true"/"false", choices as the choice text).
+        switch (p.Type)
+        {
+            case JenkinsParameterType.Boolean:
+                {
+                    var checked_ = string.Equals(GetParam(p.Name), "true", StringComparison.OrdinalIgnoreCase);
+                    builder.OpenComponent<MudCheckBox<bool>>(0);
+                    builder.AddAttribute(1, "Label", LabelFor(p));
+                    builder.AddAttribute(2, "Value", checked_);
+                    builder.AddAttribute(3, "ValueChanged",
+                        EventCallback.Factory.Create<bool>(this, v => _paramValues[p.Name] = v ? "true" : "false"));
+                    builder.CloseComponent();
+                    AddHelperText(builder, 4, p.Description);
+                    break;
+                }
+
+            case JenkinsParameterType.Choice:
+                {
+                    builder.OpenComponent<MudSelect<string>>(10);
+                    builder.AddAttribute(11, "Label", LabelFor(p));
+                    builder.AddAttribute(12, "Value", GetParam(p.Name));
+                    builder.AddAttribute(13, "ValueChanged",
+                        EventCallback.Factory.Create<string>(this, v => _paramValues[p.Name] = v ?? string.Empty));
+                    builder.AddAttribute(14, "Variant", Variant.Outlined);
+                    builder.AddAttribute(15, "HelperText", p.Description);
+                    builder.AddAttribute(16, "Dense", true);
+                    builder.AddAttribute(17, "ChildContent", (RenderFragment)(b =>
+                    {
+                        var i = 0;
+                        foreach (var choice in p.Choices)
+                        {
+                            b.OpenComponent<MudSelectItem<string>>(i++);
+                            b.AddAttribute(i++, "Value", choice);
+                            b.AddAttribute(i++, "ChildContent", (RenderFragment)(b2 => b2.AddContent(0, choice)));
+                            b.CloseComponent();
+                        }
+                    }));
+                    builder.CloseComponent();
+                    break;
+                }
+
+            case JenkinsParameterType.Text:
+                {
+                    builder.OpenComponent<MudTextField<string>>(20);
+                    builder.AddAttribute(21, "Label", LabelFor(p));
+                    builder.AddAttribute(22, "Value", GetParam(p.Name));
+                    builder.AddAttribute(23, "ValueChanged",
+                        EventCallback.Factory.Create<string>(this, v => _paramValues[p.Name] = v ?? string.Empty));
+                    builder.AddAttribute(24, "Variant", Variant.Outlined);
+                    builder.AddAttribute(25, "Lines", 4);
+                    builder.AddAttribute(26, "HelperText", p.Description);
+                    builder.CloseComponent();
+                    break;
+                }
+
+            case JenkinsParameterType.Password:
+                {
+                    builder.OpenComponent<MudTextField<string>>(30);
+                    builder.AddAttribute(31, "Label", LabelFor(p));
+                    builder.AddAttribute(32, "Value", GetParam(p.Name));
+                    builder.AddAttribute(33, "ValueChanged",
+                        EventCallback.Factory.Create<string>(this, v => _paramValues[p.Name] = v ?? string.Empty));
+                    builder.AddAttribute(34, "Variant", Variant.Outlined);
+                    builder.AddAttribute(35, "InputType", InputType.Password);
+                    builder.AddAttribute(36, "HelperText", p.Description);
+                    builder.CloseComponent();
+                    break;
+                }
+
+            // String + Unknown: plain single-line text field.
+            default:
+                {
+                    builder.OpenComponent<MudTextField<string>>(40);
+                    builder.AddAttribute(41, "Label", LabelFor(p));
+                    builder.AddAttribute(42, "Value", GetParam(p.Name));
+                    builder.AddAttribute(43, "ValueChanged",
+                        EventCallback.Factory.Create<string>(this, v => _paramValues[p.Name] = v ?? string.Empty));
+                    builder.AddAttribute(44, "Variant", Variant.Outlined);
+                    builder.AddAttribute(45, "HelperText", p.Description);
+                    builder.CloseComponent();
+                    break;
+                }
+        }
+    };
+
+    private static void AddHelperText(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, int seq, string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        builder.OpenElement(seq, "div");
+        builder.AddAttribute(seq + 1, "style", "font-size: 0.75rem; color: var(--mud-palette-text-secondary); margin-left: 2rem;");
+        builder.AddContent(seq + 2, text);
+        builder.CloseElement();
+    }
+
+    private string GetParam(string name) =>
+        _paramValues.TryGetValue(name, out var v) ? v : string.Empty;
+
+    private static string LabelFor(JenkinsParameterDefinition p) => p.Name;
+
+    // --- Run / Cancel ---
+
+    private async Task OnRunAsync()
+    {
+        if (_selectedJob is not { } job) return;
+
+        // Decision 4(b): if a build is already running, confirm and cancel it before starting new one.
+        if (Runner.Snapshot.State == PipelineState.Running)
+        {
+            var confirm = await DialogService.ShowMessageBoxAsync(
+                title: "A build is already running",
+                markupMessage: new MarkupString(
+                    "A pipeline run is currently in progress. " +
+                    "Cancel it and start a new build of <strong>" + System.Net.WebUtility.HtmlEncode(job.Name) + "</strong>?"),
+                yesText: "Cancel current & start new",
+                noText: null!,
+                cancelText: "Keep current",
+                options: null);
+            if (confirm != true) return;
+
+            Runner.Cancel();
+            // Give the orchestrator a moment to wind down; PipelineRunner flips State
+            // away from Running once the orchestrator task completes.
+            var waitCt = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            try
+            {
+                while (Runner.Snapshot.State == PipelineState.Running)
+                {
+                    await Task.Delay(200, waitCt.Token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                Snackbar.Add("Timed out waiting for the running build to cancel.", Severity.Warning);
+                return;
+            }
+        }
+
+        _starting = true;
+        try
+        {
+            // Snapshot params (the runner mutates state across Section 3 redraws).
+            var extras = new Dictionary<string, string>(_paramValues, StringComparer.Ordinal);
+            var step = new PipelineStep(job.Name, UpstreamJob: null, AdditionalParameters: extras);
+            if (!Runner.TryStart(new[] { step }))
+            {
+                Snackbar.Add("Could not start: a run is already in progress.", Severity.Error);
+                return;
+            }
+            _runStartedOnce = true;
+        }
+        finally
+        {
+            _starting = false;
+        }
+    }
+
+    private void OnCancel() => Runner.Cancel();
+
+    // --- Section 3 helpers (mirrors Orchestrator page) ---
+
+    private string? CurrentLog()
+    {
+        if (_snapshot.CurrentStepJob is not { Length: > 0 } job) return null;
+        return _snapshot.Logs.TryGetValue(job, out var html) ? html : null;
+    }
+
+    private Color StateChipColor() => _snapshot.State switch
+    {
+        PipelineState.Running   => Color.Info,
+        PipelineState.Completed => Color.Success,
+        PipelineState.Failed    => Color.Error,
+        _                       => Color.Default
+    };
+
+    private static string EventKind(PipelineEvent evt) => evt switch
+    {
+        PipelineStepCompleted => "success",
+        PipelineStepFailed    => "failure",
+        _                     => "info"
+    };
+
+    private static string EventText(PipelineEvent evt) => evt switch
+    {
+        PipelineStepStarted s   => s.UpstreamBuildNumber is int n ? $"started (consuming upstream build #{n})" : "started",
+        PipelineStepQueued q    => $"queued (queue item {q.QueueId})",
+        PipelineStepRunning r   => $"running as build #{r.BuildNumber}",
+        PipelineStepCompleted c => $"completed #{c.BuildNumber} {c.Result} in {c.Duration.TotalSeconds:F1}s",
+        PipelineStepFailed f    => $"FAILED — {f.Reason}",
+        _                       => evt.GetType().Name
+    };
+
+    // --- Job color icon ---
+    // Jenkins job colors: blue=success, red=failed, yellow=unstable, grey/notbuilt=never built,
+    // disabled, aborted. *_anime suffix = in-progress (we don't differentiate here).
+    private static string JobIcon(string? color)
+    {
+        if (color is null) return Icons.Material.Filled.RadioButtonUnchecked;
+        var c = color.Replace("_anime", "", StringComparison.Ordinal);
+        return c switch
+        {
+            "blue"     => Icons.Material.Filled.CheckCircle,
+            "red"      => Icons.Material.Filled.Cancel,
+            "yellow"   => Icons.Material.Filled.Warning,
+            "aborted"  => Icons.Material.Filled.Block,
+            "disabled" => Icons.Material.Filled.DoNotDisturb,
+            _          => Icons.Material.Filled.RadioButtonUnchecked
+        };
+    }
+
+    private static Color JobIconColor(string? color)
+    {
+        if (color is null) return Color.Default;
+        var c = color.Replace("_anime", "", StringComparison.Ordinal);
+        return c switch
+        {
+            "blue"     => Color.Success,
+            "red"      => Color.Error,
+            "yellow"   => Color.Warning,
+            "aborted"  => Color.Dark,
+            "disabled" => Color.Default,
+            _          => Color.Default
+        };
+    }
+}

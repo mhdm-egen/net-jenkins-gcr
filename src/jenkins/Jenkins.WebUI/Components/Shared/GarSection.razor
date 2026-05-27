@@ -1,0 +1,303 @@
+@inject IGcpClient Gcp
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+@implements IDisposable
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Artifact Registry</MudText>
+        @if (Environment is { } env)
+        {
+            <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                @env.ProjectId / @env.Region / @env.ArtifactRegistry
+            </MudText>
+        }
+        <MudSpacer />
+        <MudButton Color="Color.Error"
+                   Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.Delete"
+                   Disabled="@(_selectedImages.Count == 0 || _deleting || _loading)"
+                   OnClick="OnDeleteClickedAsync">
+            Delete (@_selectedImages.Count)
+        </MudButton>
+        <RefreshControls Loading="@(_loading || _deleting)"
+                         AutoRefreshOn="@_autoOn"
+                         LastFetchedAt="@_lastFetchedAt"
+                         IntervalSec="@IntervalSec"
+                         OnRefresh="RefreshAsync"
+                         OnToggleAuto="ToggleAuto" />
+    </MudStack>
+
+    @if (!Gcp.IsConfigured)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="my-2">
+            GCP credentials are not configured.
+            <span style="font-family: ui-monospace, monospace;">@Gcp.ConfigurationError</span>
+        </MudAlert>
+    }
+    else if (_error is { Length: > 0 })
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">
+            @_error
+        </MudAlert>
+    }
+
+    <DeleteLog Lines="_deleteLog" />
+
+    @if (_images is { Count: > 0 })
+    {
+        <MudTable Items="@_images"
+                  MultiSelection="true"
+                  @bind-SelectedItems="_selectedImages"
+                  Dense="true"
+                  Hover="true"
+                  Striped="true"
+                  T="GarImage">
+            <HeaderContent>
+                <MudTh>Image</MudTh>
+                <MudTh>Tags</MudTh>
+                <MudTh>Size</MudTh>
+                <MudTh>Updated</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>
+                    <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                        @foreach (var tag in context.Tags)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@tag</MudChip>
+                        }
+                    </MudStack>
+                </MudTd>
+                <MudTd>@FormatSize(context.SizeBytes)</MudTd>
+                <MudTd>@FormatRelative(context.UpdatedAt)</MudTd>
+                <MudTd Style="text-align: right;">
+                    <MudTooltip Text="Copy pull command">
+                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                       Size="Size.Small"
+                                       OnClick="@(() => CopyPullCommandAsync(context))" />
+                    </MudTooltip>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+    else if (!_loading && _error is null && Gcp.IsConfigured)
+    {
+        <MudText Typo="Typo.body2" Class="mt-2" Style="color: var(--mud-palette-text-secondary);">
+            No images. Refresh to fetch.
+        </MudText>
+    }
+</MudPaper>
+
+@code {
+    public const int IntervalSec = 30;
+
+    [Parameter] public GcpEnvironment? Environment { get; set; }
+
+    private bool _loading;
+    private bool _deleting;
+    private bool _autoOn;
+    private string? _error;
+    private DateTimeOffset? _lastFetchedAt;
+    private IReadOnlyList<GarImage>? _images;
+    private HashSet<GarImage> _selectedImages = new();
+    private readonly List<string> _deleteLog = new();
+    private CancellationTokenSource? _inflightCts;
+    private Timer? _timer;
+    private GcpEnvironment? _lastEnv;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!ReferenceEquals(_lastEnv, Environment))
+        {
+            _lastEnv = Environment;
+            _images = null;
+            _error = null;
+            _lastFetchedAt = null;
+            _selectedImages.Clear();
+            _deleteLog.Clear();
+            if (Environment is not null && Gcp.IsConfigured)
+            {
+                await RefreshAsync();
+            }
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (Environment is not { } env) return;
+
+        _inflightCts?.Cancel();
+        _inflightCts = new CancellationTokenSource();
+        var ct = _inflightCts.Token;
+
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await Gcp.ListArtifactsAsync(env, ct);
+            _images = result;
+            _lastFetchedAt = DateTimeOffset.UtcNow;
+            // Drop selections for items that no longer exist (e.g., after delete or external change).
+            _selectedImages.IntersectWith(result);
+        }
+        catch (OperationCanceledException) { /* superseded — ignore */ }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleAuto()
+    {
+        _autoOn = !_autoOn;
+        if (_autoOn)
+        {
+            // Skip auto-refresh ticks during deletes — avoids stale-state flicker.
+            _timer ??= new Timer(_ =>
+            {
+                if (!_deleting) _ = InvokeAsync(RefreshAsync);
+            }, null, Timeout.Infinite, Timeout.Infinite);
+            _timer.Change(TimeSpan.FromSeconds(IntervalSec), TimeSpan.FromSeconds(IntervalSec));
+        }
+        else
+        {
+            _timer?.Change(Timeout.Infinite, Timeout.Infinite);
+        }
+    }
+
+    private async Task OnDeleteClickedAsync()
+    {
+        if (Environment is not { } env) return;
+        var selected = _selectedImages.ToList();
+        if (selected.Count == 0) return;
+
+        var parameters = new DialogParameters
+        {
+            ["Message"] = $"Delete {selected.Count} image(s) from {env.ArtifactRegistry}?",
+            ["Items"]   = (IReadOnlyList<string>)selected.Select(LabelFor).ToList(),
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDeleteDialog>(
+            title: $"Delete {selected.Count} image(s)",
+            parameters: parameters);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled) return;
+
+        _deleting = true;
+        _deleteLog.Clear();
+        AppendLog($"Starting delete of {selected.Count} image(s) from {env.ArtifactRegistry}…");
+        StateHasChanged();
+
+        var success = 0;
+        var failures = new List<(string Item, string Error)>();
+
+        foreach (var img in selected)
+        {
+            var label = LabelFor(img);
+            AppendLog($"→ Deleting {label}…");
+            StateHasChanged();
+
+            try
+            {
+                await Gcp.DeleteArtifactAsync(env, img);
+                success++;
+                AppendLog($"✓ Deleted {label}");
+            }
+            catch (Exception ex)
+            {
+                failures.Add((label, ex.Message));
+                AppendLog($"✗ Failed: {label} — {ex.Message}");
+            }
+            StateHasChanged();
+        }
+
+        AppendLog($"Done: {success} deleted, {failures.Count} failed.");
+
+        _deleting = false;
+        _selectedImages.Clear();
+        await RefreshAsync();
+
+        if (success > 0)
+        {
+            Snackbar.Add($"Deleted {success} image(s) from {env.ArtifactRegistry}", Severity.Success);
+        }
+        foreach (var (item, error) in failures)
+        {
+            Snackbar.Add($"Failed: {item} — {error}", Severity.Error);
+        }
+    }
+
+    private void AppendLog(string line)
+    {
+        _deleteLog.Add($"[{DateTime.Now:HH:mm:ss}] {line}");
+    }
+
+    private static string LabelFor(GarImage img)
+    {
+        if (img.Tags.Count > 0)
+        {
+            return $"{img.Name} ({string.Join(", ", img.Tags)})";
+        }
+        var digestShort = img.Digest.Length > 14 ? img.Digest[..14] + "…" : img.Digest;
+        return $"{img.Name} @ {digestShort}";
+    }
+
+    private async Task CopyPullCommandAsync(GarImage img)
+    {
+        var tagOrDigest = img.Tags.Count > 0 ? img.Tags[0] : img.Digest;
+        var basePath = img.FullUri.Contains('@')
+            ? img.FullUri[..img.FullUri.IndexOf('@')]
+            : img.FullUri;
+        var pullRef = img.Tags.Count > 0 ? $"{basePath}:{tagOrDigest}" : img.FullUri;
+        var cmd = $"docker pull {pullRef}";
+
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", cmd);
+            Snackbar.Add($"Copied: {cmd}", Severity.Success);
+        }
+        catch (JSException)
+        {
+            Snackbar.Add(cmd, Severity.Info, c => c.HideTransitionDuration = 5000);
+        }
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _inflightCts?.Cancel();
+        _inflightCts?.Dispose();
+    }
+
+    private static string FormatSize(long? bytes) => bytes switch
+    {
+        null              => "—",
+        < 1024            => $"{bytes} B",
+        < 1024 * 1024     => $"{bytes / 1024.0:F1} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
+        _                 => $"{bytes / (1024.0 * 1024 * 1024):F2} GB"
+    };
+
+    private static string FormatRelative(DateTimeOffset t)
+    {
+        if (t == DateTimeOffset.MinValue) return "—";
+        var ago = DateTimeOffset.UtcNow - t;
+        return ago switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalHours: < 1 }   => $"{(int)ago.TotalMinutes}m ago",
+            { TotalDays: < 1 }    => $"{(int)ago.TotalHours}h ago",
+            { TotalDays: < 30 }   => $"{(int)ago.TotalDays}d ago",
+            _                     => t.LocalDateTime.ToString("yyyy-MM-dd")
+        };
+    }
+}

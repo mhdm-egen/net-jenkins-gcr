@@ -1,0 +1,48 @@
+/* Mirror of Orchestrator.razor.css — the Console / Events log panes use the
+ * same terminal-style presentation. Kept duplicated rather than promoted to
+ * a shared sheet because Blazor scoped CSS is per-component-file. */
+
+.events-log {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    font-family: ui-monospace, monospace;
+    font-size: 0.85rem;
+    max-height: 400px;
+    overflow-y: auto;
+    line-height: 1.5;
+}
+
+.events-log .empty {
+    color: #888;
+    font-style: italic;
+}
+
+.events-log .event { white-space: pre; }
+
+.events-log .event .ts  { color: #888;    margin-right: 0.5rem; }
+.events-log .event .job { color: #569cd6; margin-right: 0.5rem; }
+
+.events-log .event-success .text { color: #6a9955; }
+.events-log .event-failure .text { color: #f48771; }
+.events-log .event-info    .text { color: #d4d4d4; }
+
+.console-log {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    font-family: ui-monospace, monospace;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    max-height: 500px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.console-log .empty {
+    color: #888;
+    font-style: italic;
+}

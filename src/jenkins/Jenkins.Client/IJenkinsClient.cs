@@ -11,6 +11,21 @@ public interface IJenkinsClient
     /// </summary>
     Task PingAsync(CancellationToken cancellationToken = default);
 
+    // --- Discovery ---
+
+    /// <summary>
+    /// Lists top-level jobs visible to the configured user. Returns a shallow
+    /// view (name, url, color, last-build-number); fetch <see cref="GetJobDetailsAsync"/>
+    /// for parameter definitions.
+    /// </summary>
+    Task<IReadOnlyList<JenkinsJobSummary>> ListJobsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the job's description and parameter definitions. Parameter list
+    /// is empty for non-parameterized jobs.
+    /// </summary>
+    Task<JenkinsJobDetails> GetJobDetailsAsync(string jobName, CancellationToken cancellationToken = default);
+
     // --- Triggering ---
 
     /// <summary>
@@ -57,6 +72,19 @@ public interface IJenkinsClient
     // --- Outputs ---
 
     Task<string> GetConsoleLogAsync(string jobName, int buildNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Streams the live console log for a build via Jenkins's <c>progressiveHtml</c>
+    /// endpoint. Polls every <paramref name="pollInterval"/> (default 1s), yielding the
+    /// body of each response as a chunk. Returns when Jenkins reports the build's log
+    /// is complete (no <c>X-More-Data</c> header) or cancellation is requested.
+    /// Output is HTML pre-rendered by Jenkins (ANSI colors, timestamps, decorators).
+    /// </summary>
+    IAsyncEnumerable<string> StreamConsoleLogAsync(
+        string jobName,
+        int buildNumber,
+        TimeSpan? pollInterval = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Fetches a single archived artifact (relative path under the build's artifacts/) as raw bytes.

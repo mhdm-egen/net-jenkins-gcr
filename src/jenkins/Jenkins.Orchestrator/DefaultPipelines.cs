@@ -12,7 +12,7 @@ public static class DefaultPipelines
         new PipelineStep("cicd-build"),
         new PipelineStep("cicd-publish-nexus-nuget",  UpstreamJob: "cicd-build"),
         new PipelineStep("cicd-publish-nexus-docker", UpstreamJob: "cicd-build"),
-        new PipelineStep("cicd-publish-gar",          UpstreamJob: "cicd-publish-nexus-docker"),
-        new PipelineStep("cicd-publish-gcr",          UpstreamJob: "cicd-publish-gar"),
+        new PipelineStep("cicd-publish-gcp-gar",      UpstreamJob: "cicd-publish-nexus-docker"),
+        new PipelineStep("cicd-publish-gcp-gcr",      UpstreamJob: "cicd-publish-gcp-gar"),
     };
 }

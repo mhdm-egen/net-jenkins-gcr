@@ -1,0 +1,319 @@
+@page "/nexus/nuget"
+@inject INexusClient Nexus
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Nexus — NuGet</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">NuGet</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+        @Nexus.NuGetRepositoryName
+    </MudText>
+    <MudSpacer />
+    <MudButton Color="Color.Error"
+               Variant="Variant.Filled"
+               StartIcon="@Icons.Material.Filled.DeleteForever"
+               Disabled="@(_loading || _deleting || !Nexus.IsConfigured || _packages is null or { Count: 0 })"
+               OnClick="OnDeleteAllAsync">
+        Delete all (@(_packages?.Count ?? 0))
+    </MudButton>
+    <RefreshControls Loading="@(_loading || _deleting)"
+                     AutoRefreshOn="@_autoOn"
+                     LastFetchedAt="@_lastFetchedAt"
+                     IntervalSec="@IntervalSec"
+                     OnRefresh="RefreshAsync"
+                     OnToggleAuto="ToggleAuto" />
+</MudStack>
+
+@if (!Nexus.IsConfigured)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="my-2">
+        Nexus is not configured.
+        <span style="font-family: ui-monospace, monospace;">@Nexus.ConfigurationError</span>
+    </MudAlert>
+}
+else if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+
+<DeleteLog Lines="_deleteLog" />
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Packages</MudText>
+        @if (_packages is { Count: > 0 })
+        {
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                @_packages.Count
+            </MudChip>
+        }
+        <MudSpacer />
+    </MudStack>
+
+    @if (_loading && _packages is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_packages is { Count: > 0 })
+    {
+        <MudTable Items="@_packages"
+                  Dense="true"
+                  Hover="true"
+                  Striped="true"
+                  Filter="new Func<NuGetPackage, bool>(MatchesFilter)"
+                  T="NuGetPackage">
+            <ToolBarContent>
+                <MudTextField @bind-Value="_filter"
+                              Placeholder="Filter by name or version…"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              IconSize="Size.Small"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Clearable="true"
+                              Immediate="true"
+                              Style="max-width: 24rem;" />
+            </ToolBarContent>
+            <HeaderContent>
+                <MudTh>Package</MudTh>
+                <MudTh>Version</MudTh>
+                <MudTh Style="width: 7rem;">Size</MudTh>
+                <MudTh Style="width: 9rem;">Uploaded</MudTh>
+                <MudTh Style="width: 5rem; text-align: right;"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace;">@context.Version</MudTd>
+                <MudTd>@FormatSize(context.SizeBytes)</MudTd>
+                <MudTd>@(context.UploadedAt is { } at ? FormatRelative(at) : "—")</MudTd>
+                <MudTd Style="text-align: right;">
+                    <MudTooltip Text="Copy nuget install command">
+                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
+                                       Size="Size.Small"
+                                       OnClick="@(() => CopyInstallCommandAsync(context))" />
+                    </MudTooltip>
+                    @if (!string.IsNullOrEmpty(context.DownloadUrl))
+                    {
+                        <MudTooltip Text="Download .nupkg">
+                            <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                           Size="Size.Small"
+                                           Href="@context.DownloadUrl"
+                                           Target="_blank" />
+                        </MudTooltip>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new[] { 25, 50, 100, 250 }" />
+            </PagerContent>
+        </MudTable>
+    }
+    else if (!_loading && _error is null && Nexus.IsConfigured)
+    {
+        <MudText Typo="Typo.body2" Class="mt-2" Style="color: var(--mud-palette-text-secondary);">
+            No packages. Refresh to fetch.
+        </MudText>
+    }
+</MudPaper>
+
+@code {
+    public const int IntervalSec = 30;
+
+    private bool _loading;
+    private bool _deleting;
+    private bool _autoOn;
+    private string? _error;
+    private DateTimeOffset? _lastFetchedAt;
+    private IReadOnlyList<NuGetPackage>? _packages;
+    private string _filter = string.Empty;
+    private CancellationTokenSource? _inflightCts;
+    private Timer? _timer;
+    private readonly List<string> _deleteLog = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Nexus.IsConfigured)
+        {
+            await RefreshAsync();
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (!Nexus.IsConfigured) return;
+
+        // Supersede any in-flight fetch (e.g. user mashes Refresh).
+        _inflightCts?.Cancel();
+        _inflightCts = new CancellationTokenSource();
+        var ct = _inflightCts.Token;
+
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            _packages = await Nexus.ListNuGetPackagesAsync(ct);
+            _lastFetchedAt = DateTimeOffset.UtcNow;
+        }
+        catch (OperationCanceledException) { /* superseded — ignore */ }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleAuto()
+    {
+        _autoOn = !_autoOn;
+        if (_autoOn)
+        {
+            // Skip auto-refresh ticks during deletes — the in-flight delete loop is
+            // already updating the log; a concurrent list would race the post-delete
+            // refresh and cause flicker.
+            _timer ??= new Timer(_ =>
+            {
+                if (!_deleting) _ = InvokeAsync(RefreshAsync);
+            }, null, Timeout.Infinite, Timeout.Infinite);
+            _timer.Change(TimeSpan.FromSeconds(IntervalSec), TimeSpan.FromSeconds(IntervalSec));
+        }
+        else
+        {
+            _timer?.Change(Timeout.Infinite, Timeout.Infinite);
+        }
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _inflightCts?.Cancel();
+        _inflightCts?.Dispose();
+    }
+
+    private bool MatchesFilter(NuGetPackage p)
+    {
+        if (string.IsNullOrWhiteSpace(_filter)) return true;
+        var f = _filter.Trim();
+        return p.Name.Contains(f, StringComparison.OrdinalIgnoreCase)
+            || p.Version.Contains(f, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task OnDeleteAllAsync()
+    {
+        if (_packages is not { Count: > 0 } packages) return;
+
+        // Confirm — destructive and global. Sample the first few names so the
+        // dialog reads as something specific rather than a faceless count.
+        var preview = packages.Take(20).Select(p => $"{p.Name} {p.Version}").ToList();
+        if (packages.Count > preview.Count)
+        {
+            preview.Add($"… and {packages.Count - preview.Count} more");
+        }
+
+        var parameters = new DialogParameters
+        {
+            ["Message"] = $"Delete ALL {packages.Count} package version(s) from " +
+                          $"'{Nexus.NuGetRepositoryName}'? This removes every .nupkg + .nuspec and cannot be undone.",
+            ["Items"]   = (IReadOnlyList<string>)preview,
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDeleteDialog>(
+            title: $"Delete {packages.Count} NuGet package(s)",
+            parameters: parameters);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled) return;
+
+        _deleting = true;
+        _deleteLog.Clear();
+        AppendLog($"Starting delete of {packages.Count} package version(s) from {Nexus.NuGetRepositoryName}…");
+        StateHasChanged();
+
+        var success = 0;
+        var failures = new List<(string Item, string Error)>();
+
+        foreach (var pkg in packages)
+        {
+            var label = $"{pkg.Name} {pkg.Version}";
+            AppendLog($"→ Deleting {label}…");
+            StateHasChanged();
+
+            try
+            {
+                await Nexus.DeleteNuGetPackageAsync(pkg);
+                success++;
+                AppendLog($"✓ Deleted {label}");
+            }
+            catch (Exception ex)
+            {
+                failures.Add((label, ex.Message));
+                AppendLog($"✗ Failed: {label} — {ex.Message}");
+            }
+            StateHasChanged();
+        }
+
+        AppendLog($"Done: {success} deleted, {failures.Count} failed.");
+
+        _deleting = false;
+        await RefreshAsync();
+
+        if (success > 0)
+        {
+            Snackbar.Add($"Deleted {success} package version(s) from {Nexus.NuGetRepositoryName}", Severity.Success);
+        }
+        foreach (var (item, error) in failures)
+        {
+            Snackbar.Add($"Failed: {item} — {error}", Severity.Error);
+        }
+    }
+
+    private void AppendLog(string line)
+    {
+        _deleteLog.Add($"[{DateTime.Now:HH:mm:ss}] {line}");
+    }
+
+    private async Task CopyInstallCommandAsync(NuGetPackage p)
+    {
+        var cmd = $"dotnet add package {p.Name} --version {p.Version}";
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", cmd);
+            Snackbar.Add($"Copied: {cmd}", Severity.Success);
+        }
+        catch (JSException)
+        {
+            // Fallback: surface the text so the user can copy manually.
+            Snackbar.Add(cmd, Severity.Info, c => c.HideTransitionDuration = 5000);
+        }
+    }
+
+    private static string FormatSize(long? bytes) => bytes switch
+    {
+        null                  => "—",
+        < 1024                => $"{bytes} B",
+        < 1024 * 1024         => $"{bytes / 1024.0:F1} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
+        _                     => $"{bytes / (1024.0 * 1024 * 1024):F2} GB"
+    };
+
+    private static string FormatRelative(DateTimeOffset t)
+    {
+        if (t == DateTimeOffset.MinValue) return "—";
+        var ago = DateTimeOffset.UtcNow - t;
+        return ago switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalHours: < 1 }   => $"{(int)ago.TotalMinutes}m ago",
+            { TotalDays: < 1 }    => $"{(int)ago.TotalHours}h ago",
+            { TotalDays: < 30 }   => $"{(int)ago.TotalDays}d ago",
+            _                     => t.LocalDateTime.ToString("yyyy-MM-dd")
+        };
+    }
+}

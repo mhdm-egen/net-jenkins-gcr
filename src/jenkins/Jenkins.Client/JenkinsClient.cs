@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -48,6 +49,97 @@ public sealed class JenkinsClient : IJenkinsClient, IDisposable
         // whole root metadata blob for what's effectively a heartbeat.
         using var resp = await _http.GetAsync("api/json?tree=mode", cancellationToken);
         resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task<IReadOnlyList<JenkinsJobSummary>> ListJobsAsync(CancellationToken cancellationToken = default)
+    {
+        // ?tree= projects only what we need so the response stays small even on
+        // instances with hundreds of jobs.
+        var dto = await GetJsonAsync<JobListDto>(
+            "api/json?tree=jobs[name,url,color,buildable,lastBuild[number]]",
+            cancellationToken);
+
+        if (dto.Jobs is null) return Array.Empty<JenkinsJobSummary>();
+
+        var list = new List<JenkinsJobSummary>(dto.Jobs.Length);
+        foreach (var j in dto.Jobs)
+        {
+            list.Add(new JenkinsJobSummary(
+                Name:            j.Name ?? string.Empty,
+                Url:             j.Url ?? string.Empty,
+                Color:           j.Color,
+                Buildable:       j.Buildable ?? true,
+                LastBuildNumber: j.LastBuild?.Number));
+        }
+        return list;
+    }
+
+    public async Task<JenkinsJobDetails> GetJobDetailsAsync(string jobName, CancellationToken cancellationToken = default)
+    {
+        // ParametersDefinitionProperty lives in `property[]`; its `parameterDefinitions[]`
+        // is the actual list. Each definition has _class (e.g.
+        // hudson.model.StringParameterDefinition), name, description, defaultParameterValue,
+        // and (for ChoiceParameterDefinition) choices.
+        var path = $"{JobPath(jobName)}/api/json?tree=description,property[parameterDefinitions[name,type,description,defaultParameterValue[value],choices]]";
+        var dto = await GetJsonAsync<JobDetailsDto>(path, cancellationToken);
+
+        var parameters = new List<JenkinsParameterDefinition>();
+        if (dto.Property is { Length: > 0 } props)
+        {
+            foreach (var prop in props)
+            {
+                if (prop.ParameterDefinitions is not { Length: > 0 } defs) continue;
+                foreach (var def in defs)
+                {
+                    parameters.Add(ConvertParameter(def));
+                }
+            }
+        }
+
+        return new JenkinsJobDetails(
+            Name:        jobName,
+            Description: dto.Description,
+            Parameters:  parameters);
+    }
+
+    private static JenkinsParameterDefinition ConvertParameter(ParameterDefinitionDto def)
+    {
+        // The `type` field carries the simple class name (e.g. "StringParameterDefinition",
+        // "ChoiceParameterDefinition"). We map by suffix to be tolerant of plugin variants.
+        var type = MapType(def.Type);
+
+        string? defaultValue = null;
+        if (def.DefaultParameterValue?.Value is JsonElement el)
+        {
+            defaultValue = el.ValueKind switch
+            {
+                JsonValueKind.String              => el.GetString(),
+                JsonValueKind.True                => "true",
+                JsonValueKind.False               => "false",
+                JsonValueKind.Number              => el.GetRawText(),
+                JsonValueKind.Null or JsonValueKind.Undefined => null,
+                _                                 => el.GetRawText()
+            };
+        }
+
+        return new JenkinsParameterDefinition(
+            Name:         def.Name ?? string.Empty,
+            Type:         type,
+            Description:  def.Description,
+            DefaultValue: defaultValue,
+            Choices:      def.Choices ?? Array.Empty<string>());
+    }
+
+    private static JenkinsParameterType MapType(string? type)
+    {
+        if (string.IsNullOrEmpty(type)) return JenkinsParameterType.Unknown;
+        // Tolerate both bare class names and fully-qualified `hudson.model.*` strings.
+        if (type.Contains("Password",  StringComparison.OrdinalIgnoreCase)) return JenkinsParameterType.Password;
+        if (type.Contains("Boolean",   StringComparison.OrdinalIgnoreCase)) return JenkinsParameterType.Boolean;
+        if (type.Contains("Choice",    StringComparison.OrdinalIgnoreCase)) return JenkinsParameterType.Choice;
+        if (type.Contains("Text",      StringComparison.OrdinalIgnoreCase)) return JenkinsParameterType.Text;
+        if (type.Contains("String",    StringComparison.OrdinalIgnoreCase)) return JenkinsParameterType.String;
+        return JenkinsParameterType.Unknown;
     }
 
     public async Task<long> StartBuildAsync(
@@ -186,6 +278,66 @@ public sealed class JenkinsClient : IJenkinsClient, IDisposable
         return await resp.Content.ReadAsStringAsync(cancellationToken);
     }
 
+    public async IAsyncEnumerable<string> StreamConsoleLogAsync(
+        string jobName,
+        int buildNumber,
+        TimeSpan? pollInterval = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var interval = pollInterval ?? TimeSpan.FromSeconds(1);
+        long offset = 0;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            HttpResponseMessage resp;
+            try
+            {
+                resp = await _http.GetAsync(
+                    $"{JobPath(jobName)}/{buildNumber}/logText/progressiveHtml?start={offset}",
+                    cancellationToken);
+            }
+            catch (HttpRequestException)
+            {
+                // Transient network glitch — bail out; orchestrator will treat the loop
+                // ending as the natural end of the log stream and proceed.
+                yield break;
+            }
+
+            try
+            {
+                resp.EnsureSuccessStatusCode();
+
+                var text = await resp.Content.ReadAsStringAsync(cancellationToken);
+                if (text.Length > 0)
+                {
+                    yield return text;
+                }
+
+                if (resp.Headers.TryGetValues("X-Text-Size", out var sizeVals)
+                    && long.TryParse(sizeVals.FirstOrDefault(), out var size))
+                {
+                    offset = size;
+                }
+
+                var moreData = resp.Headers.TryGetValues("X-More-Data", out var moreVals)
+                    && string.Equals(moreVals.FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase);
+                if (!moreData)
+                {
+                    yield break;
+                }
+            }
+            finally
+            {
+                resp.Dispose();
+            }
+
+            try { await Task.Delay(interval, cancellationToken); }
+            catch (OperationCanceledException) { yield break; }
+        }
+    }
+
     public async Task<byte[]> GetArtifactAsync(
         string jobName,
         int buildNumber,
@@ -308,4 +460,37 @@ public sealed class JenkinsClient : IJenkinsClient, IDisposable
     }
 
     private sealed record CrumbResponse(string Crumb, string CrumbRequestField);
+
+    // --- DTOs for ListJobs / GetJobDetails ---
+
+    private sealed record JobListDto(JobSummaryDto[]? Jobs);
+
+    private sealed record JobSummaryDto(
+        string? Name,
+        string? Url,
+        string? Color,
+        bool? Buildable,
+        JobLastBuildDto? LastBuild);
+
+    private sealed record JobLastBuildDto(int Number);
+
+    private sealed record JobDetailsDto(
+        string? Description,
+        JobPropertyDto[]? Property);
+
+    private sealed record JobPropertyDto(ParameterDefinitionDto[]? ParameterDefinitions);
+
+    private sealed record ParameterDefinitionDto(
+        string? Name,
+        string? Type,
+        string? Description,
+        DefaultParameterValueDto? DefaultParameterValue,
+        string[]? Choices);
+
+    /// <summary>
+    /// Jenkins encodes default-value as a heterogeneously-typed JSON node
+    /// (string / bool / number / null). Keep it as JsonElement and convert
+    /// to string at the consumer boundary.
+    /// </summary>
+    private sealed record DefaultParameterValueDto(JsonElement? Value);
 }

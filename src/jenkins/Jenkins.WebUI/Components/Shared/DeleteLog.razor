@@ -1,0 +1,30 @@
+@* Read-only multi-line status log used by sections during bulk deletes.
+   Accepts an in-place mutable List<string>; the parent appends lines and calls
+   StateHasChanged() — OnParametersSet runs unconditionally on parent re-render
+   so the joined text refreshes regardless of reference equality. *@
+
+@if (Lines.Count > 0)
+{
+    <MudTextField T="string"
+                  Value="@_joined"
+                  Label="@Label"
+                  ReadOnly="true"
+                  Variant="Variant.Outlined"
+                  Lines="@DisplayLines"
+                  Margin="Margin.Dense"
+                  Class="mb-3"
+                  Style="font-family: ui-monospace, monospace; font-size: 0.85em;" />
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<string> Lines { get; set; } = Array.Empty<string>();
+    [Parameter] public string Label { get; set; } = "Delete progress";
+    [Parameter] public int DisplayLines { get; set; } = 8;
+
+    private string _joined = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        _joined = string.Join("\n", Lines);
+    }
+}

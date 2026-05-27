@@ -13,7 +13,7 @@ pipeline {
         string(name: 'GCR_APPHOST_SERVICE', defaultValue: 'webapphost', description: 'Cloud Run service name')
         string(name: 'GCR_REGION', defaultValue: 'us-west1', description: 'Cloud Run region')
         string(name: 'GCR_WEBAPPHOST_RUNTIME_SA', defaultValue: 'webapphost-runtime', description: 'Cloud Run runtime service account name (suffix; the @-domain is appended)')
-        string(name: 'SOURCE_BUILD_JOB', defaultValue: 'cicd-publish-gar', description: 'Name of the upstream publish job whose forwarded build-info.json will be pulled in')
+        string(name: 'SOURCE_BUILD_JOB', defaultValue: 'cicd-publish-gcp-gar', description: 'Name of the upstream publish job whose forwarded build-info.json will be pulled in')
         string(name: 'SOURCE_BUILD_NUMBER', defaultValue: '', description: 'Specific upstream build number to deploy. Leave empty for the last successful build.')
     }
 

@@ -1,0 +1,285 @@
+@page "/nexus/docker"
+@inject INexusClient Nexus
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@implements IDisposable
+
+<PageTitle>Nexus — Docker</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Docker</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+        @Nexus.DockerRepositoryName
+    </MudText>
+    <MudSpacer />
+    <MudButton Color="Color.Error"
+               Variant="Variant.Filled"
+               StartIcon="@Icons.Material.Filled.DeleteForever"
+               Disabled="@(_loading || _deleting || !Nexus.IsConfigured || _images is null or { Count: 0 })"
+               OnClick="OnDeleteAllAsync">
+        Delete all (@(_images?.Count ?? 0))
+    </MudButton>
+    <RefreshControls Loading="@(_loading || _deleting)"
+                     AutoRefreshOn="@_autoOn"
+                     LastFetchedAt="@_lastFetchedAt"
+                     IntervalSec="@IntervalSec"
+                     OnRefresh="RefreshAsync"
+                     OnToggleAuto="ToggleAuto" />
+</MudStack>
+
+@if (!Nexus.IsConfigured)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="my-2">
+        Nexus is not configured.
+        <span style="font-family: ui-monospace, monospace;">@Nexus.ConfigurationError</span>
+    </MudAlert>
+}
+else if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+
+<DeleteLog Lines="_deleteLog" />
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Images</MudText>
+        @if (_images is { Count: > 0 })
+        {
+            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                @_images.Count
+            </MudChip>
+        }
+        <MudSpacer />
+    </MudStack>
+
+    @if (_loading && _images is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_images is { Count: > 0 })
+    {
+        <MudTable Items="@_images"
+                  Dense="true"
+                  Hover="true"
+                  Striped="true"
+                  Filter="new Func<DockerImage, bool>(MatchesFilter)"
+                  T="DockerImage">
+            <ToolBarContent>
+                <MudTextField @bind-Value="_filter"
+                              Placeholder="Filter by image or tag…"
+                              Adornment="Adornment.Start"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              IconSize="Size.Small"
+                              Variant="Variant.Outlined"
+                              Margin="Margin.Dense"
+                              Clearable="true"
+                              Immediate="true"
+                              Style="max-width: 24rem;" />
+            </ToolBarContent>
+            <HeaderContent>
+                <MudTh>Image</MudTh>
+                <MudTh>Tag</MudTh>
+                <MudTh Style="width: 7rem;">Size</MudTh>
+                <MudTh Style="width: 9rem;">Uploaded</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@context.Tag</MudChip>
+                </MudTd>
+                <MudTd>@FormatSize(context.SizeBytes)</MudTd>
+                <MudTd>@(context.UploadedAt is { } at ? FormatRelative(at) : "—")</MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new[] { 25, 50, 100, 250 }" />
+            </PagerContent>
+        </MudTable>
+    }
+    else if (!_loading && _error is null && Nexus.IsConfigured)
+    {
+        <MudText Typo="Typo.body2" Class="mt-2" Style="color: var(--mud-palette-text-secondary);">
+            No images. Refresh to fetch.
+        </MudText>
+    }
+</MudPaper>
+
+@code {
+    public const int IntervalSec = 30;
+
+    private bool _loading;
+    private bool _deleting;
+    private bool _autoOn;
+    private string? _error;
+    private DateTimeOffset? _lastFetchedAt;
+    private IReadOnlyList<DockerImage>? _images;
+    private string _filter = string.Empty;
+    private CancellationTokenSource? _inflightCts;
+    private Timer? _timer;
+    private readonly List<string> _deleteLog = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Nexus.IsConfigured)
+        {
+            await RefreshAsync();
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (!Nexus.IsConfigured) return;
+
+        _inflightCts?.Cancel();
+        _inflightCts = new CancellationTokenSource();
+        var ct = _inflightCts.Token;
+
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            _images = await Nexus.ListDockerImagesAsync(ct);
+            _lastFetchedAt = DateTimeOffset.UtcNow;
+        }
+        catch (OperationCanceledException) { /* superseded — ignore */ }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleAuto()
+    {
+        _autoOn = !_autoOn;
+        if (_autoOn)
+        {
+            _timer ??= new Timer(_ =>
+            {
+                if (!_deleting) _ = InvokeAsync(RefreshAsync);
+            }, null, Timeout.Infinite, Timeout.Infinite);
+            _timer.Change(TimeSpan.FromSeconds(IntervalSec), TimeSpan.FromSeconds(IntervalSec));
+        }
+        else
+        {
+            _timer?.Change(Timeout.Infinite, Timeout.Infinite);
+        }
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _inflightCts?.Cancel();
+        _inflightCts?.Dispose();
+    }
+
+    private bool MatchesFilter(DockerImage i)
+    {
+        if (string.IsNullOrWhiteSpace(_filter)) return true;
+        var f = _filter.Trim();
+        return i.Name.Contains(f, StringComparison.OrdinalIgnoreCase)
+            || i.Tag.Contains(f, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task OnDeleteAllAsync()
+    {
+        if (_images is not { Count: > 0 } images) return;
+
+        var preview = images.Take(20).Select(i => $"{i.Name}:{i.Tag}").ToList();
+        if (images.Count > preview.Count)
+        {
+            preview.Add($"… and {images.Count - preview.Count} more");
+        }
+
+        var parameters = new DialogParameters
+        {
+            // Note on shared blobs: Nexus retains layer blobs that other tags still
+            // reference; the cleanup happens on the next compact-blob-store task run.
+            ["Message"] = $"Delete ALL {images.Count} image tag(s) from " +
+                          $"'{Nexus.DockerRepositoryName}'? Layer blobs shared with other tags " +
+                          "are retained until the next blob-store compact task. This cannot be undone.",
+            ["Items"]   = (IReadOnlyList<string>)preview,
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDeleteDialog>(
+            title: $"Delete {images.Count} Docker tag(s)",
+            parameters: parameters);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled) return;
+
+        _deleting = true;
+        _deleteLog.Clear();
+        AppendLog($"Starting delete of {images.Count} image tag(s) from {Nexus.DockerRepositoryName}…");
+        StateHasChanged();
+
+        var success = 0;
+        var failures = new List<(string Item, string Error)>();
+
+        foreach (var img in images)
+        {
+            var label = $"{img.Name}:{img.Tag}";
+            AppendLog($"→ Deleting {label}…");
+            StateHasChanged();
+
+            try
+            {
+                await Nexus.DeleteDockerImageAsync(img);
+                success++;
+                AppendLog($"✓ Deleted {label}");
+            }
+            catch (Exception ex)
+            {
+                failures.Add((label, ex.Message));
+                AppendLog($"✗ Failed: {label} — {ex.Message}");
+            }
+            StateHasChanged();
+        }
+
+        AppendLog($"Done: {success} deleted, {failures.Count} failed.");
+
+        _deleting = false;
+        await RefreshAsync();
+
+        if (success > 0)
+        {
+            Snackbar.Add($"Deleted {success} image tag(s) from {Nexus.DockerRepositoryName}", Severity.Success);
+        }
+        foreach (var (item, error) in failures)
+        {
+            Snackbar.Add($"Failed: {item} — {error}", Severity.Error);
+        }
+    }
+
+    private void AppendLog(string line)
+    {
+        _deleteLog.Add($"[{DateTime.Now:HH:mm:ss}] {line}");
+    }
+
+    private static string FormatSize(long? bytes) => bytes switch
+    {
+        null                  => "—",
+        < 1024                => $"{bytes} B",
+        < 1024 * 1024         => $"{bytes / 1024.0:F1} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
+        _                     => $"{bytes / (1024.0 * 1024 * 1024):F2} GB"
+    };
+
+    private static string FormatRelative(DateTimeOffset t)
+    {
+        if (t == DateTimeOffset.MinValue) return "—";
+        var ago = DateTimeOffset.UtcNow - t;
+        return ago switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalHours: < 1 }   => $"{(int)ago.TotalMinutes}m ago",
+            { TotalDays: < 1 }    => $"{(int)ago.TotalHours}h ago",
+            { TotalDays: < 30 }   => $"{(int)ago.TotalDays}d ago",
+            _                     => t.LocalDateTime.ToString("yyyy-MM-dd")
+        };
+    }
+}

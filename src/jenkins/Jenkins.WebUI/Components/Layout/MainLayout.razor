@@ -24,10 +24,38 @@
                Variant="DrawerVariant.Responsive"
                ClipMode="DrawerClipMode.Always">
         <MudNavMenu>
-            <MudNavLink Href=""
-                        Match="NavLinkMatch.All"
-                        Icon="@Icons.Material.Filled.AccountTree">
-                Pipeline
+            <MudNavGroup Title="Jenkins"
+                         Icon="@Icons.Material.Filled.Build"
+                         Expanded="true">
+                <MudNavLink Href="jenkins/orchestrator"
+                            Match="NavLinkMatch.Prefix"
+                            Icon="@Icons.Material.Filled.AccountTree">
+                    Orchestrator
+                </MudNavLink>
+                <MudNavLink Href="jenkins/pipelines"
+                            Match="NavLinkMatch.Prefix"
+                            Icon="@Icons.Material.Filled.PlayArrow">
+                    Pipelines
+                </MudNavLink>
+            </MudNavGroup>
+            <MudNavGroup Title="Nexus"
+                         Icon="@Icons.Material.Filled.Inventory2"
+                         Expanded="true">
+                <MudNavLink Href="nexus/nuget"
+                            Match="NavLinkMatch.Prefix"
+                            Icon="@Icons.Material.Filled.Inventory">
+                    Nuget
+                </MudNavLink>
+                <MudNavLink Href="nexus/docker"
+                            Match="NavLinkMatch.Prefix"
+                            Icon="@Icons.Material.Filled.ViewInAr">
+                    Docker
+                </MudNavLink>
+            </MudNavGroup>
+            <MudNavLink Href="google"
+                        Match="NavLinkMatch.Prefix"
+                        Icon="@Icons.Material.Filled.Cloud">
+                Google
             </MudNavLink>
         </MudNavMenu>
     </MudDrawer>
