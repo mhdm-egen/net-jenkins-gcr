@@ -142,6 +142,55 @@ public sealed class JenkinsClient : IJenkinsClient, IDisposable
         return JenkinsParameterType.Unknown;
     }
 
+    public async Task<JenkinsBuildDetails> GetBuildDetailsAsync(string jobName, int buildNumber, CancellationToken cancellationToken = default)
+    {
+        // The actions array is heterogeneous — most entries are parameter / SCM /
+        // queue actions; only some carry `causes[]`. We project just the fields we
+        // need; non-cause actions deserialize with empty Causes and get filtered out.
+        var path = $"{JobPath(jobName)}/{buildNumber}/api/json"
+                 + "?tree=number,url,building,result,timestamp,duration,description,"
+                 + "artifacts[fileName,relativePath],"
+                 + "actions[causes[shortDescription]]";
+
+        var dto = await GetJsonAsync<BuildDetailsDto>(path, cancellationToken);
+
+        var causes = dto.Actions?
+            .SelectMany(a => a.Causes ?? Array.Empty<CauseDto>())
+            .Select(c => c.ShortDescription)
+            .Where(s => !string.IsNullOrEmpty(s))
+            .Select(s => s!)
+            .ToArray() ?? Array.Empty<string>();
+
+        var artifacts = dto.Artifacts?
+            .Select(a => new JenkinsBuildArtifact(a.FileName ?? string.Empty, a.RelativePath ?? string.Empty))
+            .ToArray() ?? Array.Empty<JenkinsBuildArtifact>();
+
+        return new JenkinsBuildDetails(
+            Number:      dto.Number,
+            Url:         dto.Url ?? string.Empty,
+            Building:    dto.Building,
+            Result:      dto.Result,
+            Timestamp:   dto.Timestamp,
+            Duration:    dto.Duration,
+            Description: dto.Description,
+            Artifacts:   artifacts,
+            Causes:      causes);
+    }
+
+    public async Task<IReadOnlyList<Build>> ListBuildsAsync(string jobName, int count, CancellationToken cancellationToken = default)
+    {
+        if (count <= 0) return Array.Empty<Build>();
+
+        // Jenkins's `tree` query supports `{from,to}` ranges on arrays — returns
+        // the first <count> builds in one HTTP round-trip. Newest-first is
+        // Jenkins's default ordering for the builds array.
+        var path = $"{JobPath(jobName)}/api/json"
+                 + $"?tree=builds[number,url,building,result,timestamp,duration,description]{{0,{count}}}";
+
+        var dto = await GetJsonAsync<BuildListDto>(path, cancellationToken);
+        return dto.Builds ?? Array.Empty<Build>();
+    }
+
     public async Task<long> StartBuildAsync(
         string jobName,
         IDictionary<string, string>? parameters = null,
@@ -460,6 +509,23 @@ public sealed class JenkinsClient : IJenkinsClient, IDisposable
     }
 
     private sealed record CrumbResponse(string Crumb, string CrumbRequestField);
+
+    private sealed record BuildListDto(Build[]? Builds);
+
+    private sealed record BuildDetailsDto(
+        int Number,
+        string? Url,
+        bool Building,
+        BuildResult? Result,
+        long Timestamp,
+        long Duration,
+        string? Description,
+        ArtifactDto[]? Artifacts,
+        ActionDto[]? Actions);
+
+    private sealed record ArtifactDto(string? FileName, string? RelativePath);
+    private sealed record ActionDto(CauseDto[]? Causes);
+    private sealed record CauseDto(string? ShortDescription);
 
     // --- DTOs for ListJobs / GetJobDetails ---
 

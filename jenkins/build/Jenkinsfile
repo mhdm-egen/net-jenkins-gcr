@@ -170,8 +170,13 @@ pipeline {
                     # `trivy sbom` reads a CycloneDX/SPDX SBOM and emits one back with
                     # vulnerability data attached (CVEs from the GitHub Advisory + NVD
                     # databases). --format cyclonedx keeps it the same shape as bom.json.
+                    # --scanners vuln is required: as of Trivy 0.5x, --format cyclonedx
+                    # silently disables security scanning unless scanners are explicitly
+                    # opted in, which is exactly the trap that produced our empty
+                    # vulnerabilities[] array (Trivy logs the INFO line at startup).
                     "\$TRIVY_BIN" sbom \\
                         --format cyclonedx \\
+                        --scanners vuln \\
                         --output bom-vex.json \\
                         bom.json
                     ls -l bom-vex.json

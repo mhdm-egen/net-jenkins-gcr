@@ -1,0 +1,591 @@
+@page "/jenkins/builds/{Number:int}"
+@inject IBuildStore Store
+@inject JenkinsOptions JenkinsOpts
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Build #@Number — @_jobName</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
+                   OnClick="@(() => Nav.NavigateTo("/jenkins/builds"))"
+                   aria-label="Back to builds" />
+    <MudText Typo="Typo.h4">Build #@Number</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">@_jobName</MudText>
+    @if (_details is { } d)
+    {
+        <MudChip T="string" Size="Size.Small"
+                 Color="@StatusColor(d)" Variant="Variant.Filled">
+            @StatusLabel(d)
+        </MudChip>
+    }
+    <MudSpacer />
+    @if (_details is not null)
+    {
+        <MudButton StartIcon="@Icons.Material.Filled.OpenInNew"
+                   Href="@JenkinsLink"
+                   Target="_blank"
+                   Variant="Variant.Outlined">
+            Open in Jenkins
+        </MudButton>
+    }
+</MudStack>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+else if (_details is { } details)
+{
+    <MudGrid Spacing="3">
+
+        @* ---------- Run speed ---------- *@
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4 h-100">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.Speed" Color="Color.Primary" />
+                    <MudText Typo="Typo.h6">Run speed</MudText>
+                </MudStack>
+                <DetailRow Label="Started"  Value="@FormatStartedAbsolute(details.Timestamp)" />
+                <DetailRow Label="Started (relative)" Value="@FormatStartedRelative(details.Timestamp)" />
+                <DetailRow Label="Duration" Value="@FormatDuration(details)" />
+                <DetailRow Label="Finished" Value="@FormatFinished(details)" />
+            </MudPaper>
+        </MudItem>
+
+        @* ---------- Started by ---------- *@
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4 h-100">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.PersonOutline" Color="Color.Primary" />
+                    <MudText Typo="Typo.h6">Started by</MudText>
+                </MudStack>
+                @if (details.Causes.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                        — no cause information recorded
+                    </MudText>
+                }
+                else
+                {
+                    <MudList T="string" Dense="true" Class="py-0">
+                        @foreach (var c in details.Causes)
+                        {
+                            <MudListItem T="string"
+                                         Icon="@Icons.Material.Filled.PlayCircleOutline"
+                                         IconSize="Size.Small"
+                                         Text="@c" />
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+        </MudItem>
+
+        @* ---------- Git info ---------- *@
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4 h-100">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.AccountTree" Color="Color.Primary" />
+                    <MudText Typo="Typo.h6">Git info</MudText>
+                </MudStack>
+                @if (_buildInfo is { } info)
+                {
+                    <DetailRow Label="Package version" Value="@info.PackageVersion" Mono="true" />
+                    <DetailRow Label="Informational"   Value="@info.InformationalVersion" Mono="true" />
+                    <DetailRow Label="Commit"          Value="@info.GitCommitHash" Mono="true" />
+                    <DetailRow Label="Commit (short)" Value="@info.GitCommitShort" Mono="true" />
+                    <DetailRow Label="Build file"     Value="@info.BuildFile" Mono="true" />
+                }
+                else if (_buildInfoError is { Length: > 0 })
+                {
+                    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                        @_buildInfoError
+                    </MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                        No <code>build-info.json</code> on this build.
+                    </MudText>
+                }
+            </MudPaper>
+        </MudItem>
+
+        @* ---------- Artifacts ---------- *@
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4 h-100">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+                    <MudIcon Icon="@Icons.Material.Filled.FolderZip" Color="Color.Primary" />
+                    <MudText Typo="Typo.h6">Artifacts</MudText>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                        @details.Artifacts.Count
+                    </MudChip>
+                </MudStack>
+                @if (details.Artifacts.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                        — no archived artifacts
+                    </MudText>
+                }
+                else
+                {
+                    <MudList T="string" Dense="true" Class="py-0">
+                        @foreach (var a in details.Artifacts)
+                        {
+                            <MudListItem T="string"
+                                         Icon="@Icons.Material.Filled.InsertDriveFile"
+                                         IconSize="Size.Small">
+                                <MudLink Href="@ArtifactUrl(a)" Target="_blank"
+                                         Style="font-family: ui-monospace, monospace;">
+                                    @a.RelativePath
+                                </MudLink>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    @* ---------- Artifact viewer ---------- *@
+    <MudPaper Elevation="1" Class="pa-4 mt-3">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+            <MudIcon Icon="@Icons.Material.Filled.Visibility" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">Artifact viewer</MudText>
+            @if (_selectedArtifactPath is { Length: > 0 } sel)
+            {
+                <MudText Typo="Typo.body2" Class="ml-2"
+                         Style="color: var(--mud-palette-text-secondary); font-family: ui-monospace, monospace;">
+                    @sel
+                </MudText>
+            }
+        </MudStack>
+
+        @if (details.Artifacts.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                No archived artifacts to view.
+            </MudText>
+        }
+        else
+        {
+            <MudGrid Spacing="3">
+                <MudItem xs="12" md="3">
+                    <div class="artifact-list-pane">
+                        @foreach (var a in details.Artifacts)
+                        {
+                            var path = a.RelativePath;
+                            var isSelected = path == _selectedArtifactPath;
+                            <MudListItem T="string"
+                                         Icon="@FileIcon(path)"
+                                         IconSize="Size.Small"
+                                         OnClick="@(() => _ = OnArtifactSelectedAsync(path))"
+                                         Class="@(isSelected ? "artifact-list-item selected" : "artifact-list-item")">
+                                <span style="font-family: ui-monospace, monospace; font-size: 0.85em; word-break: break-all;">
+                                    @path
+                                </span>
+                            </MudListItem>
+                        }
+                    </div>
+                </MudItem>
+                <MudItem xs="12" md="9">
+                    @if (_selectedArtifactPath is null)
+                    {
+                        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                            Select an artifact on the left to preview its contents.
+                        </MudText>
+                    }
+                    else if (_previewLoading)
+                    {
+                        <MudProgressLinear Indeterminate="true" />
+                    }
+                    else if (_previewError is { Length: > 0 } pe)
+                    {
+                        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@pe</MudAlert>
+                    }
+                    else if (_preview is { } p)
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2"
+                                  Style="font-size: 0.8em; color: var(--mud-palette-text-secondary);">
+                            <span style="text-transform: uppercase;">@p.Kind</span>
+                            <span>·</span>
+                            <span>@FormatSize(p.SizeBytes)</span>
+                            <MudSpacer />
+                            <MudLink Href="@p.DownloadUrl" Target="_blank" Typo="Typo.caption">Download</MudLink>
+                        </MudStack>
+
+                        @switch (p.Kind)
+                        {
+                            case "too-large":
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                    Artifact is @FormatSize(p.SizeBytes); too large to preview
+                                    (cap @FormatSize(MaxPreviewBytes)). Use the download link above.
+                                </MudAlert>
+                                break;
+                            case "binary":
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                    Binary artifact — no inline preview available. Use the download link above.
+                                </MudAlert>
+                                break;
+                            case "image":
+                                <div class="artifact-preview-pane image">
+                                    <img src="@p.ImageDataUrl" alt="@_selectedArtifactPath" />
+                                </div>
+                                break;
+                            case "json":
+                            case "text":
+                                <pre @ref="_previewElement"
+                                     class="@($"artifact-preview-pane {PrismLanguageFor(p.RelativePath, p.Kind)}")">@p.Text</pre>
+                                break;
+                        }
+                    }
+                </MudItem>
+            </MudGrid>
+        }
+    </MudPaper>
+}
+
+@code {
+    private const string _jobName = "cicd-build";
+
+    [Parameter] public int Number { get; set; }
+
+    private bool _loading;
+    private string? _error;
+    private JenkinsBuildDetails? _details;
+    private BuildInfo? _buildInfo;
+    private string? _buildInfoError;
+    private int _lastLoadedNumber;
+
+    // --- Artifact viewer state ---
+    private const long MaxPreviewBytes = 2L * 1024 * 1024;   // 2 MB
+    private string? _selectedArtifactPath;
+    private ArtifactPreview? _preview;
+    private bool _previewLoading;
+    private string? _previewError;
+    // In-memory cache keyed by relativePath — survives reselection on this page only.
+    // Reset implicitly when the user navigates to a different build number.
+    private Dictionary<string, ArtifactPreview> _previewCache = new();
+    // Set whenever a new preview enters render — OnAfterRenderAsync picks it up and
+    // calls Prism. ElementReference is only valid for the most recent text/json render.
+    private ElementReference _previewElement;
+    private bool _needHighlight;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Allow re-navigation to a different #N to re-fetch without page recreation.
+        if (Number != _lastLoadedNumber)
+        {
+            _lastLoadedNumber = Number;
+            await LoadAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        _details = null;
+        _buildInfo = null;
+        _buildInfoError = null;
+        // Drop artifact viewer state — we're loading a different build.
+        _selectedArtifactPath = null;
+        _preview = null;
+        _previewError = null;
+        _previewCache = new();
+        StateHasChanged();
+
+        try
+        {
+            _details = await Store.GetBuildAsync(_jobName, Number);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _loading = false;
+            StateHasChanged();
+            return;
+        }
+
+        // Build-info.json is optional — Store.GetBuildInfoAsync returns null when the
+        // artifact isn't present (older builds). Any other failure is informational
+        // and shouldn't prevent the rest of the page from rendering.
+        if (_details.Artifacts.Any(a => a.RelativePath.EndsWith("build-info.json", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                _buildInfo = await Store.GetBuildInfoAsync(_jobName, Number);
+            }
+            catch (Exception ex)
+            {
+                _buildInfoError = $"Could not read build-info.json: {ex.Message}";
+            }
+        }
+
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private string JenkinsLink
+    {
+        get
+        {
+            var baseUrl = JenkinsOpts.BaseUrl.TrimEnd('/');
+            return $"{baseUrl}/job/{Uri.EscapeDataString(_jobName)}/{Number}/";
+        }
+    }
+
+    private string ArtifactUrl(JenkinsBuildArtifact a)
+    {
+        // Build URL pattern: <jenkins>/job/<name>/<n>/artifact/<relativePath>
+        var baseUrl = JenkinsOpts.BaseUrl.TrimEnd('/');
+        return $"{baseUrl}/job/{Uri.EscapeDataString(_jobName)}/{Number}/artifact/{a.RelativePath}";
+    }
+
+    private static string StatusLabel(JenkinsBuildDetails d) =>
+        d.Building ? "Running" : (d.Result?.ToString() ?? "Unknown");
+
+    private static Color StatusColor(JenkinsBuildDetails d)
+    {
+        if (d.Building) return Color.Info;
+        return d.Result switch
+        {
+            BuildResult.Success  => Color.Success,
+            BuildResult.Failure  => Color.Error,
+            BuildResult.Unstable => Color.Warning,
+            BuildResult.Aborted  => Color.Dark,
+            _                    => Color.Default
+        };
+    }
+
+    // --- Artifact viewer ---
+
+    private async Task OnArtifactSelectedAsync(string path)
+    {
+        _selectedArtifactPath = path;
+        _previewError = null;
+
+        if (_previewCache.TryGetValue(path, out var cached))
+        {
+            _preview = cached;
+            _needHighlight = IsHighlightable(cached);
+            StateHasChanged();
+            return;
+        }
+
+        _preview = null;
+        _previewLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var bytes = await Store.GetArtifactBytesAsync(_jobName, Number, path);
+            // Bail out if the user moved on to another artifact while we were fetching.
+            if (_selectedArtifactPath != path) return;
+
+            var preview = BuildPreview(path, bytes);
+            _previewCache[path] = preview;
+            _preview = preview;
+            _needHighlight = IsHighlightable(preview);
+        }
+        catch (Exception ex)
+        {
+            if (_selectedArtifactPath == path) _previewError = ex.Message;
+        }
+        finally
+        {
+            _previewLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_needHighlight) return;
+        _needHighlight = false;
+        try
+        {
+            await JS.InvokeVoidAsync("artifactHighlight", _previewElement);
+        }
+        catch (JSDisconnectedException) { /* circuit tearing down */ }
+        catch (TaskCanceledException)   { /* circuit closing */ }
+    }
+
+    private static bool IsHighlightable(ArtifactPreview p) =>
+        p.Kind is "json" or "text";
+
+    private ArtifactPreview BuildPreview(string path, byte[] bytes)
+    {
+        var downloadUrl = ArtifactUrl(new JenkinsBuildArtifact(string.Empty, path));
+        if (bytes.LongLength > MaxPreviewBytes)
+        {
+            return new ArtifactPreview(path, bytes.LongLength, "too-large", Text: null, ImageDataUrl: null, downloadUrl);
+        }
+
+        var ext = GetExtension(path);
+        if (ext == "json")
+        {
+            return new ArtifactPreview(path, bytes.LongLength, "json", PrettyPrintJson(bytes), null, downloadUrl);
+        }
+        if (IsTextExt(ext))
+        {
+            return new ArtifactPreview(path, bytes.LongLength, "text", System.Text.Encoding.UTF8.GetString(bytes), null, downloadUrl);
+        }
+        if (IsImageExt(ext))
+        {
+            var mime = MimeForExt(ext);
+            var dataUrl = $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+            return new ArtifactPreview(path, bytes.LongLength, "image", null, dataUrl, downloadUrl);
+        }
+        return new ArtifactPreview(path, bytes.LongLength, "binary", null, null, downloadUrl);
+    }
+
+    private static readonly HashSet<string> _textExts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "txt", "log", "md", "csv", "tsv", "yaml", "yml", "xml", "html", "htm",
+        "css", "js", "cs", "py", "sh", "ps1", "ini", "conf", "toml", "sql", "dockerfile",
+    };
+    private static readonly HashSet<string> _imageExts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "png", "jpg", "jpeg", "gif", "svg", "webp",
+    };
+
+    private static string GetExtension(string path)
+    {
+        var i = path.LastIndexOf('.');
+        return i < 0 ? string.Empty : path[(i + 1)..].ToLowerInvariant();
+    }
+
+    private static bool IsTextExt(string e)  => _textExts.Contains(e);
+    private static bool IsImageExt(string e) => _imageExts.Contains(e);
+
+    /// <summary>
+    /// Maps a file path to the Prism CSS class. Returning <c>language-none</c> for
+    /// unrecognized text means Prism's autoloader stays quiet — we'll just render
+    /// the monospace block without colorization rather than 404-ing on a missing
+    /// grammar.
+    /// </summary>
+    private static string PrismLanguageFor(string path, string kind)
+    {
+        if (kind != "json" && kind != "text") return string.Empty;
+        return GetExtension(path) switch
+        {
+            "json"                          => "language-json",
+            "yaml" or "yml"                 => "language-yaml",
+            "xml" or "html" or "htm"        => "language-markup",
+            "cs"                            => "language-csharp",
+            "js"                            => "language-javascript",
+            "css"                           => "language-css",
+            "md"                            => "language-markdown",
+            "py"                            => "language-python",
+            "sh" or "bash"                  => "language-bash",
+            "ps1"                           => "language-powershell",
+            "sql"                           => "language-sql",
+            "ini" or "toml" or "conf"       => "language-ini",
+            "dockerfile"                    => "language-docker",
+            _                               => "language-none"
+        };
+    }
+
+    private static string MimeForExt(string ext) => ext switch
+    {
+        "png"             => "image/png",
+        "jpg" or "jpeg"   => "image/jpeg",
+        "gif"             => "image/gif",
+        "svg"             => "image/svg+xml",
+        "webp"            => "image/webp",
+        _                 => "application/octet-stream",
+    };
+
+    private static string PrettyPrintJson(byte[] bytes)
+    {
+        // Parse + re-serialize WriteIndented=true. If the file isn't valid JSON
+        // (corrupted artifact, partial upload, etc.), fall back to raw UTF-8 so
+        // the user can still see what was archived.
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(new ReadOnlyMemory<byte>(bytes));
+            return System.Text.Json.JsonSerializer.Serialize(doc,
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return System.Text.Encoding.UTF8.GetString(bytes);
+        }
+    }
+
+    private static string FileIcon(string path)
+    {
+        var ext = GetExtension(path);
+        if (ext == "json")    return Icons.Material.Filled.DataObject;
+        if (IsImageExt(ext))  return Icons.Material.Filled.Image;
+        if (IsTextExt(ext))   return Icons.Material.Filled.Description;
+        return Icons.Material.Filled.InsertDriveFile;
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024            => $"{bytes} B",
+        < 1024 * 1024     => $"{bytes / 1024.0:F1} KB",
+        < 1024L * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
+        _                 => $"{bytes / (1024.0 * 1024 * 1024):F2} GB",
+    };
+
+    /// <summary>One fetched artifact ready to render. <see cref="Kind"/>: json | text | image | binary | too-large.</summary>
+    private sealed record ArtifactPreview(
+        string RelativePath,
+        long SizeBytes,
+        string Kind,
+        string? Text,
+        string? ImageDataUrl,
+        string DownloadUrl);
+
+    // --- Other formatters ---
+
+    private static string FormatStartedAbsolute(long unixMs)
+    {
+        if (unixMs <= 0) return "—";
+        return DateTimeOffset.FromUnixTimeMilliseconds(unixMs)
+            .LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss");
+    }
+
+    private static string FormatStartedRelative(long unixMs)
+    {
+        if (unixMs <= 0) return "—";
+        var t = DateTimeOffset.FromUnixTimeMilliseconds(unixMs);
+        var ago = DateTimeOffset.UtcNow - t;
+        return ago switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalHours: < 1 }   => $"{(int)ago.TotalMinutes}m ago",
+            { TotalDays: < 1 }    => $"{(int)ago.TotalHours}h ago",
+            { TotalDays: < 30 }   => $"{(int)ago.TotalDays}d ago",
+            _                     => t.LocalDateTime.ToString("yyyy-MM-dd")
+        };
+    }
+
+    private static string FormatDuration(JenkinsBuildDetails d)
+    {
+        if (d.Building) return "running…";
+        if (d.Duration <= 0) return "—";
+        var ts = TimeSpan.FromMilliseconds(d.Duration);
+        return ts switch
+        {
+            { TotalSeconds: < 60 }  => $"{ts.TotalSeconds:F1}s",
+            { TotalMinutes: < 60 }  => $"{(int)ts.TotalMinutes}m {ts.Seconds}s",
+            _                       => $"{(int)ts.TotalHours}h {ts.Minutes}m"
+        };
+    }
+
+    private static string FormatFinished(JenkinsBuildDetails d)
+    {
+        if (d.Building) return "—";
+        if (d.Timestamp <= 0 || d.Duration <= 0) return "—";
+        var t = DateTimeOffset.FromUnixTimeMilliseconds(d.Timestamp).AddMilliseconds(d.Duration);
+        return t.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss");
+    }
+}

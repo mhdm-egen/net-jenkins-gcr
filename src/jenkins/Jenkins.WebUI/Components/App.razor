@@ -14,6 +14,12 @@
 
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Jenkins.WebUI.styles.css"]" />
+
+    <!-- Prism (syntax highlighting for the BuildDetails artifact viewer). Theme is
+         dark "Tomorrow" — matches our existing terminal-style preview panes. The
+         autoloader fetches per-language grammars on demand from cdnjs. -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" />
+
     <ImportMap />
     <HeadOutlet />
 </head>
@@ -22,6 +28,9 @@
     <Routes @rendermode="InteractiveServer" />
     <ReconnectModal />
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    <script src="js/highlight.js"></script>
     <script src="@Assets["_framework/blazor.web.js"]"></script>
 </body>
 

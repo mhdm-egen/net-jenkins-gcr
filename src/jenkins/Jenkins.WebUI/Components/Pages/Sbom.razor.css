@@ -1,0 +1,48 @@
+/* SCA SBOM viewer styles. The preview pane mirrors BuildDetails' artifact viewer
+   (#1e1e1e terminal pane, monospace, max-height + overflow) so Prism's dark
+   Tomorrow theme reads consistently across both pages. */
+
+::deep tr.sca-row-selected {
+    background-color: var(--mud-palette-action-default-hover);
+}
+
+.sca-preview-pane {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    font-family: ui-monospace, monospace;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    max-height: 350px;
+    overflow: auto;
+    white-space: pre;
+    margin: 0;
+    word-break: normal;
+}
+
+/* Specificity-winning override so Prism's pre[class*="language-"] doesn't steal
+   our height + margin (see BuildDetails.razor.css for the same trick). */
+pre.sca-preview-pane[class*="language-"] {
+    max-height: 350px;
+    overflow: auto;
+    margin: 0;
+}
+
+/* Properties pane (Metadata panel) — bounded scroll area so a chatty
+   properties[] doesn't push the rest of the page off-screen. */
+.sca-properties-pane {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 4px;
+    padding: 0.25rem 0.75rem;
+}
+
+/* Root deps pane (Dependencies panel) — same shape. */
+.sca-deps-pane {
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 4px;
+}

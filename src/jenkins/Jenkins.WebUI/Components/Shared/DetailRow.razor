@@ -1,0 +1,29 @@
+@* Label / value pair used in summary panels (e.g., BuildDetails sections).
+   Renders the label at fixed width with secondary text color and the value
+   on the right. Optional monospace for hashes / versions. *@
+
+<div style="display: flex; gap: 1rem; padding: 0.25rem 0; align-items: baseline;">
+    <div style="min-width: 9rem; color: var(--mud-palette-text-secondary); font-size: 0.85rem;">
+        @Label
+    </div>
+    <div style="flex: 1; @ValueStyle">
+        @if (string.IsNullOrWhiteSpace(Value))
+        {
+            <span style="color: var(--mud-palette-text-disabled);">—</span>
+        }
+        else
+        {
+            @Value
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public bool Mono { get; set; }
+
+    private string ValueStyle => Mono
+        ? "font-family: ui-monospace, monospace; font-size: 0.9em; word-break: break-all;"
+        : string.Empty;
+}

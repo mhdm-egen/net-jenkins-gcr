@@ -26,6 +26,21 @@ public interface IJenkinsClient
     /// </summary>
     Task<JenkinsJobDetails> GetJobDetailsAsync(string jobName, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Returns the most recent builds of <paramref name="jobName"/>, newest first.
+    /// Capped at <paramref name="count"/> (Jenkins's <c>tree</c> range syntax handles
+    /// pagination so the request stays a single round-trip). Each entry includes
+    /// status, timestamps, duration, and the build's description (typically the
+    /// PACKAGE_VERSION for our pipelines).
+    /// </summary>
+    Task<IReadOnlyList<Build>> ListBuildsAsync(string jobName, int count, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the full record for a single build — basics plus the artifacts list
+    /// and the causes that triggered the run. One round-trip via a tree query.
+    /// </summary>
+    Task<JenkinsBuildDetails> GetBuildDetailsAsync(string jobName, int buildNumber, CancellationToken cancellationToken = default);
+
     // --- Triggering ---
 
     /// <summary>

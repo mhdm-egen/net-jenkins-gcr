@@ -17,6 +17,7 @@
         <MudText Typo="Typo.h6">Jenkins WebUI</MudText>
         <MudSpacer />
         <ThemeSwitcher CurrentThemeId="@_active.Id" ThemeChanged="OnThemeChangedAsync" />
+        <BuildSyncBadge />
         <JenkinsStatusBadge />
     </MudAppBar>
 
@@ -37,6 +38,11 @@
                             Match="NavLinkMatch.Prefix"
                             Icon="@Icons.Material.Filled.PlayArrow">
                     Pipelines
+                </MudNavLink>
+                <MudNavLink Href="jenkins/builds"
+                            Match="NavLinkMatch.Prefix"
+                            Icon="@Icons.Material.Filled.History">
+                    Builds
                 </MudNavLink>
                 @* External link to the Jenkins server's own UI — opens in a new tab. *@
                 <MudNavLink Href="@JenkinsOpts.BaseUrl"
@@ -81,6 +87,15 @@
                             Target="_blank"
                             Icon="@Icons.Material.Filled.FolderOpen">
                     Sbom Repo
+                </MudNavLink>
+            </MudNavGroup>
+            <MudNavGroup Title="SCA"
+                         Icon="@Icons.Material.Filled.Analytics"
+                         Expanded="true">
+                <MudNavLink Href="sca/sbom"
+                            Match="NavLinkMatch.Prefix"
+                            Icon="@Icons.Material.Filled.DataObject">
+                    SBOM
                 </MudNavLink>
             </MudNavGroup>
             <MudNavLink Href="google"

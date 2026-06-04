@@ -5,7 +5,7 @@ pipeline {
         string(name: 'NUGET_SOURCE', defaultValue: 'http://nexus:8081/repository/nuget-hosted/', description: 'NuGet feed URL (Nexus hosted repo, internal proxy, or https://api.nuget.org/v3/index.json)')
         string(name: 'NUGET_API_KEY_CREDENTIAL_ID', defaultValue: 'rhythm-nuget', description: 'Jenkins credential id (Secret Text) holding the NuGet API key for the target feed')
         string(name: 'SBOM_NEXUS_REPO_URL', defaultValue: 'http://nexus:8081/repository/sboms/', description: 'Nexus raw (hosted) repo URL where bom.json + vulnerabilities.json are uploaded. Repo must be created as type=raw,format=hosted in Nexus first.')
-        string(name: 'SBOM_NEXUS_CREDENTIAL_ID', defaultValue: 'nexus-rest', description: 'Jenkins credential id (Username/Password) for HTTP Basic auth against the Nexus REST API used by the raw-repo PUT calls')
+        string(name: 'SBOM_NEXUS_CREDENTIAL_ID', defaultValue: 'nexus-sbom', description: 'Jenkins credential id (Username/Password) for HTTP Basic auth against the Nexus REST API used by the raw-repo PUT calls')
         string(name: 'SOURCE_BUILD_JOB', defaultValue: 'cicd-build', description: 'Name of the upstream build job whose build-info.json will be pulled in')
         string(name: 'SOURCE_BUILD_NUMBER', defaultValue: '', description: 'Specific upstream build number to publish. Leave empty for the last successful build.')
     }
