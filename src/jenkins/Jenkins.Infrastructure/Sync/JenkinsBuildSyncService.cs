@@ -5,6 +5,7 @@ using Jenkins.Application.Features.Repositories;
 using Jenkins.Client;
 using Jenkins.Contracts.Builds;
 using Jenkins.Contracts.Repositories;
+using Jenkins.Infrastructure.Sync.Nexus;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -35,6 +36,7 @@ internal sealed class JenkinsBuildSyncService : BackgroundService
     private readonly ILogger<JenkinsBuildSyncService> _logger;
 
     private readonly HashSet<string> _backfilled = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<Guid> _reconciled = new(); // builds whose Nexus artifacts are attached
 
     public JenkinsBuildSyncService(
         IServiceScopeFactory scopes,
@@ -106,12 +108,14 @@ internal sealed class JenkinsBuildSyncService : BackgroundService
         using var scope = _scopes.CreateScope();
         var recordBuild = scope.ServiceProvider.GetRequiredService<RecordBuildHandler>();
         var completeBuild = scope.ServiceProvider.GetRequiredService<CompleteBuildHandler>();
+        var reconcile = scope.ServiceProvider.GetRequiredService<ReconcileBuildArtifactsHandler>();
+        var nexus = scope.ServiceProvider.GetService<INexusArtifactReader>(); // null when Nexus unconfigured
 
         foreach (var build in recent)
         {
             try
             {
-                await IngestBuildAsync(repo, build, recordBuild, completeBuild, ct).ConfigureAwait(false);
+                await IngestBuildAsync(repo, build, recordBuild, completeBuild, reconcile, nexus, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -125,6 +129,8 @@ internal sealed class JenkinsBuildSyncService : BackgroundService
         Build build,
         RecordBuildHandler recordBuild,
         CompleteBuildHandler completeBuild,
+        ReconcileBuildArtifactsHandler reconcile,
+        INexusArtifactReader? nexus,
         CancellationToken ct)
     {
         var info = await TryGetBuildInfoAsync(repo.CiJobName, build.Number, ct).ConfigureAwait(false);
@@ -155,25 +161,56 @@ internal sealed class JenkinsBuildSyncService : BackgroundService
             TriggeredBy: null,
             StartedAtUtc: startedAt), ct).ConfigureAwait(false);
 
+        var succeeded = summary.Status == BuildStatusDto.Succeeded;
+
         // Finished in Jenkins but still Running in our store → settle it.
-        if (build.Building || summary.Status != BuildStatusDto.Running)
-            return;
+        if (!build.Building && summary.Status == BuildStatusDto.Running)
+        {
+            var status = MapResult(build.Result);
+            if (status is { } terminal)
+            {
+                var versions = BuildVersionsFrom(info);
+                var quality = await BuildQualityFromAsync(repo.CiJobName, build, ct).ConfigureAwait(false);
+                var completedAt = DateTimeOffset.FromUnixTimeMilliseconds(build.Timestamp + Math.Max(0, build.Duration));
 
-        var status = MapResult(build.Result);
-        if (status is null)
-            return; // NotBuilt / unknown — leave Running until it resolves
+                await completeBuild.HandleAsync(new CompleteBuildCommand(
+                    BuildId: summary.Id,
+                    Status: terminal,
+                    CompletedAtUtc: completedAt,
+                    DurationMs: build.Duration > 0 ? build.Duration : null,
+                    Versions: versions,
+                    Quality: quality), ct).ConfigureAwait(false);
 
-        var versions = BuildVersionsFrom(info);
-        var quality = await BuildQualityFromAsync(repo.CiJobName, build, ct).ConfigureAwait(false);
-        var completedAt = DateTimeOffset.FromUnixTimeMilliseconds(build.Timestamp + Math.Max(0, build.Duration));
+                succeeded = terminal == BuildStatusDto.Succeeded;
+            }
+        }
 
-        await completeBuild.HandleAsync(new CompleteBuildCommand(
-            BuildId: summary.Id,
-            Status: status.Value,
-            CompletedAtUtc: completedAt,
-            DurationMs: build.Duration > 0 ? build.Duration : null,
-            Versions: versions,
-            Quality: quality), ct).ConfigureAwait(false);
+        // Option b: attach the build's published artifacts from Nexus. Retries each
+        // tick (artifacts land after the downstream publish jobs) until present.
+        if (succeeded && nexus is not null
+            && !_reconciled.Contains(summary.Id)
+            && !string.IsNullOrWhiteSpace(info.PackageVersion))
+        {
+            try
+            {
+                var specs = await nexus.FindArtifactsAsync(info.PackageVersion!, commitShort, build.Number, ct).ConfigureAwait(false);
+                if (specs.Count > 0)
+                {
+                    var result = await reconcile.HandleAsync(
+                        new ReconcileBuildArtifactsCommand(summary.Id, specs), ct).ConfigureAwait(false);
+                    if (result.TotalArtifacts > 0)
+                    {
+                        _reconciled.Add(summary.Id);
+                        _logger.LogInformation("[reconcile] {Job}#{Number}: +{Added} artifact(s) ({Total} total)",
+                            repo.CiJobName, build.Number, result.Added, result.TotalArtifacts);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Artifact reconciliation for {Job}#{Number} failed; will retry", repo.CiJobName, build.Number);
+            }
+        }
     }
 
     private async Task<JenkinsBuildInfo?> TryGetBuildInfoAsync(string job, int number, CancellationToken ct)

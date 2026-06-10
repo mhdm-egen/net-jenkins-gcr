@@ -8,6 +8,7 @@ using Jenkins.Domain.Builds;
 using Jenkins.Domain.Handoffs;
 using Jenkins.Domain.SourceRepositories;
 using Jenkins.Infrastructure.Sync;
+using Jenkins.Infrastructure.Sync.Nexus;
 using Jenkins.Infrastructure.Messaging;
 using Jenkins.Infrastructure.Persistence;
 using Jenkins.Infrastructure.Persistence.Readers;
@@ -86,6 +87,16 @@ public static class DependencyInjection
         var jenkinsOptions = new JenkinsOptions(baseUrl, configuration["Jenkins:User"] ?? "admin", token);
         services.AddSingleton(jenkinsOptions);
         services.AddSingleton<IJenkinsClient>(sp => new JenkinsClient(sp.GetRequiredService<JenkinsOptions>()));
+
+        // Nexus artifact reconciliation (option b) — registered only when Nexus is
+        // configured. Absent ⇒ the sync ingests builds without artifacts.
+        var nexusOptions = configuration.GetSection(NexusReconcileOptions.SectionName).Get<NexusReconcileOptions>()
+                           ?? new NexusReconcileOptions();
+        if (!string.IsNullOrWhiteSpace(nexusOptions.Url) && !string.IsNullOrWhiteSpace(nexusOptions.Password))
+        {
+            services.AddSingleton(nexusOptions);
+            services.AddSingleton<INexusArtifactReader, NexusArtifactReader>();
+        }
 
         var enabled = configuration.GetSection(JenkinsSyncOptions.SectionName)
             .GetValue<bool?>(nameof(JenkinsSyncOptions.Enabled)) ?? true;

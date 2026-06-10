@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped<RecordBuildHandler>();
         services.AddScoped<CompleteBuildHandler>();
         services.AddScoped<RecordArtifactHandler>();
+        services.AddScoped<ReconcileBuildArtifactsHandler>();
         services.AddScoped<ListBuildsHandler>();
         services.AddScoped<GetBuildByIdHandler>();
 
