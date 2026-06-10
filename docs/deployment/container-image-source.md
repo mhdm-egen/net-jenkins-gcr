@@ -40,6 +40,7 @@ ContainerImage (deployment catalog entity)
   Registry             // host, e.g. nexus:8082
   Repository           // path within the registry, e.g. docker-private
   DefaultTags = ["latest"]
+  IsActive             // deactivate to hide from pickers; existing releases unaffected
   // BaseRef()   => {Registry}/{Repository}/{Name}
   // Resolve(tag) => {Registry}/{Repository}/{Name}@sha256:<digest>
 ```
@@ -94,7 +95,65 @@ real coordinate (registry + repo + name). The natural evolution is for the
 component mapping / service to reference a `ContainerImage` rather than carry a loose
 name + URI.
 
-## 6. Structural delta
+## 6. Lifecycle
+
+**Enabling property:** because the design resolves tag → digest and stores the resolved
+`ArtifactUri` on the **immutable Release** (Section 3), a `ContainerImage` coordinate is
+only needed at *authoring* time. Existing releases never depend on it at runtime — they
+carry their own pinned digest. So coordinates are **cheap to create and safe to retire**:
+hiding or deleting one can never break a release that already used it. This drives the
+whole lifecycle.
+
+### Creation — discovered first, authored as fallback
+
+The system usually already knows the coordinate, so users shouldn't hand-author master
+data that drifts. Three triggers, in priority order:
+
+1. **Auto-upsert from the CI handoff / component mapping** *(authoritative).* The handoff
+   already supplies registry + repo + name + digest, and `DeployableComponent.ContainerName`
+   already says "this repo produces container X." First time a container flows through,
+   upsert the `ContainerImage`. No manual entry, no drift.
+2. **Dynamic discovery in the release modal.** Nexus is the system of record for what
+   images/tags exist, so the modal queries it: pick image name → pick tag → resolve to
+   digest. Selecting materializes/uses a coordinate. Covers ad-hoc releases of images not
+   flowing through a mapped component.
+3. **Explicit create** *(escape hatch).* For what the system can't discover — an external
+   registry, or pre-registration before the first build. Rare.
+
+The release-modal dropdown is populated from **known coordinates (#1) + a live registry
+query (#2)**, with explicit-create for the long tail.
+
+### Tags — live-query, don't freeze a list
+
+The coordinate stores the **stable address** (registry + repo + name) plus a **default
+selector** (`latest`). The *available* tags come from the live Nexus query at modal time;
+a frozen tag list on the entity would reintroduce the drift we're avoiding. The chosen tag
+is pinned to a digest on the release.
+
+### Retirement — deactivate, don't delete
+
+Mirror the rest of the system (`Service`, `SourceRepository`, `DeployableComponent` all use
+`IsActive` + Deactivate/Reactivate):
+
+- **Deactivate** → the coordinate drops out of the release-modal dropdown and discovery,
+  but **existing releases are untouched** (they hold their own digest). The normal "stop
+  offering this image" action.
+- **Hard delete** only as optional cleanup for a coordinate **no release ever referenced**.
+  If anything referenced it, deactivate is the only safe verb.
+
+The resolve-to-digest property means there's never a "can't delete, it's in use" block at
+*runtime* — only authoring history, which deactivate handles.
+
+### UI placement
+
+- **Primary surface = the release-modal dropdown** (select known + live-discovered) — where
+  almost all interaction happens.
+- **Management = a light catalog**, not a heavy nav item: either a small
+  `/deployment/container-images` list with activate/deactivate (consistent with
+  Services/Environments), or folded into **Service detail** as "backing image." Start
+  folded-in unless many shared/standalone images are expected, then promote to its own page.
+
+## 7. Structural delta
 
 ```text
 Deployment.Domain
@@ -110,19 +169,23 @@ creation: `(ContainerImage, tag) -> digest`. v1 may implement it as "the handoff
 already supplies the digest" and add the live registry query as a follow-up
 (Section 7, #1).
 
-## 7. Open decisions (to resolve before code)
+## 8. Open decisions (to resolve before code)
 
-1. **Resolver scope now or later.** Ship the coordinate entity + digest-pin first
+1. **Creation model.** Auto-materialize coordinates (CI handoff/component upsert + live
+   Nexus discovery) with explicit-create as the escape hatch, or require explicit
+   authoring? *Leaning: auto-materialize* — keep the catalog a projection of CI + Nexus,
+   not hand-maintained master data (Section 6).
+2. **Resolver scope now or later.** Ship the coordinate entity + digest-pin first
    (high value, low risk) and add the live tag→digest registry query as a second step,
    or build the resolver in v1?
-2. **Tag-set semantics.** Are `DefaultTags` strictly the *default selector*, or a set of
-   *acceptable aliases / metadata*? Leaning: a default selector; the actual tag is
-   chosen per release/deploy.
-3. **Cross-registry identity.** One logical image often exists in both Nexus (source) and
+3. **Tag-set semantics.** Coordinate stores a stable address + a *default selector*
+   (`latest`); available tags come from the live registry query, not a frozen list
+   (Section 6). Open only if we decide to persist tag metadata on the entity.
+4. **Cross-registry identity.** One logical image often exists in both Nexus (source) and
    GAR (promoted). Model as one `ContainerImage` with the GAR ref *derived* (as the Cloud
-   Run adapter already does), or as two rows? Leaning: derive, don't duplicate.
+   Run adapter already does), or as two rows? *Leaning: derive, don't duplicate.*
 
-## 8. Out of scope (deliberately not over-designed)
+## 9. Out of scope (deliberately not over-designed)
 
 - **Other artifact types** (NuGet, Zip, Manifest/Application). `Release` is a tagged
   union over `ArtifactType`; those types address and pin differently (NuGet pins on
