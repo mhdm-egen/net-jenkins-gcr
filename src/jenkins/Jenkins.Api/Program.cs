@@ -49,6 +49,6 @@ app.MapGet("/", () => Results.Ok(new
 
 app.MapRepositoryEndpoints();
 app.MapBuildEndpoints();
-// The promote (handoff) endpoint group is mapped here as its slice lands.
+app.MapHandoffEndpoints();
 
 app.Run();

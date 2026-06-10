@@ -18,6 +18,13 @@ public interface IDeploymentReleaseClient
 
     /// <summary>Attach supply-chain provenance to a just-published Release.</summary>
     Task AttachProvenanceAsync(Guid releaseId, AttachProvenanceInput input, CancellationToken ct = default);
+
+    /// <summary>
+    /// Resolve an existing Release id by (deployable unit, version) — used to settle
+    /// the handoff idempotently after a duplicate-version conflict (decision #4).
+    /// Returns null if no matching release is found.
+    /// </summary>
+    Task<Guid?> GetReleaseIdByVersionAsync(Guid deployableUnitId, string semanticVersion, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -39,3 +46,17 @@ public sealed record AttachProvenanceInput(
     string CiRunUrl,
     string CiRunId,
     string PublishedByPrincipal);
+
+/// <summary>
+/// Thrown by <see cref="IDeploymentReleaseClient.PublishContainerReleaseAsync"/> when
+/// the deployment service rejects a publish because the release version already
+/// exists. The promote handler catches this and resolves the existing id (decision #4).
+/// Declared with the port so the Application layer can catch it without referencing
+/// Infrastructure.
+/// </summary>
+public sealed class DeploymentReleaseConflictException(Guid deployableUnitId, string semanticVersion)
+    : Exception($"Release {semanticVersion} for deployable unit {deployableUnitId} already exists.")
+{
+    public Guid DeployableUnitId { get; } = deployableUnitId;
+    public string SemanticVersion { get; } = semanticVersion;
+}

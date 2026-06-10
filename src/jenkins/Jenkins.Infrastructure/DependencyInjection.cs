@@ -1,8 +1,10 @@
 using Jenkins.Application.Abstractions;
 using Jenkins.Application.Features.Builds;
+using Jenkins.Application.Features.Handoffs;
 using Jenkins.Application.Features.Repositories;
 using Jenkins.Domain.Abstractions;
 using Jenkins.Domain.Builds;
+using Jenkins.Domain.Handoffs;
 using Jenkins.Domain.SourceRepositories;
 using Jenkins.Infrastructure.Messaging;
 using Jenkins.Infrastructure.Persistence;
@@ -44,10 +46,12 @@ public static class DependencyInjection
         // Aggregate stores.
         services.AddScoped<ISourceRepositoryStore, SourceRepositoryStore>();
         services.AddScoped<IBuildStore, BuildStore>();
+        services.AddScoped<IContainerReleaseHandoffStore, ContainerReleaseHandoffStore>();
 
         // Read-model readers.
         services.AddScoped<IRepositoryCatalogReader, EfRepositoryCatalogReader>();
         services.AddScoped<IBuildCatalogReader, EfBuildCatalogReader>();
+        services.AddScoped<IHandoffReader, EfHandoffReader>();
 
         // The one-way handoff client. Base URL points at the deployment service.
         var deploymentBaseUrl = configuration["Deployment:ApiBaseUrl"] ?? "http://localhost:9601";

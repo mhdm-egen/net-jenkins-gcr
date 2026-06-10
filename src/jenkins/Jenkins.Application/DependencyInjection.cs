@@ -1,5 +1,6 @@
 using FluentValidation;
 using Jenkins.Application.Features.Builds;
+using Jenkins.Application.Features.Handoffs;
 using Jenkins.Application.Features.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -30,6 +31,11 @@ public static class DependencyInjection
         services.AddScoped<RecordArtifactHandler>();
         services.AddScoped<ListBuildsHandler>();
         services.AddScoped<GetBuildByIdHandler>();
+
+        // Handoff handlers.
+        services.AddScoped<PromoteToReleaseHandler>();
+        services.AddScoped<ListHandoffsByBuildHandler>();
+        services.AddScoped<GetHandoffByIdHandler>();
 
         return services;
     }
