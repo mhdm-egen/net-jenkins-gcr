@@ -1,5 +1,8 @@
 pipeline {
     parameters {
+        string(name: 'GIT_URL', defaultValue: '', description: 'Git repository URL to build (required). The Jenkinsfile clones this itself — the job no longer decides which repo to build.')
+        string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Branch, tag, or ref to build')
+        string(name: 'GIT_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins credentials ID for cloning a private repo (leave blank for public/anonymous access)')
         string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
         string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0', description: 'Arguments for the build container')
         string(name: 'BUILD_FILE', defaultValue: 'src/app/cicd.sln', description: 'File to build (sln or csproj)')
@@ -13,6 +16,9 @@ pipeline {
         timestamps()
         timeout(time: 30, unit: 'MINUTES')
         disableConcurrentBuilds()
+        // We clone GIT_URL ourselves in the Checkout stage; don't let Jenkins
+        // implicitly check out the job's own SCM into the build workspace.
+        skipDefaultCheckout(true)
     }
 
     agent {
@@ -24,6 +30,30 @@ pipeline {
     }
 
     stages {
+        stage ('Checkout') {
+            steps {
+                script {
+                    if (!params.GIT_URL?.trim()) {
+                        error "GIT_URL parameter is required — it is the repository this build clones and builds."
+                    }
+
+                    // Clone the requested repo/branch into the (empty) workspace. The
+                    // caller controls the repo via GIT_URL; the job config no longer does.
+                    def remote = [url: params.GIT_URL.trim()]
+                    if (params.GIT_CREDENTIALS_ID?.trim()) {
+                        remote.credentialsId = params.GIT_CREDENTIALS_ID.trim()
+                    }
+
+                    println "Cloning ${params.GIT_URL} @ ${params.GIT_BRANCH}"
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: params.GIT_BRANCH]],
+                        userRemoteConfigs: [remote]
+                    ])
+                }
+            }
+        }
+
         stage ('Init') {
             steps {
                 script {
@@ -197,6 +227,8 @@ pipeline {
                         buildNumber:          env.BUILD_NUMBER,
                         packVer:              params.BASE_VER,
                         buildFile:            params.BUILD_FILE,
+                        gitUrl:               params.GIT_URL,
+                        gitBranch:            params.GIT_BRANCH,
                         buildTimestamp:       new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone('UTC'))
                     ], pretty: 2
 

@@ -12,6 +12,14 @@
         @_snapshot.State.ToString()
     </MudChip>
     <MudSpacer />
+    <MudSelect T="Guid?" Value="_selectedRepoId" ValueChanged="OnRepoSelected"
+               Label="Repository" Dense="true" Variant="Variant.Outlined"
+               Style="min-width: 16rem;" Disabled="@(_snapshot.State == PipelineState.Running)">
+        @foreach (var r in _repositories)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)r.Id)">@r.Name (@r.DefaultBranch)</MudSelectItem>
+        }
+    </MudSelect>
     <MudSelect T="Guid?" Value="_selectedId" ValueChanged="OnPipelineSelectedAsync"
                Label="Pipeline" Dense="true" Variant="Variant.Outlined"
                Style="min-width: 16rem;" Disabled="@(_snapshot.State == PipelineState.Running)">
@@ -59,6 +67,19 @@
 
 <MudPaper Elevation="1" Class="pa-4 mb-4">
     <MudText Typo="Typo.h6" Class="mb-2">Steps</MudText>
+    @if (SelectedRepo is { } repo)
+    {
+        <MudText Typo="Typo.body2" Class="mb-2" Style="color: var(--mud-palette-text-secondary);">
+            Source steps clone <strong>@repo.GitUrl</strong> @@ <strong>@repo.DefaultBranch</strong>
+            (injected as <code>GIT_URL</code> / <code>GIT_BRANCH</code>).
+        </MudText>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-2">
+            No repository selected — the build step has no <code>GIT_URL</code> and will fail unless a stage sets it explicitly.
+        </MudAlert>
+    }
     <MudSimpleTable Dense="true" Hover="true" Striped="true" Style="font-family: ui-monospace, monospace;">
         <thead>
             <tr>
@@ -143,6 +164,11 @@
     private IReadOnlyList<PipelineSummaryDto> _pipelines = Array.Empty<PipelineSummaryDto>();
     private Guid? _selectedId;
 
+    // The repo whose GitUrl/DefaultBranch are injected into the source (no-upstream) steps.
+    private IReadOnlyList<RepositoryDto> _repositories = Array.Empty<RepositoryDto>();
+    private Guid? _selectedRepoId;
+    private RepositoryDto? SelectedRepo => _repositories.FirstOrDefault(r => r.Id == _selectedRepoId);
+
     private PipelineSnapshot _snapshot = new(
     PipelineState.Idle,
     Array.Empty<PipelineEvent>(),
@@ -154,7 +180,21 @@
     {
         _snapshot = Runner.Snapshot;
         Runner.StateChanged += OnStateChanged;
+        await LoadRepositoriesAsync();
         await LoadPipelinesAsync();
+    }
+
+    private async Task LoadRepositoriesAsync()
+    {
+        try { _repositories = await Api.ListRepositoriesAsync(onlyActive: true); }
+        catch { _repositories = Array.Empty<RepositoryDto>(); }
+        _selectedRepoId = _repositories.FirstOrDefault()?.Id;
+    }
+
+    private void OnRepoSelected(Guid? id)
+    {
+        _selectedRepoId = id;
+        StateHasChanged();
     }
 
     private async Task LoadPipelinesAsync()
@@ -213,8 +253,28 @@
         });
     }
 
-    private void OnRun()    => Runner.TryStart(_steps);
+    private void OnRun()    => Runner.TryStart(EffectiveSteps());
     private void OnCancel() => Runner.Cancel();
+
+    // Inject the selected repo's GitUrl/DefaultBranch into the source steps (those with
+    // no upstream job — the build steps that clone). Downstream steps consume artifacts
+    // via copyArtifacts and don't need GIT_URL. Explicit stage params take precedence.
+    private IReadOnlyList<PipelineStep> EffectiveSteps()
+    {
+        if (SelectedRepo is not { } repo) return _steps;
+        return _steps.Select(s =>
+        {
+            if (!string.IsNullOrWhiteSpace(s.UpstreamJob)) return s;
+            var merged = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["GIT_URL"] = repo.GitUrl,
+                ["GIT_BRANCH"] = repo.DefaultBranch,
+            };
+            if (s.AdditionalParameters is { Count: > 0 } extras)
+                foreach (var kv in extras) merged[kv.Key] = kv.Value;
+            return s with { AdditionalParameters = merged };
+        }).ToList();
+    }
 
     private string? CurrentLog()
     {
