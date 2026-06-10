@@ -1,5 +1,6 @@
 using Jenkins.Domain.Builds;
 using Jenkins.Domain.Handoffs;
+using Jenkins.Domain.Pipelines;
 using Jenkins.Domain.SourceRepositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -29,6 +30,9 @@ public sealed class JenkinsCiDbContext : DbContext
     public DbSet<ArtifactPublication> ArtifactPublications => Set<ArtifactPublication>();
 
     public DbSet<ContainerReleaseHandoff> Handoffs => Set<ContainerReleaseHandoff>();
+
+    public DbSet<Pipeline> Pipelines => Set<Pipeline>();
+    public DbSet<PipelineStage> PipelineStages => Set<PipelineStage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

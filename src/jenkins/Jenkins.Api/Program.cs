@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Jenkins.Api.Endpoints;
 using Jenkins.Application;
+using Jenkins.Application.Features.Pipelines;
 using Jenkins.Infrastructure;
 using Jenkins.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -51,6 +52,22 @@ if (builder.Configuration.GetValue<bool>("Database:AutoMigrate"))
     await scope.ServiceProvider.GetRequiredService<JenkinsCiDbContext>().Database.MigrateAsync();
 }
 
+// Seed the default "CICD Main" pipeline if none exist (idempotent). Runs once the
+// host has started — SaveChanges dispatches domain events, which needs the Wolverine
+// bus running. Non-fatal if the DB isn't migrated.
+app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+{
+    using var scope = app.Services.CreateScope();
+    try
+    {
+        await scope.ServiceProvider.GetRequiredService<SeedDefaultPipelineHandler>().HandleAsync();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Default pipeline seed skipped (is the database migrated?)");
+    }
+}));
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -70,5 +87,6 @@ app.MapGet("/", () => Results.Ok(new
 app.MapRepositoryEndpoints();
 app.MapBuildEndpoints();
 app.MapHandoffEndpoints();
+app.MapPipelineEndpoints();
 
 app.Run();

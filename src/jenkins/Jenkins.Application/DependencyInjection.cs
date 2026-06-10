@@ -1,6 +1,7 @@
 using FluentValidation;
 using Jenkins.Application.Features.Builds;
 using Jenkins.Application.Features.Handoffs;
+using Jenkins.Application.Features.Pipelines;
 using Jenkins.Application.Features.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -37,6 +38,19 @@ public static class DependencyInjection
         services.AddScoped<PromoteToReleaseHandler>();
         services.AddScoped<ListHandoffsByBuildHandler>();
         services.AddScoped<GetHandoffByIdHandler>();
+
+        // Pipeline handlers.
+        services.AddScoped<CreatePipelineHandler>();
+        services.AddScoped<UpdatePipelineHandler>();
+        services.AddScoped<SetPipelineActiveHandler>();
+        services.AddScoped<DeletePipelineHandler>();
+        services.AddScoped<AddStageHandler>();
+        services.AddScoped<UpdateStageHandler>();
+        services.AddScoped<RemoveStageHandler>();
+        services.AddScoped<ReorderStagesHandler>();
+        services.AddScoped<ListPipelinesHandler>();
+        services.AddScoped<GetPipelineByIdHandler>();
+        services.AddScoped<SeedDefaultPipelineHandler>();
 
         return services;
     }

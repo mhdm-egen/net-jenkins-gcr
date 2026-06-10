@@ -1,6 +1,7 @@
 @page "/"
 @page "/jenkins/orchestrator"
 @inject IPipelineRunner Runner
+@inject JenkinsApiClient Api
 @implements IDisposable
 
 <PageTitle>Orchestrator</PageTitle>
@@ -11,6 +12,25 @@
         @_snapshot.State.ToString()
     </MudChip>
     <MudSpacer />
+    <MudSelect T="Guid?" Value="_selectedRepoId" ValueChanged="OnRepoSelected"
+               Label="Repository" Dense="true" Variant="Variant.Outlined"
+               Style="min-width: 16rem;" Disabled="@(_snapshot.State == PipelineState.Running)">
+        @foreach (var r in _repositories)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)r.Id)">@r.Name (@r.DefaultBranch)</MudSelectItem>
+        }
+    </MudSelect>
+    <MudSelect T="Guid?" Value="_selectedId" ValueChanged="OnPipelineSelectedAsync"
+               Label="Pipeline" Dense="true" Variant="Variant.Outlined"
+               Style="min-width: 16rem;" Disabled="@(_snapshot.State == PipelineState.Running)">
+        @foreach (var p in _pipelines)
+        {
+            <MudSelectItem T="Guid?" Value="@((Guid?)p.Id)">@p.Name (@p.StageCount)</MudSelectItem>
+        }
+    </MudSelect>
+    <MudTooltip Text="Manage pipelines">
+        <MudIconButton Icon="@Icons.Material.Filled.Edit" Href="/ci/pipelines" />
+    </MudTooltip>
     @if (_snapshot.State == PipelineState.Running)
     {
         <MudButton Color="Color.Error"
@@ -25,6 +45,7 @@
         <MudButton Color="Color.Primary"
                    Variant="Variant.Filled"
                    StartIcon="@Icons.Material.Filled.PlayArrow"
+                   Disabled="@(_steps.Count == 0)"
                    OnClick="OnRun">
             Run Pipeline
         </MudButton>
@@ -46,6 +67,19 @@
 
 <MudPaper Elevation="1" Class="pa-4 mb-4">
     <MudText Typo="Typo.h6" Class="mb-2">Steps</MudText>
+    @if (SelectedRepo is { } repo)
+    {
+        <MudText Typo="Typo.body2" Class="mb-2" Style="color: var(--mud-palette-text-secondary);">
+            Source steps clone <strong>@repo.GitUrl</strong> @@ <strong>@repo.DefaultBranch</strong>
+            (injected as <code>GIT_URL</code> / <code>GIT_BRANCH</code>).
+        </MudText>
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-2">
+            No repository selected — the build step has no <code>GIT_URL</code> and will fail unless a stage sets it explicitly.
+        </MudAlert>
+    }
     <MudSimpleTable Dense="true" Hover="true" Striped="true" Style="font-family: ui-monospace, monospace;">
         <thead>
             <tr>
@@ -57,6 +91,10 @@
             </tr>
         </thead>
         <tbody>
+            @if (_steps.Count == 0)
+            {
+                <tr><td colspan="5" style="color: var(--mud-palette-text-secondary);">No pipeline selected, or it has no stages.</td></tr>
+            }
             @foreach (var step in _steps)
             {
                 var view = StepStatusFor(step.JobName);
@@ -120,7 +158,16 @@
 </MudPaper>
 
 @code {
-    private static readonly IReadOnlyList<PipelineStep> _steps = DefaultPipelines.CicdMain();
+    // Steps are loaded from the selected persisted pipeline (Jenkins.Api). Falls back to
+    // the built-in CICD Main if the service is unreachable so the page still runs.
+    private IReadOnlyList<PipelineStep> _steps = Array.Empty<PipelineStep>();
+    private IReadOnlyList<PipelineSummaryDto> _pipelines = Array.Empty<PipelineSummaryDto>();
+    private Guid? _selectedId;
+
+    // The repo whose GitUrl/DefaultBranch are injected into the source (no-upstream) steps.
+    private IReadOnlyList<RepositoryDto> _repositories = Array.Empty<RepositoryDto>();
+    private Guid? _selectedRepoId;
+    private RepositoryDto? SelectedRepo => _repositories.FirstOrDefault(r => r.Id == _selectedRepoId);
 
     private PipelineSnapshot _snapshot = new(
     PipelineState.Idle,
@@ -129,10 +176,72 @@
     Logs: new Dictionary<string, string>(),
     Result: null);
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         _snapshot = Runner.Snapshot;
         Runner.StateChanged += OnStateChanged;
+        await LoadRepositoriesAsync();
+        await LoadPipelinesAsync();
+    }
+
+    private async Task LoadRepositoriesAsync()
+    {
+        try { _repositories = await Api.ListRepositoriesAsync(onlyActive: true); }
+        catch { _repositories = Array.Empty<RepositoryDto>(); }
+        _selectedRepoId = _repositories.FirstOrDefault()?.Id;
+    }
+
+    private void OnRepoSelected(Guid? id)
+    {
+        _selectedRepoId = id;
+        StateHasChanged();
+    }
+
+    private async Task LoadPipelinesAsync()
+    {
+        try
+        {
+            _pipelines = await Api.ListPipelinesAsync();
+        }
+        catch
+        {
+            _pipelines = Array.Empty<PipelineSummaryDto>();
+        }
+
+        // Prefer the first active pipeline, else the first one.
+        var initial = _pipelines.FirstOrDefault(p => p.IsActive) ?? _pipelines.FirstOrDefault();
+        if (initial is not null)
+        {
+            await OnPipelineSelectedAsync(initial.Id);
+        }
+        else
+        {
+            // No persisted pipelines reachable — fall back to the built-in default.
+            _steps = DefaultPipelines.CicdMain();
+        }
+    }
+
+    private async Task OnPipelineSelectedAsync(Guid? id)
+    {
+        _selectedId = id;
+        if (id is not { } pid) { _steps = Array.Empty<PipelineStep>(); return; }
+        try
+        {
+            var dto = await Api.GetPipelineAsync(pid);
+            _steps = dto is null
+                ? Array.Empty<PipelineStep>()
+                : dto.Stages
+                     .Select(s => new PipelineStep(
+                         s.JobName,
+                         string.IsNullOrWhiteSpace(s.UpstreamJobName) ? null : s.UpstreamJobName,
+                         s.Parameters.Count > 0 ? new Dictionary<string, string>(s.Parameters) : null))
+                     .ToList();
+        }
+        catch
+        {
+            _steps = DefaultPipelines.CicdMain();
+        }
+        StateHasChanged();
     }
 
     private void OnStateChanged()
@@ -144,8 +253,28 @@
         });
     }
 
-    private void OnRun()    => Runner.TryStart(_steps);
+    private void OnRun()    => Runner.TryStart(EffectiveSteps());
     private void OnCancel() => Runner.Cancel();
+
+    // Inject the selected repo's GitUrl/DefaultBranch into the source steps (those with
+    // no upstream job — the build steps that clone). Downstream steps consume artifacts
+    // via copyArtifacts and don't need GIT_URL. Explicit stage params take precedence.
+    private IReadOnlyList<PipelineStep> EffectiveSteps()
+    {
+        if (SelectedRepo is not { } repo) return _steps;
+        return _steps.Select(s =>
+        {
+            if (!string.IsNullOrWhiteSpace(s.UpstreamJob)) return s;
+            var merged = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["GIT_URL"] = repo.GitUrl,
+                ["GIT_BRANCH"] = repo.DefaultBranch,
+            };
+            if (s.AdditionalParameters is { Count: > 0 } extras)
+                foreach (var kv in extras) merged[kv.Key] = kv.Value;
+            return s with { AdditionalParameters = merged };
+        }).ToList();
+    }
 
     private string? CurrentLog()
     {
