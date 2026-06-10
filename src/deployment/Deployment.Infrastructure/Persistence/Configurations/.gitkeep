@@ -1,0 +1,3 @@
+# Per-aggregate IEntityTypeConfiguration<T> classes go here, one file per
+# aggregate root. ApplyConfigurationsFromAssembly in DeploymentDbContext picks
+# them up automatically.

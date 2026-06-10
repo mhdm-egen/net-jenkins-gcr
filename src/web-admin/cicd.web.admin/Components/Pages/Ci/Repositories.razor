@@ -1,0 +1,267 @@
+@page "/ci/repositories"
+@inject JenkinsApiClient Api
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<PageTitle>CI — Repositories</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Repositories</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+        tracked source repos &amp; their deployment mappings
+    </MudText>
+    <MudSpacer />
+    <MudSwitch T="bool" @bind-Value="_onlyActive" @bind-Value:after="LoadAsync"
+               Color="Color.Primary" Label="Active only" />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Add" OnClick="OpenRegister">
+        Register
+    </MudButton>
+</MudStack>
+
+@if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    @if (_loading && _repos is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_repos is { Count: 0 })
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+            No repositories tracked yet. Click <strong>Register</strong> to add one.
+        </MudText>
+    }
+    else if (_repos is not null)
+    {
+        <MudTable Items="@_repos" Dense="true" Hover="true" Striped="true" T="RepositoryDto">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh Style="width: 9rem;">Provider</MudTh>
+                <MudTh>CI job</MudTh>
+                <MudTh Style="width: 7rem;">Base ver</MudTh>
+                <MudTh Style="width: 8rem;">Components</MudTh>
+                <MudTh Style="width: 6rem;">Status</MudTh>
+                <MudTh Style="width: 9rem; text-align: right;"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@context.Provider</MudChip>
+                </MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@context.CiJobName</MudTd>
+                <MudTd>@context.BaseVersion</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small"
+                             Color="@(context.Components.Count > 0 ? Color.Info : Color.Default)"
+                             Variant="Variant.Filled">
+                        @context.Components.Count
+                    </MudChip>
+                </MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small"
+                             Color="@(context.IsActive ? Color.Success : Color.Default)"
+                             Variant="Variant.Filled">
+                        @(context.IsActive ? "Active" : "Inactive")
+                    </MudChip>
+                </MudTd>
+                <MudTd Style="text-align: right; white-space: nowrap;">
+                    <MudButton Size="Size.Small" Variant="Variant.Text"
+                               StartIcon="@Icons.Material.Filled.History"
+                               OnClick="@(() => Nav.NavigateTo($"/ci/repositories/{context.Id}/builds"))">
+                        Builds
+                    </MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Filled.Link"
+                               OnClick="@(() => OpenMap(context))">
+                        Map
+                    </MudButton>
+                </MudTd>
+            </RowTemplate>
+            <ChildRowContent>
+                @if (context.Components.Count > 0)
+                {
+                    <MudTr>
+                        <td colspan="7" style="padding: 0 1rem 0.5rem 3rem;">
+                            <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">
+                                container → deployment service
+                            </MudText>
+                            @foreach (var c in context.Components)
+                            {
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="my-1">
+                                    <MudText Typo="Typo.body2" Style="font-family: ui-monospace, monospace;">@c.ContainerName</MudText>
+                                    <MudIcon Icon="@Icons.Material.Filled.ArrowForward" Size="Size.Small" />
+                                    <MudText Typo="Typo.body2">@c.DeployableUnitName</MudText>
+                                    @if (c.AutoPublish)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">auto-publish</MudChip>
+                                    }
+                                </MudStack>
+                            }
+                        </td>
+                    </MudTr>
+                }
+            </ChildRowContent>
+        </MudTable>
+    }
+</MudPaper>
+
+@* ---- Register dialog ---- *@
+<MudDialog @bind-Visible="_showRegister" Options="_dialogOptions">
+    <TitleContent>Register repository</TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_reg.Name" Label="Name" Required="true" />
+        <MudTextField @bind-Value="_reg.GitUrl" Label="Git URL" Required="true" />
+        <MudSelect @bind-Value="_reg.Provider" Label="Provider" T="RepositoryProviderDto">
+            @foreach (var p in Enum.GetValues<RepositoryProviderDto>())
+            {
+                <MudSelectItem Value="@p">@p</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField @bind-Value="_reg.DefaultBranch" Label="Default branch" />
+        <MudTextField @bind-Value="_reg.CiJobName" Label="CI job name" />
+        <MudTextField @bind-Value="_reg.BaseVersion" Label="Base version (BASE_VER)" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showRegister = false)">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="RegisterAsync" Disabled="_busy">Register</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@* ---- Map-component dialog ---- *@
+<MudDialog @bind-Visible="_showMap" Options="_dialogOptions">
+    <TitleContent>Map container → deployment service</TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-2">
+            Repository: <strong>@_mapRepoName</strong>
+        </MudText>
+        <MudTextField @bind-Value="_map.ContainerName" Label="Container image name" Required="true"
+                      HelperText="e.g. egen/web-apphost — matched against produced artifacts" />
+        <MudTextField @bind-Value="_deployableUnitIdText" Label="Deployment service id (GUID)" Required="true"
+                      HelperText="The DeployableUnit/Service id from the deployment service" />
+        <MudTextField @bind-Value="_map.DeployableUnitName" Label="Deployment service name" Required="true" />
+        <MudSwitch T="bool" @bind-Value="_map.AutoPublish" Color="Color.Warning"
+                   Label="Auto-publish to deployment on successful container push" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showMap = false)">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="MapAsync" Disabled="_busy">Save mapping</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private IReadOnlyList<RepositoryDto>? _repos;
+    private bool _onlyActive;
+    private bool _loading;
+    private bool _busy;
+    private string? _error;
+
+    private static readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    // Register form
+    private bool _showRegister;
+    private RegisterForm _reg = new();
+
+    // Map form
+    private bool _showMap;
+    private Guid _mapRepoId;
+    private string _mapRepoName = "";
+    private MapForm _map = new();
+    private string _deployableUnitIdText = "";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            _repos = await Api.ListRepositoriesAsync(_onlyActive ? true : null);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OpenRegister()
+    {
+        _reg = new RegisterForm();
+        _showRegister = true;
+    }
+
+    private async Task RegisterAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.RegisterRepositoryAsync(new RegisterRepositoryRequest(
+                _reg.Name, _reg.GitUrl, _reg.Provider, _reg.DefaultBranch, _reg.CiJobName, _reg.BaseVersion));
+            Snackbar.Add($"Registered '{_reg.Name}'.", Severity.Success);
+            _showRegister = false;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+
+    private void OpenMap(RepositoryDto repo)
+    {
+        _mapRepoId = repo.Id;
+        _mapRepoName = repo.Name;
+        _map = new MapForm();
+        _deployableUnitIdText = "";
+        _showMap = true;
+    }
+
+    private async Task MapAsync()
+    {
+        if (!Guid.TryParse(_deployableUnitIdText, out var unitId))
+        {
+            Snackbar.Add("Deployment service id must be a valid GUID.", Severity.Warning);
+            return;
+        }
+        _busy = true;
+        try
+        {
+            await Api.MapComponentAsync(_mapRepoId, new MapComponentRequest(
+                _map.ContainerName, unitId, _map.DeployableUnitName, _map.AutoPublish));
+            Snackbar.Add($"Mapped '{_map.ContainerName}'.", Severity.Success);
+            _showMap = false;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+
+    private sealed class RegisterForm
+    {
+        public string Name { get; set; } = "";
+        public string GitUrl { get; set; } = "";
+        public RepositoryProviderDto Provider { get; set; } = RepositoryProviderDto.GitHub;
+        public string DefaultBranch { get; set; } = "main";
+        public string CiJobName { get; set; } = "cicd-build";
+        public string BaseVersion { get; set; } = "1.0.0";
+    }
+
+    private sealed class MapForm
+    {
+        public string ContainerName { get; set; } = "";
+        public string DeployableUnitName { get; set; } = "";
+        public bool AutoPublish { get; set; }
+    }
+}

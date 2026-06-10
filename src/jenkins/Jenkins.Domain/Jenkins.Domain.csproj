@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Pure domain layer for the Jenkins CI microservice: zero external
+         dependencies, no NuGet packages. Mirrors Deployment.Domain. The
+         cross-service edge (calling the deployment Releases API) lives in
+         Jenkins.Infrastructure, not here. -->
+  </PropertyGroup>
+
+</Project>

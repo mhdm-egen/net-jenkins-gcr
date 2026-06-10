@@ -1,0 +1,60 @@
+using Jenkins.Domain.Common;
+
+namespace Jenkins.Domain.Builds.Events;
+
+public sealed record BuildStarted(
+    Guid BuildId,
+    Guid RepositoryId,
+    string CiJobName,
+    int CiBuildNumber,
+    string CommitSha,
+    DateTimeOffset StartedAtUtc,
+    DateTimeOffset OccurredAtUtc) : IDomainEvent;
+
+public sealed record BuildVersionsRecorded(
+    Guid BuildId,
+    string PackageVersion,
+    DateTimeOffset OccurredAtUtc) : IDomainEvent;
+
+public sealed record BuildQualityAttached(
+    Guid BuildId,
+    string SbomUri,
+    string VulnerabilityReportUri,
+    DateTimeOffset OccurredAtUtc) : IDomainEvent;
+
+public sealed record BuildSucceeded(
+    Guid BuildId,
+    DateTimeOffset CompletedAtUtc,
+    DateTimeOffset OccurredAtUtc) : IDomainEvent;
+
+public sealed record BuildFailed(
+    Guid BuildId,
+    DateTimeOffset CompletedAtUtc,
+    DateTimeOffset OccurredAtUtc) : IDomainEvent;
+
+public sealed record BuildAborted(
+    Guid BuildId,
+    DateTimeOffset CompletedAtUtc,
+    DateTimeOffset OccurredAtUtc) : IDomainEvent;
+
+public sealed record ArtifactRecorded(
+    Guid BuildId,
+    Guid BuildArtifactId,
+    ArtifactKind Kind,
+    string Name,
+    string Version,
+    string Digest,
+    DateTimeOffset OccurredAtUtc) : IDomainEvent;
+
+/// <summary>
+/// Raised when a container artifact's successful Nexus push is recorded. The
+/// application layer's auto-publish handler listens for this to fire a handoff
+/// when the matching <c>DeployableComponent.AutoPublish</c> is set (CI decision #3).
+/// </summary>
+public sealed record ContainerPublished(
+    Guid BuildId,
+    Guid BuildArtifactId,
+    Guid PublicationId,
+    string ContainerName,
+    string Reference,
+    DateTimeOffset OccurredAtUtc) : IDomainEvent;
