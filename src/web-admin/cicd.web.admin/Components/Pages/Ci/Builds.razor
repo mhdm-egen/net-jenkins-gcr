@@ -1,0 +1,98 @@
+@page "/ci/repositories/{RepositoryId:guid}/builds"
+@inject JenkinsApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>CI — Builds</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => Nav.NavigateTo("/ci/repositories"))" />
+    <MudText Typo="Typo.h4">Builds</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">@_repoName</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
+</MudStack>
+
+@if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    @if (_loading && _builds is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_builds is { Count: 0 })
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+            No builds ingested yet for this repository.
+        </MudText>
+    }
+    else if (_builds is not null)
+    {
+        <MudTable Items="@_builds" Dense="true" Hover="true" Striped="true" T="BuildSummaryDto">
+            <HeaderContent>
+                <MudTh Style="width: 6rem;">Build</MudTh>
+                <MudTh Style="width: 8rem;">Commit</MudTh>
+                <MudTh>Version</MudTh>
+                <MudTh Style="width: 7rem;">Branch</MudTh>
+                <MudTh Style="width: 7rem;">Status</MudTh>
+                <MudTh Style="width: 12rem;">Started</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <MudLink Href="@($"/ci/builds/{context.Id}")">#@context.CiBuildNumber</MudLink>
+                </MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@context.CommitShort</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@(context.PackageVersion ?? "—")</MudTd>
+                <MudTd>@context.Branch</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Status)" Variant="Variant.Filled">
+                        @context.Status
+                    </MudChip>
+                </MudTd>
+                <MudTd>@context.StartedAtUtc.LocalDateTime.ToString("g")</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public Guid RepositoryId { get; set; }
+
+    private IReadOnlyList<BuildSummaryDto>? _builds;
+    private string _repoName = "";
+    private bool _loading;
+    private string? _error;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            var repo = await Api.GetRepositoryAsync(RepositoryId);
+            _repoName = repo?.Name ?? RepositoryId.ToString();
+            _builds = await Api.ListBuildsAsync(RepositoryId, 100);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private static Color StatusColor(BuildStatusDto s) => s switch
+    {
+        BuildStatusDto.Succeeded => Color.Success,
+        BuildStatusDto.Failed => Color.Error,
+        BuildStatusDto.Running => Color.Info,
+        BuildStatusDto.Aborted => Color.Warning,
+        _ => Color.Default,
+    };
+}

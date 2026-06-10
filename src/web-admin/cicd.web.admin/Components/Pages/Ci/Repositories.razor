@@ -1,5 +1,6 @@
 @page "/ci/repositories"
 @inject JenkinsApiClient Api
+@inject NavigationManager Nav
 @inject ISnackbar Snackbar
 
 <PageTitle>CI — Repositories</PageTitle>
@@ -68,6 +69,11 @@
                     </MudChip>
                 </MudTd>
                 <MudTd Style="text-align: right; white-space: nowrap;">
+                    <MudButton Size="Size.Small" Variant="Variant.Text"
+                               StartIcon="@Icons.Material.Filled.History"
+                               OnClick="@(() => Nav.NavigateTo($"/ci/repositories/{context.Id}/builds"))">
+                        Builds
+                    </MudButton>
                     <MudButton Size="Size.Small" Variant="Variant.Outlined"
                                StartIcon="@Icons.Material.Filled.Link"
                                OnClick="@(() => OpenMap(context))">

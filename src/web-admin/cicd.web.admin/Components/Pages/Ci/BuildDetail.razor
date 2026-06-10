@@ -1,0 +1,219 @@
+@page "/ci/builds/{BuildId:guid}"
+@inject JenkinsApiClient Api
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<PageTitle>CI — Build detail</PageTitle>
+
+@if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+
+@if (_loading && _build is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_build is { } b)
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="@(() => Nav.NavigateTo($"/ci/repositories/{b.Head.RepositoryId}/builds"))" />
+        <MudText Typo="Typo.h4">@b.Head.CiJobName #@b.Head.CiBuildNumber</MudText>
+        <MudChip T="string" Size="Size.Small" Color="@StatusColor(b.Head.Status)" Variant="Variant.Filled">@b.Head.Status</MudChip>
+        <MudSpacer />
+        <MudButton Variant="Variant.Text" Href="@b.Head.CiRunUrl" Target="_blank"
+                   StartIcon="@Icons.Material.Filled.OpenInNew">Jenkins</MudButton>
+    </MudStack>
+
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-2">Source &amp; versions</MudText>
+                <DetailRow Label="Commit" Value="@b.Head.CommitShort" Mono="true" />
+                <DetailRow Label="Branch" Value="@b.Head.Branch" />
+                <DetailRow Label="Package version" Value="@b.Head.PackageVersion" Mono="true" />
+                <DetailRow Label="Informational" Value="@b.InformationalVersion" Mono="true" />
+                <DetailRow Label="File / Assembly" Value="@($"{b.FileVersion ?? "—"} / {b.AssemblyVersion ?? "—"}")" Mono="true" />
+                <DetailRow Label="Triggered by" Value="@b.TriggeredBy" />
+                <DetailRow Label="Duration" Value="@(b.DurationMs is { } d ? $"{d / 1000.0:0.0}s" : null)" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-2">Provenance</MudText>
+                @if (!string.IsNullOrEmpty(b.SbomUri))
+                {
+                    <MudLink Href="@b.SbomUri" Target="_blank" Class="d-block">SBOM (bom-vex.json)</MudLink>
+                }
+                @if (!string.IsNullOrEmpty(b.VulnerabilityReportUri))
+                {
+                    <MudLink Href="@b.VulnerabilityReportUri" Target="_blank" Class="d-block">Vulnerability report</MudLink>
+                }
+                @if (string.IsNullOrEmpty(b.SbomUri) && string.IsNullOrEmpty(b.VulnerabilityReportUri))
+                {
+                    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No SBOM / vulnerability report recorded.</MudText>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudText Typo="Typo.h6" Class="mt-6 mb-2">Artifacts</MudText>
+    @if (b.Artifacts.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No artifacts recorded for this build.</MudText>
+    }
+    else
+    {
+        foreach (var a in b.Artifacts)
+        {
+            <MudPaper Elevation="1" Class="pa-3 mb-2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@a.Kind</MudChip>
+                    <MudText Typo="Typo.body1" Style="font-family: ui-monospace, monospace;">@a.Name</MudText>
+                    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">@a.Version</MudText>
+                    <MudSpacer />
+                    @if (a.Kind == ArtifactKindDto.ContainerImage)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.RocketLaunch"
+                                   Disabled="@(b.Head.Status != BuildStatusDto.Succeeded || _busy)"
+                                   OnClick="@(() => OpenPromote(a.Id))">
+                            Promote
+                        </MudButton>
+                    }
+                </MudStack>
+                <MudText Typo="Typo.caption" Style="font-family: ui-monospace, monospace; color: var(--mud-palette-text-secondary);">@a.Digest</MudText>
+                @foreach (var p in a.Publications)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mt-1">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">@p.Registry</MudChip>
+                        <MudText Typo="Typo.caption" Style="font-family: ui-monospace, monospace;">@p.Reference</MudText>
+                        @foreach (var tag in p.Tags)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@tag</MudChip>
+                        }
+                    </MudStack>
+                }
+            </MudPaper>
+        }
+    }
+
+    <MudText Typo="Typo.h6" Class="mt-6 mb-2">Deployment handoffs</MudText>
+    @if (_handoffs is { Count: > 0 })
+    {
+        <MudTable Items="@_handoffs" Dense="true" Hover="true" T="ContainerReleaseHandoffDto">
+            <HeaderContent>
+                <MudTh>Version</MudTh>
+                <MudTh Style="width: 8rem;">Status</MudTh>
+                <MudTh>Release id</MudTh>
+                <MudTh Style="width: 10rem;">By</MudTh>
+                <MudTh Style="width: 12rem;">Created</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@context.SemanticVersion</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="@HandoffColor(context.Status)" Variant="Variant.Filled">@context.Status</MudChip>
+                </MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.8em;">@(context.DeploymentReleaseId?.ToString() ?? (context.FailureReason ?? "—"))</MudTd>
+                <MudTd>@context.RequestedByPrincipal</MudTd>
+                <MudTd>@context.CreatedAtUtc.LocalDateTime.ToString("g")</MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+    else
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No handoffs for this build yet.</MudText>
+    }
+}
+
+@* ---- Promote dialog ---- *@
+<MudDialog @bind-Visible="_showPromote" Options="_dialogOptions">
+    <TitleContent>Promote container to deployment Release</TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-2">
+            Publishes a Release in the deployment service for this build's container, then settles the handoff.
+        </MudText>
+        <MudTextField @bind-Value="_promotePrincipal" Label="Requested by" Required="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showPromote = false)">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="PromoteAsync" Disabled="_busy">Promote</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public Guid BuildId { get; set; }
+
+    private BuildDetailDto? _build;
+    private IReadOnlyList<ContainerReleaseHandoffDto>? _handoffs;
+    private bool _loading;
+    private bool _busy;
+    private string? _error;
+
+    private static readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+    private bool _showPromote;
+    private Guid _promoteArtifactId;
+    private string _promotePrincipal = "admin";
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            _build = await Api.GetBuildAsync(BuildId);
+            _handoffs = await Api.ListHandoffsByBuildAsync(BuildId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OpenPromote(Guid artifactId)
+    {
+        _promoteArtifactId = artifactId;
+        _showPromote = true;
+    }
+
+    private async Task PromoteAsync()
+    {
+        _busy = true;
+        try
+        {
+            var handoff = await Api.PromoteAsync(new PromoteBuildRequest(BuildId, _promoteArtifactId, _promotePrincipal));
+            Snackbar.Add($"Handoff {handoff.Status}.", handoff.Status == HandoffStatusDto.Published ? Severity.Success : Severity.Warning);
+            _showPromote = false;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+
+    private static Color StatusColor(BuildStatusDto s) => s switch
+    {
+        BuildStatusDto.Succeeded => Color.Success,
+        BuildStatusDto.Failed => Color.Error,
+        BuildStatusDto.Running => Color.Info,
+        BuildStatusDto.Aborted => Color.Warning,
+        _ => Color.Default,
+    };
+
+    private static Color HandoffColor(HandoffStatusDto s) => s switch
+    {
+        HandoffStatusDto.Published => Color.Success,
+        HandoffStatusDto.Failed => Color.Error,
+        HandoffStatusDto.Pending => Color.Info,
+        _ => Color.Default,
+    };
+}
