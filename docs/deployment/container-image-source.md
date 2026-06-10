@@ -4,9 +4,9 @@ Decouples a deployment **Service** from a hard-coded container artifact URI by
 introducing a reusable **container coordinate** that a service points at, plus a
 **tag → digest** resolution step so deploys stay digest-pinned.
 
-**Status:** design — no code yet. Open decisions in Section 7.
+**Status:** v1 ready for implementation — decisions resolved (Section 8). No code yet.
 **Scope:** container images only. Generalizing to other artifact types is explicitly
-**out of scope** (Section 8).
+**out of scope** (Section 9).
 
 ---
 
@@ -158,32 +158,47 @@ The resolve-to-digest property means there's never a "can't delete, it's in use"
 ```text
 Deployment.Domain
 └─ Catalog/ (or Services/)
-   └─ ContainerImage        new catalog entity (coordinate)
+   └─ ContainerImage        new catalog entity (coordinate; Registry/Repository/Name,
+                            DefaultTags, IsActive)
 Service                     + optional ContainerImageId reference
 Release                     unchanged shape (ArtifactUri still the resolved digest)
-                            + optional: record the source tag for audit
+                            + record the source tag the digest was resolved from (audit)
 ```
 
-Resolution is a thin port (`IContainerImageResolver` / similar) in front of release
-creation: `(ContainerImage, tag) -> digest`. v1 may implement it as "the handoff
-already supplies the digest" and add the live registry query as a follow-up
-(Section 7, #1).
+Resolution is a port — `IContainerImageResolver` `(ContainerImage, tag) -> digest` — in
+front of release creation, and is **in scope for v1** (decision #2). Two paths feed it:
+the **handoff** auto-publish path supplies the digest directly (no query needed), and the
+**release modal / manual** path calls the resolver to live-query Nexus (system of record;
+GAR ref derived for promoted images per decision #4). The Cloud Run adapter is unaffected —
+it still consumes the resolved digest `ArtifactUri`.
 
-## 8. Open decisions (to resolve before code)
+## 8. Resolved decisions
 
-1. **Creation model.** Auto-materialize coordinates (CI handoff/component upsert + live
-   Nexus discovery) with explicit-create as the escape hatch, or require explicit
-   authoring? *Leaning: auto-materialize* — keep the catalog a projection of CI + Nexus,
-   not hand-maintained master data (Section 6).
-2. **Resolver scope now or later.** Ship the coordinate entity + digest-pin first
-   (high value, low risk) and add the live tag→digest registry query as a second step,
-   or build the resolver in v1?
-3. **Tag-set semantics.** Coordinate stores a stable address + a *default selector*
-   (`latest`); available tags come from the live registry query, not a frozen list
-   (Section 6). Open only if we decide to persist tag metadata on the entity.
-4. **Cross-registry identity.** One logical image often exists in both Nexus (source) and
-   GAR (promoted). Model as one `ContainerImage` with the GAR ref *derived* (as the Cloud
-   Run adapter already does), or as two rows? *Leaning: derive, don't duplicate.*
+| # | Decision | Resolution |
+| --- | --- | --- |
+| 1 | Creation model | **Auto-materialize** (CI handoff/component upsert + live Nexus discovery); explicit-create as escape hatch |
+| 2 | Resolver scope | **Live tag→digest resolver in v1** |
+| 3 | Tag-set semantics | **Stable address + default selector; tags live-queried** (no persisted tag list) |
+| 4 | Cross-registry identity | **One entity, GAR ref derived** (not duplicated) |
+
+1. **Creation model — auto-materialize.** Coordinates are upserted automatically from the
+   CI handoff / component mapping and from live Nexus discovery in the release modal;
+   explicit-create is the escape hatch for external/undiscoverable images. The catalog is a
+   projection of CI + Nexus, not hand-maintained master data (Section 6).
+2. **Resolver scope — in v1.** Build the coordinate entity *and* the live Nexus tag→digest
+   resolver together, so the release modal can dynamically discover and resolve any
+   image+tag from day one (not deferred). The auto-publish/handoff path still supplies the
+   digest directly; the resolver serves the manual/discovery path (Section 7).
+3. **Tag-set semantics — default selector + live tags.** The entity stores the stable
+   address plus a single default selector (`latest`); available tags are live-queried from
+   Nexus at modal time and the chosen tag is pinned to a digest on the release. No frozen
+   tag list on the entity.
+4. **Cross-registry identity — one entity, GAR derived.** A single `ContainerImage` keyed on
+   the Nexus source coordinate; the GAR ref is derived at deploy time (as the Cloud Run
+   adapter already does). No duplicate rows.
+
+**Still deferred (not blocking v1):** production tag policy (forbid bare `latest` / require a
+pinned tag, hung off `IsProduction` + approval gates) — Section 3.
 
 ## 9. Out of scope (deliberately not over-designed)
 
