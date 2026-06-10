@@ -3,6 +3,7 @@ using Jenkins.Orchestrator;
 using Cicd.Web.Admin.Components;
 using Cicd.Web.Admin.Services;
 using Cicd.Web.Admin.Services.Builds;
+using Cicd.Web.Admin.Services.Ci;
 using Cicd.Web.Admin.Services.Deployment;
 using Cicd.Web.Admin.Services.Gcp;
 using Cicd.Web.Admin.Services.Nexus;
@@ -103,6 +104,19 @@ builder.Services.AddHttpClient<DeploymentApiClient>(c =>
     c.BaseAddress = new Uri(deploymentApiOptions.BaseUrl.EndsWith('/')
         ? deploymentApiOptions.BaseUrl
         : deploymentApiOptions.BaseUrl + "/");
+    c.Timeout = TimeSpan.FromSeconds(30);
+});
+
+// Jenkins CI service (Jenkins.Api) — typed HttpClient. BaseUrl from config
+// (JenkinsApi:BaseUrl); separate service from the direct Jenkins-server connection.
+var jenkinsApiOptions = builder.Configuration.GetSection(JenkinsApiOptions.SectionName).Get<JenkinsApiOptions>()
+                        ?? new JenkinsApiOptions();
+builder.Services.AddSingleton(jenkinsApiOptions);
+builder.Services.AddHttpClient<JenkinsApiClient>(c =>
+{
+    c.BaseAddress = new Uri(jenkinsApiOptions.BaseUrl.EndsWith('/')
+        ? jenkinsApiOptions.BaseUrl
+        : jenkinsApiOptions.BaseUrl + "/");
     c.Timeout = TimeSpan.FromSeconds(30);
 });
 

@@ -4,10 +4,11 @@
     <ProjectReference Include="..\..\jenkins\Jenkins.Client\Jenkins.Client.csproj" />
     <ProjectReference Include="..\..\jenkins\Jenkins.Orchestrator.Abstractions\Jenkins.Orchestrator.Abstractions.csproj" />
     <ProjectReference Include="..\..\jenkins\Jenkins.Orchestrator\Jenkins.Orchestrator.csproj" />
-    <!-- Wire-format DTOs for the Deployment.Api HTTP surface. The admin UI is a
-         client of the API; the Application/Domain/Infrastructure projects
-         are deliberately NOT referenced from here. -->
+    <!-- Wire-format DTOs for the API HTTP surfaces. The admin UI is a client of
+         each API; the Application/Domain/Infrastructure projects are deliberately
+         NOT referenced from here. -->
     <ProjectReference Include="..\..\deployment\Deployment.Contracts\Deployment.Contracts.csproj" />
+    <ProjectReference Include="..\..\jenkins\Jenkins.Contracts\Jenkins.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
