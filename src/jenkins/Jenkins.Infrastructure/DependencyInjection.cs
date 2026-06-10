@@ -2,10 +2,12 @@ using Jenkins.Application.Abstractions;
 using Jenkins.Application.Features.Builds;
 using Jenkins.Application.Features.Handoffs;
 using Jenkins.Application.Features.Repositories;
+using Jenkins.Client;
 using Jenkins.Domain.Abstractions;
 using Jenkins.Domain.Builds;
 using Jenkins.Domain.Handoffs;
 using Jenkins.Domain.SourceRepositories;
+using Jenkins.Infrastructure.Sync;
 using Jenkins.Infrastructure.Messaging;
 using Jenkins.Infrastructure.Persistence;
 using Jenkins.Infrastructure.Persistence.Readers;
@@ -59,6 +61,36 @@ public static class DependencyInjection
         {
             client.BaseAddress = new Uri(deploymentBaseUrl);
         });
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the Jenkins HTTP client and the build-sync background worker that
+    /// ingests builds into the CI model. Skipped (host still runs) when Jenkins is
+    /// unconfigured — set <c>Jenkins:Url</c> + <c>Jenkins:ApiToken</c> to enable.
+    /// Bound from <c>"Jenkins:Sync"</c>. Mirrors Deployment.AddDeploymentRunner.
+    /// </summary>
+    public static IServiceCollection AddJenkinsBuildSync(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddOptions<JenkinsSyncOptions>()
+            .Bind(configuration.GetSection(JenkinsSyncOptions.SectionName));
+
+        var baseUrl = configuration["Jenkins:Url"];
+        var token = configuration["Jenkins:ApiToken"];
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token))
+            return services; // Jenkins not configured — run without the sync worker
+
+        var jenkinsOptions = new JenkinsOptions(baseUrl, configuration["Jenkins:User"] ?? "admin", token);
+        services.AddSingleton(jenkinsOptions);
+        services.AddSingleton<IJenkinsClient>(sp => new JenkinsClient(sp.GetRequiredService<JenkinsOptions>()));
+
+        var enabled = configuration.GetSection(JenkinsSyncOptions.SectionName)
+            .GetValue<bool?>(nameof(JenkinsSyncOptions.Enabled)) ?? true;
+        if (enabled)
+            services.AddHostedService<JenkinsBuildSyncService>();
 
         return services;
     }

@@ -35,6 +35,9 @@
 
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.8" />
+    <!-- Build-sync background worker: BackgroundService + AddHostedService.
+         IOptions/ILogger come transitively from EF Core (10.0.8). -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
   </ItemGroup>
 
 </Project>

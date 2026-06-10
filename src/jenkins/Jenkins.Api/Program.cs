@@ -23,6 +23,10 @@ builder.Services.AddJenkinsApplication();
 // ConnectionStrings:JenkinsCi + Deployment:ApiBaseUrl.
 builder.Services.AddJenkinsInfrastructure(builder.Configuration);
 
+// Build-sync background worker (Jenkins -> CI model). No-op when Jenkins is
+// unconfigured. Jenkins:Url + Jenkins:ApiToken + Jenkins:Sync.
+builder.Services.AddJenkinsBuildSync(builder.Configuration);
+
 // Wolverine: CQRS dispatcher + in-process bus. Handlers in Features/* are discovered
 // by convention from the Application + Infrastructure assemblies. EF-transaction
 // enrolment + a durable outbox are wired in when handlers land.
