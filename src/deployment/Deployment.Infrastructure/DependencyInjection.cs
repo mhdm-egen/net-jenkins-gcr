@@ -82,6 +82,9 @@ public static class DependencyInjection
         // ServicesClient is built once and shared.
         services.AddOptions<GoogleCloudRunOptions>()
             .Bind(configuration.GetSection(GoogleCloudRunOptions.SectionName));
+        // Image promoter (Nexus → GAR, digest-preserving) used by the GCP adapter
+        // when PromoteFromNexus is enabled (decision #6).
+        services.AddSingleton<IArtifactPromoter, CraneArtifactPromoter>();
         services.AddSingleton<IDeploymentAdapter, GoogleCloudRunDeploymentAdapter>();
 
         // Stub secret resolver — replace with a real adapter (Key Vault, Vault,

@@ -25,4 +25,27 @@ public sealed class GoogleCloudRunOptions
 
     /// <summary>Delay between readiness polls.</summary>
     public int ReadinessPollSeconds { get; set; } = 5;
+
+    /// <summary>
+    /// When true, copy the release's image (a Nexus digest ref) into Google Artifact
+    /// Registry before deploying, then deploy the GAR ref (decision #6). When false,
+    /// the release's <c>ArtifactUri</c> is deployed as-is (it must already be
+    /// reachable by Cloud Run).
+    /// </summary>
+    public bool PromoteFromNexus { get; set; } = false;
+
+    /// <summary>
+    /// GAR repository name — the <c>{repo}</c> in
+    /// <c>{region}-docker.pkg.dev/{project}/{repo}/{image}</c>. Project + region come
+    /// from the target's Cloud Run service resource name. Required when
+    /// <see cref="PromoteFromNexus"/> is true.
+    /// </summary>
+    public string ArtifactRegistryRepository { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Executable used to copy images digest-preserving (default <c>crane</c>). It
+    /// must be on PATH (or an absolute path) and authenticated to both the source
+    /// (Nexus) and destination (GAR) registries.
+    /// </summary>
+    public string CraneExecutable { get; set; } = "crane";
 }

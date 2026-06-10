@@ -27,15 +27,18 @@ namespace Deployment.Infrastructure.Runner;
 internal sealed class GoogleCloudRunDeploymentAdapter : IDeploymentAdapter
 {
     private readonly IOptionsMonitor<GoogleCloudRunOptions> _options;
+    private readonly IArtifactPromoter _promoter;
     private readonly ILogger<GoogleCloudRunDeploymentAdapter> _logger;
     private readonly SemaphoreSlim _clientGate = new(1, 1);
     private ServicesClient? _client;
 
     public GoogleCloudRunDeploymentAdapter(
         IOptionsMonitor<GoogleCloudRunOptions> options,
+        IArtifactPromoter promoter,
         ILogger<GoogleCloudRunDeploymentAdapter> logger)
     {
         _options = options;
+        _promoter = promoter;
         _logger = logger;
     }
 
@@ -81,7 +84,33 @@ internal sealed class GoogleCloudRunDeploymentAdapter : IDeploymentAdapter
                 $"Could not read Cloud Run service '{serviceName}': {ex.GetType().Name}: {ex.Message}");
         }
 
-        ApplyImage(service, image);
+        // --- Decision #6: optionally promote the (Nexus) image into GAR, then deploy
+        //     the GAR ref. When promotion is off, the release's ref is deployed as-is. ---
+        var deployImage = image;
+        if (opts.PromoteFromNexus && !string.IsNullOrWhiteSpace(opts.ArtifactRegistryRepository))
+        {
+            if (!TryBuildGarReference(image, serviceName, opts.ArtifactRegistryRepository, out var garRef, out var refError))
+                return DeploymentExecutionOutcome.Failure($"Cannot promote image '{image}' to GAR: {refError}");
+
+            try
+            {
+                await _promoter.EnsureCopiedAsync(image, garRef, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return DeploymentExecutionOutcome.Failure(
+                    $"GAR promotion of '{image}' failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            _logger.LogInformation("[cloudrun] Promoted {Source} → {Dest} before deploy.", image, garRef);
+            deployImage = garRef;
+        }
+
+        ApplyImage(service, deployImage);
         ApplySecretEnv(service, context.SecretBindings);
         RouteAllTrafficToLatest(service);
 
@@ -139,6 +168,38 @@ internal sealed class GoogleCloudRunDeploymentAdapter : IDeploymentAdapter
         // fresh revision id for the new image.
         service.Template.Containers[0].Image = image;
         service.Template.Revision = string.Empty;
+    }
+
+    /// <summary>
+    /// Builds the GAR pull-by-digest reference for a source image. The source must be
+    /// a digest ref (<c>host/path@sha256:…</c>); project + region come from the target
+    /// Cloud Run service. Result: <c>{region}-docker.pkg.dev/{project}/{repo}/{path}@{digest}</c>.
+    /// </summary>
+    private static bool TryBuildGarReference(
+        string sourceRef, ServiceName service, string repository, out string garRef, out string error)
+    {
+        garRef = string.Empty;
+        error = string.Empty;
+
+        var at = sourceRef.IndexOf('@');
+        if (at <= 0 || at == sourceRef.Length - 1)
+        {
+            error = "source must be a digest reference (host/path@sha256:…)";
+            return false;
+        }
+        var digest = sourceRef[(at + 1)..];
+        var hostAndPath = sourceRef[..at];
+
+        var slash = hostAndPath.IndexOf('/');
+        if (slash <= 0 || slash == hostAndPath.Length - 1)
+        {
+            error = "source reference has no image path after the host";
+            return false;
+        }
+        var imagePath = hostAndPath[(slash + 1)..];
+
+        garRef = $"{service.LocationId}-docker.pkg.dev/{service.ProjectId}/{repository.Trim('/')}/{imagePath}@{digest}";
+        return true;
     }
 
     private void ApplySecretEnv(Service service, IReadOnlyList<ResolvedSecretBinding> bindings)
