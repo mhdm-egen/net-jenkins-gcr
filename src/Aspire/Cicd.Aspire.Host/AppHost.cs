@@ -19,6 +19,7 @@ var sqlPassword = builder.AddParameter("sql-password", secret: true);
 var sql = builder.AddSqlServer("sql", password: sqlPassword).WithDataVolume();
 var deploymentDb = sql.AddDatabase("Deployment");
 var jenkinsDb = sql.AddDatabase("JenkinsCi");
+var publisherDb = sql.AddDatabase("Publisher");
 
 // RabbitMQ broker for the cross-service event bus. Ephemeral (no data volume) — Wolverine's
 // per-service SQL outbox/inbox provides durability, so the broker itself is disposable. The
@@ -44,6 +45,16 @@ var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
     .WithEnvironment("Deployment__ApiBaseUrl", deployment.GetEndpoint("http"))
     .WithEnvironment("Jenkins__ApiToken", jenkinsToken)
     .WithEnvironment("Jenkins__Url", jenkinsUrl);
+
+// Publisher: moves containers from local Nexus to remote registries (GAR for now). Consumes the
+// CI ContainerPublished bus event to keep a local inventory; exposes an API to tag containers
+// publishable under a stable channel name.
+builder.AddProject<Projects.Publisher_Api>("publisher-api")
+    .WithReference(publisherDb)
+    .WaitFor(sql)
+    .WithReference(rabbit)
+    .WaitFor(rabbit)
+    .WithEnvironment("Database__AutoMigrate", "true");
 
 builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WithReference(deployment)
