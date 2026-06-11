@@ -16,20 +16,25 @@
     <ProjectReference Include="..\..\deployment\Deployment.Contracts\Deployment.Contracts.csproj" />
     <!-- Existing Jenkins HTTP client, wrapped by the build-ingestion adapters. -->
     <ProjectReference Include="..\Jenkins.Client\Jenkins.Client.csproj" />
+    <!-- Pipeline step-execution engine, reused server-side by the run executor. -->
+    <ProjectReference Include="..\Jenkins.Orchestrator\Jenkins.Orchestrator.csproj" />
+    <ProjectReference Include="..\Jenkins.Orchestrator.Abstractions\Jenkins.Orchestrator.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- EF Core 10 + SQLite (the CI service ships SQLite). Design is dev-only (migrations CLI). -->
+    <!-- EF Core 10 + SQL Server (the CI service moved off SQLite so Wolverine's
+         transactional outbox works for cross-service messaging). Design is dev-only. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.8" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
 
-    <!-- Wolverine + EF integration: enrolls handlers in the DbContext transaction.
-         No SQL-backed outbox here (SQLite); durable messaging is deferred. -->
+    <!-- Wolverine + EF integration: enrolls handlers in the DbContext transaction and
+         provides the durable SQL Server outbox/inbox for reliable event publishing. -->
     <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.4.3" />
+    <PackageReference Include="WolverineFx.SqlServer" Version="6.4.3" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.Common" Version="5.0.0" />
 

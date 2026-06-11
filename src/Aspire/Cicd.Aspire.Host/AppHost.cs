@@ -18,15 +18,28 @@ var jenkinsUrl = builder.AddParameter("JenkinsUrl");
 var sqlPassword = builder.AddParameter("sql-password", secret: true);
 var sql = builder.AddSqlServer("sql", password: sqlPassword).WithDataVolume();
 var deploymentDb = sql.AddDatabase("Deployment");
+var jenkinsDb = sql.AddDatabase("JenkinsCi");
+
+// RabbitMQ broker for the cross-service event bus. Ephemeral (no data volume) — Wolverine's
+// per-service SQL outbox/inbox provides durability, so the broker itself is disposable. The
+// resource name "messaging" surfaces as ConnectionStrings__messaging on referencing services
+// (consumed by Cicd.Messaging's provider switch).
+var rabbit = builder.AddRabbitMQ("messaging").WithManagementPlugin();
 
 var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithReference(deploymentDb)
     .WaitFor(sql)
+    .WithReference(rabbit)
+    .WaitFor(rabbit)
     .WithEnvironment("Database__AutoMigrate", "true");
 
 var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
     .WithReference(deployment)
     .WaitFor(deployment)
+    .WithReference(jenkinsDb)
+    .WaitFor(sql)
+    .WithReference(rabbit)
+    .WaitFor(rabbit)
     .WithEnvironment("Database__AutoMigrate", "true")
     .WithEnvironment("Deployment__ApiBaseUrl", deployment.GetEndpoint("http"))
     .WithEnvironment("Jenkins__ApiToken", jenkinsToken)

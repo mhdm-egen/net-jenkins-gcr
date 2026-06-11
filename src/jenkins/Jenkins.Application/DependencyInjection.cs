@@ -2,6 +2,7 @@ using FluentValidation;
 using Jenkins.Application.Features.Builds;
 using Jenkins.Application.Features.Handoffs;
 using Jenkins.Application.Features.Pipelines;
+using Jenkins.Application.Features.PipelineRuns;
 using Jenkins.Application.Features.Repositories;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -53,6 +54,11 @@ public static class DependencyInjection
         services.AddScoped<ListPipelinesHandler>();
         services.AddScoped<GetPipelineByIdHandler>();
         services.AddScoped<SeedDefaultPipelineHandler>();
+
+        // Pipeline run handlers.
+        services.AddScoped<StartPipelineRunHandler>();
+        services.AddScoped<ListPipelineRunsHandler>();
+        services.AddScoped<GetPipelineRunByIdHandler>();
 
         return services;
     }

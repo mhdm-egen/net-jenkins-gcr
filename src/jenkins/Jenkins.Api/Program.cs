@@ -4,8 +4,13 @@ using Jenkins.Application;
 using Jenkins.Application.Features.Pipelines;
 using Jenkins.Infrastructure;
 using Jenkins.Infrastructure.Persistence;
+using Cicd.Messaging;
+using Jenkins.Api.Hubs;
+using Jenkins.Application.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using Wolverine;
+using Wolverine.EntityFrameworkCore;
+using Wolverine.SqlServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -31,6 +36,12 @@ builder.Services.AddJenkinsInfrastructure(builder.Configuration);
 // unconfigured. Jenkins:Url + Jenkins:ApiToken + Jenkins:Sync.
 builder.Services.AddJenkinsBuildSync(builder.Configuration);
 
+// Server-side pipeline-run execution (queue + executor + orchestrator) and the live
+// SignalR stream (hub + notifier bridge from the Infrastructure executor).
+builder.Services.AddJenkinsPipelineRuns(builder.Configuration);
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IPipelineRunNotifier, PipelineRunNotifier>();
+
 // Wolverine: CQRS dispatcher + in-process bus. Handlers in Features/* are discovered
 // by convention from the Application + Infrastructure assemblies. EF-transaction
 // enrolment + a durable outbox are wired in when handlers land.
@@ -38,6 +49,21 @@ builder.Host.UseWolverine(opts =>
 {
     opts.Discovery.IncludeAssembly(typeof(Jenkins.Application.DependencyInjection).Assembly);
     opts.Discovery.IncludeAssembly(typeof(JenkinsCiDbContext).Assembly);
+
+    // Enrol handlers in the DbContext transaction + durable SQL Server outbox/inbox
+    // (mirrors the deployment service) so integration events publish reliably.
+    opts.UseEntityFrameworkCoreTransactions();
+    var connection = builder.Configuration.GetConnectionString("JenkinsCi");
+    if (!string.IsNullOrEmpty(connection))
+    {
+        opts.PersistMessagesWithSqlServer(connection);
+    }
+
+    // Cross-service event bus (provider-pluggable; RabbitMQ by default). CI publishes
+    // container-published facts; it subscribes to deployment outcomes.
+    opts.AddCicdMessaging(builder.Configuration, topology => topology
+        .Publish<Cicd.IntegrationEvents.Ci.ContainerPublished>("ci.events")
+        .Subscribe("deployment.events", subscriber: "jenkins"));
 });
 
 var app = builder.Build();
@@ -88,5 +114,9 @@ app.MapRepositoryEndpoints();
 app.MapBuildEndpoints();
 app.MapHandoffEndpoints();
 app.MapPipelineEndpoints();
+app.MapPipelineRunEndpoints();
+
+// Live pipeline-run stream (server-to-server SignalR from web-admin; no CORS needed).
+app.MapHub<PipelineRunHub>("/hubs/pipeline-runs");
 
 app.Run();

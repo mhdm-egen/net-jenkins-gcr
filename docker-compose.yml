@@ -28,6 +28,21 @@ services:
       retries: 12
       start_period: 20s
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-cicd}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-cicd_local_dev}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   deployment-api:
     build:
       context: ./src
@@ -36,10 +51,13 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       Database__AutoMigrate: "true"
       ConnectionStrings__Deployment: "Server=sqlserver;Database=Deployment;User Id=sa;Password=${SA_PASSWORD:-Your_Strong_Pass123};TrustServerCertificate=True;MultipleActiveResultSets=True"
+      ConnectionStrings__messaging: "amqp://${RABBITMQ_USER:-cicd}:${RABBITMQ_PASSWORD:-cicd_local_dev}@rabbitmq:5672"
     ports:
       - "9601:8080"
     depends_on:
       sqlserver:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   jenkins-api:
@@ -49,7 +67,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Database__AutoMigrate: "true"
-      ConnectionStrings__JenkinsCi: "Data Source=/app/data/jenkins-ci.db"
+      ConnectionStrings__JenkinsCi: "Server=sqlserver;Database=JenkinsCi;User Id=sa;Password=${SA_PASSWORD:-Your_Strong_Pass123};TrustServerCertificate=True;MultipleActiveResultSets=True"
+      ConnectionStrings__messaging: "amqp://${RABBITMQ_USER:-cicd}:${RABBITMQ_PASSWORD:-cicd_local_dev}@rabbitmq:5672"
       Deployment__ApiBaseUrl: "http://deployment-api:8080"
       Jenkins__Url: ${JENKINS_URL:-http://jenkins:8080}
       Jenkins__User: ${JENKINS_USER:-admin}
@@ -59,10 +78,13 @@ services:
       Nexus__DockerRegistryHost: ${NEXUS_DOCKER_HOST:-nexus:8082}
     ports:
       - "5310:8080"
-    volumes:
-      - jenkins-ci-data:/app/data
     depends_on:
-      - deployment-api
+      sqlserver:
+        condition: service_healthy
+      deployment-api:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
 
   web-admin:
     build:
@@ -84,4 +106,3 @@ services:
 
 volumes:
   sqlserver-data:
-  jenkins-ci-data:

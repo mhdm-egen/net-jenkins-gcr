@@ -1,6 +1,7 @@
 using Jenkins.Domain.Builds;
 using Jenkins.Domain.Handoffs;
 using Jenkins.Domain.Pipelines;
+using Jenkins.Domain.PipelineRuns;
 using Jenkins.Domain.SourceRepositories;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,6 +34,8 @@ public sealed class JenkinsCiDbContext : DbContext
 
     public DbSet<Pipeline> Pipelines => Set<Pipeline>();
     public DbSet<PipelineStage> PipelineStages => Set<PipelineStage>();
+
+    public DbSet<PipelineRun> PipelineRuns => Set<PipelineRun>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
