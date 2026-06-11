@@ -22,8 +22,10 @@ mono_crash.*
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
-[Rr]elease/
-[Rr]eleases/
+# Anchored to repo root so they don't match SOURCE folders like
+# src/.../Features/Releases/ (MSBuild output is already covered by [Bb]in/ + [Oo]bj/).
+/[Rr]elease/
+/[Rr]eleases/
 x64/
 x86/
 [Ww][Ii][Nn]32/
