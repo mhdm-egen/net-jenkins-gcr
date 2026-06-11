@@ -64,6 +64,45 @@ public sealed class DeploymentApiClient
     public Task ReactivateServiceAsync(Guid id, CancellationToken ct = default)
         => PostAsync($"api/deployment/services/{id}/reactivate", ct);
 
+    // ---- Container Images (coordinate catalog) ----
+
+    public async Task<IReadOnlyList<ContainerImageDto>> ListContainerImagesAsync(
+        bool? onlyActive = null, CancellationToken ct = default)
+    {
+        var url = onlyActive is null ? "api/deployment/container-images" : $"api/deployment/container-images?onlyActive={onlyActive}";
+        var list = await _http.GetFromJsonAsync<List<ContainerImageDto>>(url, Json, ct).ConfigureAwait(false);
+        return list ?? new List<ContainerImageDto>();
+    }
+
+    public Task<ContainerImageDto> RegisterContainerImageAsync(RegisterContainerImageRequest body, CancellationToken ct = default)
+        => PostJsonAsync<RegisterContainerImageRequest, ContainerImageDto>("api/deployment/container-images", body, ct);
+
+    public Task<ContainerImageDto> ChangeContainerImageDefaultTagAsync(Guid id, ChangeContainerImageDefaultTagRequest body, CancellationToken ct = default)
+        => PostJsonAsync<ChangeContainerImageDefaultTagRequest, ContainerImageDto>($"api/deployment/container-images/{id}/default-tag", body, ct);
+
+    public Task<ContainerImageDto> SetContainerImageActiveAsync(Guid id, SetContainerImageActiveRequest body, CancellationToken ct = default)
+        => PostJsonAsync<SetContainerImageActiveRequest, ContainerImageDto>($"api/deployment/container-images/{id}/active", body, ct);
+
+    public async Task<IReadOnlyList<string>> ListContainerImageTagsAsync(
+        string registry, string repository, string name, CancellationToken ct = default)
+    {
+        var url = $"api/deployment/container-images/tags?registry={Uri.EscapeDataString(registry)}" +
+                  $"&repository={Uri.EscapeDataString(repository)}&name={Uri.EscapeDataString(name)}";
+        var list = await _http.GetFromJsonAsync<List<string>>(url, Json, ct).ConfigureAwait(false);
+        return list ?? new List<string>();
+    }
+
+    public async Task<ContainerImageResolutionDto?> ResolveContainerImageAsync(
+        string registry, string repository, string name, string tag, CancellationToken ct = default)
+    {
+        var url = $"api/deployment/container-images/resolve?registry={Uri.EscapeDataString(registry)}" +
+                  $"&repository={Uri.EscapeDataString(repository)}&name={Uri.EscapeDataString(name)}&tag={Uri.EscapeDataString(tag)}";
+        var resp = await _http.GetAsync(url, ct).ConfigureAwait(false);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<ContainerImageResolutionDto>(Json, ct).ConfigureAwait(false);
+    }
+
     // ---- Applications ----
 
     public async Task<IReadOnlyList<ApplicationDto>> ListApplicationsAsync(

@@ -3,6 +3,7 @@
     (Zip/ContainerImage/NuGet) and provides an ArtifactUri. For Application
     units, ArtifactType is forced to Manifest and ArtifactUri is hidden.
 *@
+@inject DeploymentApiClient Api
 
 <MudDialog>
     <DialogContent>
@@ -43,6 +44,37 @@
                     <MudSelectItem Value="@ArtifactTypeDto.NuGet">NuGet</MudSelectItem>
                     <MudSelectItem Value="@ArtifactTypeDto.Zip">Zip</MudSelectItem>
                 </MudSelect>
+
+                @if (_artifactType == ArtifactTypeDto.ContainerImage && _images.Count > 0)
+                {
+                    <MudSelect T="Guid?" Value="_selectedImageId" ValueChanged="OnImageSelectedAsync"
+                               Label="From catalog (optional)" Variant="Variant.Outlined" Clearable="true"
+                               HelperText="Pick a coordinate to resolve a tag to an immutable digest">
+                        @foreach (var img in _images)
+                        {
+                            <MudSelectItem T="Guid?" Value="@((Guid?)img.Id)">@img.BaseRef</MudSelectItem>
+                        }
+                    </MudSelect>
+                    @if (_selectedImageId is not null)
+                    {
+                        <MudSelect T="string" Value="_selectedTag" ValueChanged="OnTagSelectedAsync"
+                                   Label="Tag" Variant="Variant.Outlined" Disabled="@(_tags.Count == 0)">
+                            @foreach (var t in _tags)
+                            {
+                                <MudSelectItem T="string" Value="@t">@t</MudSelectItem>
+                            }
+                        </MudSelect>
+                        @if (_resolving)
+                        {
+                            <MudProgressLinear Indeterminate="true" />
+                        }
+                        else if (_resolveError is { Length: > 0 })
+                        {
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">@_resolveError</MudAlert>
+                        }
+                    }
+                }
+
                 <MudTextField @bind-Value="_artifactUri"
                               Label="Artifact URI"
                               Variant="Variant.Outlined"
@@ -75,6 +107,58 @@
     private string _commitSha = "";
     private ArtifactTypeDto _artifactType = ArtifactTypeDto.ContainerImage;
     private string _artifactUri = "";
+
+    // Container-image catalog picker: select a coordinate, pick a (live-discovered)
+    // tag, resolve it to an immutable digest ref that fills the Artifact URI.
+    private IReadOnlyList<ContainerImageDto> _images = Array.Empty<ContainerImageDto>();
+    private Guid? _selectedImageId;
+    private IReadOnlyList<string> _tags = Array.Empty<string>();
+    private string? _selectedTag;
+    private bool _resolving;
+    private string? _resolveError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (UnitIsApplication) return;
+        try { _images = await Api.ListContainerImagesAsync(onlyActive: true); }
+        catch { _images = Array.Empty<ContainerImageDto>(); }
+    }
+
+    private async Task OnImageSelectedAsync(Guid? id)
+    {
+        _selectedImageId = id;
+        _selectedTag = null;
+        _tags = Array.Empty<string>();
+        _resolveError = null;
+        if (id is not { } imageId) return;
+        var img = _images.FirstOrDefault(i => i.Id == imageId);
+        if (img is null) return;
+
+        try { _tags = await Api.ListContainerImageTagsAsync(img.Registry, img.Repository, img.Name); }
+        catch { _tags = Array.Empty<string>(); }
+
+        var initial = _tags.Contains(img.DefaultTag) ? img.DefaultTag : _tags.FirstOrDefault();
+        if (initial is not null) await OnTagSelectedAsync(initial);
+        else _resolveError = "No tags found in the registry for this image.";
+        StateHasChanged();
+    }
+
+    private async Task OnTagSelectedAsync(string tag)
+    {
+        _selectedTag = tag;
+        var img = _images.FirstOrDefault(i => i.Id == _selectedImageId);
+        if (img is null) return;
+
+        _resolving = true; _resolveError = null; StateHasChanged();
+        try
+        {
+            var res = await Api.ResolveContainerImageAsync(img.Registry, img.Repository, img.Name, tag);
+            if (res is null) _resolveError = $"Tag '{tag}' not found in the registry.";
+            else _artifactUri = res.DigestRef;
+        }
+        catch (Exception ex) { _resolveError = ex.Message; }
+        finally { _resolving = false; StateHasChanged(); }
+    }
 
     private string UriHint => _artifactType switch
     {

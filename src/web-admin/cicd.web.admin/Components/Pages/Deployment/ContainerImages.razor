@@ -1,0 +1,189 @@
+@page "/deployment/container-images"
+@inject DeploymentApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>Deployment — Container Images</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Container Images</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+        reusable image coordinates backing services
+    </MudText>
+    <MudSpacer />
+    <MudSwitch T="bool" @bind-Value="_onlyActive" @bind-Value:after="LoadAsync"
+               Color="Color.Primary" Label="Active only" />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+               StartIcon="@Icons.Material.Filled.Add" OnClick="OpenRegister">
+        Register
+    </MudButton>
+</MudStack>
+
+@if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    @if (_loading && _images is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_images is { Count: 0 })
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+            No container images yet. They are auto-created when a container release is published, or click <strong>Register</strong>.
+        </MudText>
+    }
+    else if (_images is not null)
+    {
+        <MudTable Items="@_images" Dense="true" Hover="true" Striped="true" T="ContainerImageDto">
+            <HeaderContent>
+                <MudTh>Coordinate</MudTh>
+                <MudTh Style="width: 9rem;">Default tag</MudTh>
+                <MudTh Style="width: 6rem;">Status</MudTh>
+                <MudTh Style="width: 9rem; text-align: right;"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@context.BaseRef</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@context.DefaultTag</MudChip></MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                             Color="@(context.IsActive ? Color.Success : Color.Default)">
+                        @(context.IsActive ? "Active" : "Inactive")
+                    </MudChip>
+                </MudTd>
+                <MudTd Style="text-align: right; white-space: nowrap;">
+                    <MudTooltip Text="Change default tag">
+                        <MudIconButton Icon="@Icons.Material.Filled.Sell" Size="Size.Small"
+                                       OnClick="@(() => OpenChangeTag(context))" />
+                    </MudTooltip>
+                    <MudTooltip Text="@(context.IsActive ? "Deactivate" : "Activate")">
+                        <MudIconButton Size="Size.Small"
+                                       Icon="@(context.IsActive ? Icons.Material.Filled.ToggleOn : Icons.Material.Filled.ToggleOff)"
+                                       Color="@(context.IsActive ? Color.Success : Color.Default)"
+                                       OnClick="@(() => ToggleActiveAsync(context))" />
+                    </MudTooltip>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+@* ---- Register dialog ---- *@
+<MudDialog @bind-Visible="_showRegister" Options="_dlg">
+    <TitleContent>Register container image</TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_reg.Registry" Label="Registry" Required="true"
+                      HelperText="host[:port], e.g. nexus:8082" />
+        <MudTextField @bind-Value="_reg.Repository" Label="Repository" Required="true"
+                      HelperText="path within the registry, e.g. docker-private" />
+        <MudTextField @bind-Value="_reg.Name" Label="Image name" Required="true"
+                      HelperText="e.g. orders-api" />
+        <MudTextField @bind-Value="_reg.DefaultTag" Label="Default tag" HelperText="defaults to 'latest'" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showRegister = false)">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="RegisterAsync" Disabled="_busy">Register</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@* ---- Change default tag dialog ---- *@
+<MudDialog @bind-Visible="_showChangeTag" Options="_dlg">
+    <TitleContent>Default tag</TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-2" Style="font-family: ui-monospace, monospace;">@_tagTarget?.BaseRef</MudText>
+        <MudTextField @bind-Value="_newTag" Label="Default tag" Required="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showChangeTag = false)">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ChangeTagAsync" Disabled="_busy">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private IReadOnlyList<ContainerImageDto>? _images;
+    private bool _onlyActive;
+    private bool _loading;
+    private bool _busy;
+    private string? _error;
+
+    private static readonly DialogOptions _dlg = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    private bool _showRegister;
+    private RegisterForm _reg = new();
+
+    private bool _showChangeTag;
+    private ContainerImageDto? _tagTarget;
+    private string _newTag = "";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null; StateHasChanged();
+        try { _images = await Api.ListContainerImagesAsync(_onlyActive ? true : null); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private void OpenRegister()
+    {
+        _reg = new RegisterForm();
+        _showRegister = true;
+    }
+
+    private async Task RegisterAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.RegisterContainerImageAsync(new RegisterContainerImageRequest(
+                _reg.Registry, _reg.Repository, _reg.Name, string.IsNullOrWhiteSpace(_reg.DefaultTag) ? null : _reg.DefaultTag));
+            Snackbar.Add("Container image registered.", Severity.Success);
+            _showRegister = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private void OpenChangeTag(ContainerImageDto image)
+    {
+        _tagTarget = image;
+        _newTag = image.DefaultTag;
+        _showChangeTag = true;
+    }
+
+    private async Task ChangeTagAsync()
+    {
+        if (_tagTarget is not { } image) return;
+        _busy = true;
+        try
+        {
+            await Api.ChangeContainerImageDefaultTagAsync(image.Id, new ChangeContainerImageDefaultTagRequest(_newTag));
+            Snackbar.Add("Default tag updated.", Severity.Success);
+            _showChangeTag = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleActiveAsync(ContainerImageDto image)
+    {
+        try
+        {
+            await Api.SetContainerImageActiveAsync(image.Id, new SetContainerImageActiveRequest(!image.IsActive));
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
+    private sealed class RegisterForm
+    {
+        public string Registry { get; set; } = "";
+        public string Repository { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string DefaultTag { get; set; } = "";
+    }
+}
