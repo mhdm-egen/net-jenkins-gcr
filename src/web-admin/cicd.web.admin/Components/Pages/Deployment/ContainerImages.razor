@@ -1,5 +1,6 @@
 @page "/deployment/container-images"
 @inject DeploymentApiClient Api
+@inject NexusOptions NexusOpts
 @inject ISnackbar Snackbar
 
 <PageTitle>Deployment — Container Images</PageTitle>
@@ -128,7 +129,7 @@
 
     private void OpenRegister()
     {
-        _reg = new RegisterForm();
+        _reg = new RegisterForm { Registry = NexusOpts.DockerRegistryHost };
         _showRegister = true;
     }
 
