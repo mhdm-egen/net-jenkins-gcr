@@ -92,6 +92,7 @@ app.MapGet("/", () => Results.Ok(new
 }));
 
 app.MapCatalogServiceEndpoints();
+app.MapCatalogContainerImageEndpoints();
 app.MapCatalogApplicationEndpoints();
 app.MapReleaseEndpoints();
 app.MapEnvironmentEndpoints();

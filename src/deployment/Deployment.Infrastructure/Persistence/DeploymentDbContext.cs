@@ -1,4 +1,5 @@
 using Deployment.Domain.Configuration;
+using Deployment.Domain.ContainerImages;
 using Deployment.Domain.DeployableUnits;
 using Deployment.Domain.Deployments;
 using Deployment.Domain.Environments;
@@ -27,6 +28,7 @@ public sealed class DeploymentDbContext : DbContext
     public DbSet<Service> Services => Set<Service>();
     public DbSet<DeployableApplication> Applications => Set<DeployableApplication>();
     public DbSet<ApplicationService> ApplicationServices => Set<ApplicationService>();
+    public DbSet<ContainerImage> ContainerImages => Set<ContainerImage>();
 
     // Releases
     public DbSet<Release> Releases => Set<Release>();

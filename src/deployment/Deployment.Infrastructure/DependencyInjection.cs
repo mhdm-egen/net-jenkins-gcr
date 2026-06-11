@@ -1,5 +1,6 @@
 using Deployment.Application.Abstractions;
 using Deployment.Application.Features.Catalog.Applications;
+using Deployment.Application.Features.Catalog.ContainerImages;
 using Deployment.Application.Features.Catalog.Services;
 using Deployment.Application.Features.Configuration.ListConfigurationSettings;
 using Deployment.Application.Features.Deployments.GetDeploymentBaseline;
@@ -13,6 +14,7 @@ using Deployment.Application.Features.Environments.ListEnvironments;
 using Deployment.Application.Features.Releases.ListReleases;
 using Deployment.Domain.Abstractions;
 using Deployment.Domain.Configuration;
+using Deployment.Domain.ContainerImages;
 using Deployment.Domain.DeployableUnits;
 using Deployment.Domain.Deployments;
 using Deployment.Domain.Environments;
@@ -21,10 +23,12 @@ using Deployment.Infrastructure.Messaging;
 using Deployment.Infrastructure.Persistence;
 using Deployment.Infrastructure.Persistence.Readers;
 using Deployment.Infrastructure.Persistence.Repositories;
+using Deployment.Infrastructure.Registry;
 using Deployment.Infrastructure.Secrets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Deployment.Infrastructure;
 
@@ -53,6 +57,7 @@ public static class DependencyInjection
 
         // Repositories — explicit list so the catalog reads at a glance.
         services.AddScoped<IServiceRepository, ServiceRepository>();
+        services.AddScoped<IContainerImageRepository, ContainerImageRepository>();
         services.AddScoped<IApplicationRepository, ApplicationRepository>();
         services.AddScoped<IReleaseRepository, ReleaseRepository>();
         services.AddScoped<IEnvironmentRepository, EnvironmentRepository>();
@@ -63,6 +68,7 @@ public static class DependencyInjection
         services.AddScoped<IEffectiveVersionsReader, EfEffectiveVersionsReader>();
         services.AddScoped<IDeploymentBaselineReader, EfDeploymentBaselineReader>();
         services.AddScoped<IServiceCatalogReader, EfServiceCatalogReader>();
+        services.AddScoped<IContainerImageCatalogReader, EfContainerImageCatalogReader>();
         services.AddScoped<IApplicationCatalogReader, EfApplicationCatalogReader>();
         services.AddScoped<IReleaseCatalogReader, EfReleaseCatalogReader>();
         services.AddScoped<IEnvironmentCatalogReader, EfEnvironmentCatalogReader>();
@@ -86,6 +92,18 @@ public static class DependencyInjection
         // when PromoteFromNexus is enabled (decision #6).
         services.AddSingleton<IArtifactPromoter, CraneArtifactPromoter>();
         services.AddSingleton<IDeploymentAdapter, GoogleCloudRunDeploymentAdapter>();
+
+        // Container-image tag→digest resolver over the Nexus Docker Registry v2 API
+        // (decision #2). Options bound from "Deployment:NexusRegistry"; degrades to
+        // empty/null when ApiBaseUrl is unset.
+        services.AddOptions<NexusRegistryOptions>()
+            .Bind(configuration.GetSection(NexusRegistryOptions.SectionName));
+        services.AddHttpClient<IContainerImageResolver, NexusContainerRegistryClient>()
+            .ConfigureHttpClient((sp, client) =>
+            {
+                var opts = sp.GetRequiredService<IOptions<NexusRegistryOptions>>().Value;
+                client.Timeout = TimeSpan.FromSeconds(Math.Max(1, opts.TimeoutSeconds));
+            });
 
         // Stub secret resolver — replace with a real adapter (Key Vault, Vault,
         // Secrets Manager) before any unit with secret config is deployed.

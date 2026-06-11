@@ -39,7 +39,7 @@ ContainerImage (deployment catalog entity)
   Name                 // logical image, e.g. "orders-api"
   Registry             // host, e.g. nexus:8082
   Repository           // path within the registry, e.g. docker-private
-  DefaultTags = ["latest"]
+  DefaultTag = "latest"  // single default selector (decision #3); available tags live-queried
   IsActive             // deactivate to hide from pickers; existing releases unaffected
   // BaseRef()   => {Registry}/{Repository}/{Name}
   // Resolve(tag) => {Registry}/{Repository}/{Name}@sha256:<digest>
@@ -159,7 +159,7 @@ The resolve-to-digest property means there's never a "can't delete, it's in use"
 Deployment.Domain
 └─ Catalog/ (or Services/)
    └─ ContainerImage        new catalog entity (coordinate; Registry/Repository/Name,
-                            DefaultTags, IsActive)
+                            DefaultTag, IsActive)
 Service                     + optional ContainerImageId reference
 Release                     unchanged shape (ArtifactUri still the resolved digest)
                             + record the source tag the digest was resolved from (audit)

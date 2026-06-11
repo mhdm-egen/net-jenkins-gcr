@@ -1,4 +1,5 @@
 using Deployment.Application.Features.Catalog.Applications;
+using Deployment.Application.Features.Catalog.ContainerImages;
 using Deployment.Application.Features.Catalog.Services;
 using Deployment.Application.Features.Configuration.CreateConfigurationSetting;
 using Deployment.Application.Features.Configuration.DeleteConfigurationSetting;
@@ -50,6 +51,15 @@ public static class DependencyInjection
         services.AddScoped<ChangeServiceActivationHandler>();
         services.AddScoped<ListServicesHandler>();
         services.AddScoped<GetServiceByIdHandler>();
+
+        // Catalog: ContainerImage handlers
+        services.AddScoped<RegisterContainerImageHandler>();
+        services.AddScoped<ChangeContainerImageDefaultTagHandler>();
+        services.AddScoped<ChangeContainerImageActivationHandler>();
+        services.AddScoped<ListContainerImagesHandler>();
+        services.AddScoped<GetContainerImageByIdHandler>();
+        services.AddScoped<ListContainerImageTagsHandler>();
+        services.AddScoped<ResolveContainerImageHandler>();
 
         // Catalog: Application handlers
         services.AddScoped<RegisterApplicationHandler>();
