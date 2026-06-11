@@ -57,6 +57,7 @@ public static class DependencyInjection
 
         // Pipeline run handlers.
         services.AddScoped<StartPipelineRunHandler>();
+        services.AddScoped<CancelPipelineRunHandler>();
         services.AddScoped<ListPipelineRunsHandler>();
         services.AddScoped<GetPipelineRunByIdHandler>();
 

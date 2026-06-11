@@ -24,6 +24,7 @@ internal sealed class PipelineRunExecutorService : BackgroundService
     private readonly IServiceScopeFactory _scopes;
     private readonly IPipelineRunNotifier _notifier;
     private readonly IPipelineRunConsoleBuffer _console;
+    private readonly IPipelineRunCancellation _cancellation;
     private readonly TimeProvider _clock;
     private readonly ILogger<PipelineRunExecutorService> _logger;
 
@@ -32,6 +33,7 @@ internal sealed class PipelineRunExecutorService : BackgroundService
         IServiceScopeFactory scopes,
         IPipelineRunNotifier notifier,
         IPipelineRunConsoleBuffer console,
+        IPipelineRunCancellation cancellation,
         TimeProvider clock,
         ILogger<PipelineRunExecutorService> logger)
     {
@@ -39,6 +41,7 @@ internal sealed class PipelineRunExecutorService : BackgroundService
         _scopes = scopes;
         _notifier = notifier;
         _console = console;
+        _cancellation = cancellation;
         _clock = clock;
         _logger = logger;
     }
@@ -72,54 +75,71 @@ internal sealed class PipelineRunExecutorService : BackgroundService
         var run = await runs.GetByIdAsync(runId, ct).ConfigureAwait(false);
         if (run is null) return;
 
-        var orchestrator = sp.GetService<IPipelineOrchestrator>();
-        if (orchestrator is null)
-        {
-            await SettleAsync(run, uow, () => run.Fail("Jenkins is not configured (set Jenkins:Url + Jenkins:ApiToken).", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
-            return;
-        }
-
-        var pipeline = await sp.GetRequiredService<IPipelineStore>().GetByIdAsync(run.PipelineId, ct).ConfigureAwait(false);
-        if (pipeline is null)
-        {
-            await SettleAsync(run, uow, () => run.Fail("Pipeline definition not found.", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
-            return;
-        }
-
-        var repo = run.RepositoryId is { } rid
-            ? await sp.GetRequiredService<ISourceRepositoryStore>().GetByIdAsync(rid, ct).ConfigureAwait(false)
-            : null;
-
-        var steps = BuildSteps(pipeline, repo);
-        var progress = new Progress<PipelineEvent>(evt => OnEvent(runId, evt));
-
-        Jenkins.Orchestrator.PipelineRun result;
+        // Per-run cancellation: a linked token the cancel endpoint can trip independently of
+        // host shutdown. The orchestrator uses it to stop the in-flight Jenkins build.
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _cancellation.Track(runId, linked);
         try
         {
-            result = await orchestrator.RunAsync(steps, progress, ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            await SettleAsync(run, uow, () => run.Fail($"Executor error: {ex.Message}", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
-            return;
-        }
+            var orchestrator = sp.GetService<IPipelineOrchestrator>();
+            if (orchestrator is null)
+            {
+                await SettleAsync(run, uow, () => run.Fail("Jenkins is not configured (set Jenkins:Url + Jenkins:ApiToken).", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
+                return;
+            }
 
-        var now = _clock.GetUtcNow();
-        var order = 0;
-        foreach (var s in result.Steps)
-        {
-            order++;
-            if (s.Result == BuildResult.Success && s.BuildNumber is int buildNumber)
-                run.RecordStepSucceeded(order, s.JobName, buildNumber, now);
-        }
+            var pipeline = await sp.GetRequiredService<IPipelineStore>().GetByIdAsync(run.PipelineId, ct).ConfigureAwait(false);
+            if (pipeline is null)
+            {
+                await SettleAsync(run, uow, () => run.Fail("Pipeline definition not found.", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
+                return;
+            }
 
-        await SettleAsync(run, uow,
-            () => { if (result.Success) run.Succeed(now); else run.Fail(result.FailureReason ?? "Pipeline failed.", now); },
-            runId, ct).ConfigureAwait(false);
+            var repo = run.RepositoryId is { } rid
+                ? await sp.GetRequiredService<ISourceRepositoryStore>().GetByIdAsync(rid, ct).ConfigureAwait(false)
+                : null;
+
+            var steps = BuildSteps(pipeline, repo);
+            var progress = new Progress<PipelineEvent>(evt => OnEvent(runId, evt));
+
+            Jenkins.Orchestrator.PipelineRun result;
+            try
+            {
+                result = await orchestrator.RunAsync(steps, progress, linked.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw; // host shutdown — stop the executor loop (run is left Running)
+            }
+            catch (OperationCanceledException)
+            {
+                // Per-run cancel requested via the cancel endpoint.
+                await SettleAsync(run, uow, () => run.Cancel(_clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
+                return;
+            }
+            catch (Exception ex)
+            {
+                await SettleAsync(run, uow, () => run.Fail($"Executor error: {ex.Message}", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
+                return;
+            }
+
+            var now = _clock.GetUtcNow();
+            var order = 0;
+            foreach (var s in result.Steps)
+            {
+                order++;
+                if (s.Result == BuildResult.Success && s.BuildNumber is int buildNumber)
+                    run.RecordStepSucceeded(order, s.JobName, buildNumber, now);
+            }
+
+            await SettleAsync(run, uow,
+                () => { if (result.Success) run.Succeed(now); else run.Fail(result.FailureReason ?? "Pipeline failed.", now); },
+                runId, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _cancellation.Forget(runId);
+        }
     }
 
     private async Task SettleAsync(Jenkins.Domain.PipelineRuns.PipelineRun run, IUnitOfWork uow, Action settle, Guid runId, CancellationToken ct)

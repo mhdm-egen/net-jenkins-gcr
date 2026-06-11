@@ -34,12 +34,22 @@
     <MudTooltip Text="Run history">
         <MudIconButton Icon="@Icons.Material.Filled.History" Href="/jenkins/runs" />
     </MudTooltip>
-    <MudButton Color="Color.Primary" Variant="Variant.Filled"
-               StartIcon="@Icons.Material.Filled.PlayArrow"
-               Disabled="@(_selectedId is null || _state == RunUi.Running)"
-               OnClick="OnRun">
-        Run Pipeline
-    </MudButton>
+    @if (_state == RunUi.Running)
+    {
+        <MudButton Color="Color.Error" Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.Stop" OnClick="OnCancel">
+            Cancel
+        </MudButton>
+    }
+    else
+    {
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                   Disabled="@(_selectedId is null)"
+                   OnClick="OnRun">
+            Run Pipeline
+        </MudButton>
+    }
 </MudStack>
 
 @if (_state is RunUi.Succeeded or RunUi.Failed)
@@ -195,6 +205,14 @@
         {
             _state = RunUi.Failed; _failureReason = ex.Message; StateHasChanged();
         }
+    }
+
+    private async Task OnCancel()
+    {
+        if (_runId is not { } id) return;
+        try { await Api.CancelPipelineRunAsync(id); AddEvent("cancel requested"); }
+        catch (Exception ex) { AddEvent($"cancel failed: {ex.Message}"); }
+        StateHasChanged();
     }
 
     private async Task ConnectAsync(Guid runId)

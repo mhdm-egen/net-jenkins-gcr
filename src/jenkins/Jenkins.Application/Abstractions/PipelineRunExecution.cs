@@ -35,3 +35,18 @@ public interface IPipelineRunConsoleBuffer
 }
 
 public sealed record PipelineRunConsoleSegment(string JobName, string Text);
+
+/// <summary>
+/// Tracks in-flight runs so a cancel request can stop the specific run (cancelling its token,
+/// which the orchestrator uses to stop the in-flight Jenkins build). The executor registers a
+/// run on start and forgets it on completion; a cancel command calls <see cref="Cancel"/>.
+/// Singleton.
+/// </summary>
+public interface IPipelineRunCancellation
+{
+    void Track(Guid runId, CancellationTokenSource cts);
+    void Forget(Guid runId);
+
+    /// <summary>Request cancellation of an in-flight run. Returns false if it isn't executing.</summary>
+    bool Cancel(Guid runId);
+}

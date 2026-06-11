@@ -169,6 +169,14 @@ public sealed class JenkinsApiClient
         return await resp.Content.ReadFromJsonAsync<PipelineRunDto>(Json, ct).ConfigureAwait(false);
     }
 
+    /// <summary>Best-effort cancel of an in-flight run. 202 = requested, 404 = not running.</summary>
+    public async Task CancelPipelineRunAsync(Guid runId, CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync($"api/jenkins/pipeline-runs/{runId}/cancel", content: null, ct).ConfigureAwait(false);
+        if (resp.StatusCode is not (HttpStatusCode.Accepted or HttpStatusCode.NotFound))
+            await EnsureOkAsync(resp, ct).ConfigureAwait(false);
+    }
+
     private sealed record StartRunResponse(Guid Id);
 
     // ---- Plumbing ----

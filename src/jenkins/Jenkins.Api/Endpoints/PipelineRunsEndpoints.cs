@@ -48,6 +48,16 @@ public static class PipelineRunsEndpoints
             return hit is null ? Results.NotFound() : Results.Ok(hit);
         });
 
+        // Request cancellation of an in-flight run (stops the Jenkins build; run settles Cancelled).
+        group.MapPost("{id:guid}/cancel", async (
+            Guid id,
+            CancelPipelineRunHandler handler,
+            CancellationToken ct) =>
+        {
+            var requested = await handler.HandleAsync(new CancelPipelineRunCommand(id), ct);
+            return requested ? Results.Accepted() : Results.NotFound();
+        });
+
         return app;
     }
 }
