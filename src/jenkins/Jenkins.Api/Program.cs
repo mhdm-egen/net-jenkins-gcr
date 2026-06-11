@@ -6,6 +6,8 @@ using Jenkins.Infrastructure;
 using Jenkins.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Wolverine;
+using Wolverine.EntityFrameworkCore;
+using Wolverine.SqlServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -38,6 +40,15 @@ builder.Host.UseWolverine(opts =>
 {
     opts.Discovery.IncludeAssembly(typeof(Jenkins.Application.DependencyInjection).Assembly);
     opts.Discovery.IncludeAssembly(typeof(JenkinsCiDbContext).Assembly);
+
+    // Enrol handlers in the DbContext transaction + durable SQL Server outbox/inbox
+    // (mirrors the deployment service) so integration events publish reliably.
+    opts.UseEntityFrameworkCoreTransactions();
+    var connection = builder.Configuration.GetConnectionString("JenkinsCi");
+    if (!string.IsNullOrEmpty(connection))
+    {
+        opts.PersistMessagesWithSqlServer(connection);
+    }
 });
 
 var app = builder.Build();

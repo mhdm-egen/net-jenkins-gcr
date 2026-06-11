@@ -42,7 +42,7 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException(
                 "ConnectionStrings:JenkinsCi is required by Jenkins.Infrastructure.");
 
-        services.AddDbContext<JenkinsCiDbContext>(opts => opts.UseSqlite(connection));
+        services.AddDbContext<JenkinsCiDbContext>(opts => opts.UseSqlServer(connection));
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IDomainEventDispatcher, WolverineDomainEventDispatcher>();
