@@ -1,6 +1,7 @@
 @page "/deployment/container-images"
 @inject DeploymentApiClient Api
 @inject NexusOptions NexusOpts
+@inject INexusClient Nexus
 @inject ISnackbar Snackbar
 
 <PageTitle>Deployment — Container Images</PageTitle>
@@ -76,10 +77,15 @@
     <DialogContent>
         <MudTextField @bind-Value="_reg.Registry" Label="Registry" Required="true"
                       HelperText="host[:port], e.g. nexus:8082" />
-        <MudTextField @bind-Value="_reg.Repository" Label="Repository" Required="true"
-                      HelperText="path within the registry, e.g. docker-private" />
-        <MudTextField @bind-Value="_reg.Name" Label="Image name" Required="true"
-                      HelperText="e.g. orders-api" />
+        <MudAutocomplete T="string" Label="Repository" Required="true"
+                         Value="_reg.Repository" ValueChanged="OnRepositoryChangedAsync"
+                         SearchFunc="SearchRepositories" CoerceValue="true" Clearable="true"
+                         ResetValueOnEmptyText="false"
+                         HelperText="Nexus docker repo — pick or type" />
+        <MudAutocomplete T="string" Label="Image name" Required="true"
+                         @bind-Value="_reg.Name"
+                         SearchFunc="SearchImageNames" CoerceValue="true" Clearable="true"
+                         HelperText="select an existing image or type a new one" />
         <MudTextField @bind-Value="_reg.DefaultTag" Label="Default tag" HelperText="defaults to 'latest'" />
     </DialogContent>
     <DialogActions>
@@ -127,11 +133,68 @@
         finally { _loading = false; StateHasChanged(); }
     }
 
-    private void OpenRegister()
+    // Live Nexus discovery for the register picker (decision #1/#2): repositories and
+    // image names come from the Nexus REST API; both degrade to free text when Nexus
+    // is unconfigured/unreachable.
+    private IReadOnlyList<string> _repositories = Array.Empty<string>();
+    private IReadOnlyList<string> _imageNames = Array.Empty<string>();
+
+    private async Task OpenRegister()
     {
-        _reg = new RegisterForm { Registry = NexusOpts.DockerRegistryHost };
+        _reg = new RegisterForm
+        {
+            Registry = NexusOpts.DockerRegistryHost,
+            Repository = NexusOpts.DockerHostedRepository,
+        };
+        _imageNames = Array.Empty<string>();
         _showRegister = true;
+        await LoadRepositoriesAsync();
+        await LoadImageNamesAsync(_reg.Repository);
     }
+
+    private async Task LoadRepositoriesAsync()
+    {
+        var fallback = new[] { NexusOpts.DockerHostedRepository };
+        if (!Nexus.IsConfigured) { _repositories = fallback; return; }
+        try
+        {
+            var repos = await Nexus.ListDockerRepositoriesAsync();
+            // Always include the configured default so it can be selected.
+            _repositories = repos.Count == 0
+                ? fallback
+                : repos.Contains(NexusOpts.DockerHostedRepository, StringComparer.OrdinalIgnoreCase)
+                    ? repos
+                    : repos.Append(NexusOpts.DockerHostedRepository).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
+        }
+        catch { _repositories = fallback; }
+    }
+
+    private async Task OnRepositoryChangedAsync(string? repository)
+    {
+        _reg.Repository = repository ?? "";
+        _reg.Name = "";
+        await LoadImageNamesAsync(_reg.Repository);
+    }
+
+    private async Task LoadImageNamesAsync(string repository)
+    {
+        _imageNames = Array.Empty<string>();
+        if (!Nexus.IsConfigured || string.IsNullOrWhiteSpace(repository)) { StateHasChanged(); return; }
+        try { _imageNames = await Nexus.ListDockerImageNamesAsync(repository); }
+        catch { _imageNames = Array.Empty<string>(); }
+        StateHasChanged();
+    }
+
+    private Task<IEnumerable<string>> SearchRepositories(string? value, CancellationToken ct)
+        => Task.FromResult(FilterList(_repositories, value));
+
+    private Task<IEnumerable<string>> SearchImageNames(string? value, CancellationToken ct)
+        => Task.FromResult(FilterList(_imageNames, value));
+
+    private static IEnumerable<string> FilterList(IReadOnlyList<string> items, string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? items
+            : items.Where(i => i.Contains(value, StringComparison.OrdinalIgnoreCase));
 
     private async Task RegisterAsync()
     {

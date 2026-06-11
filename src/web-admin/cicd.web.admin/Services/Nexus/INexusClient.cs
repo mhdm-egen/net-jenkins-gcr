@@ -26,6 +26,12 @@ public interface INexusClient
     /// </summary>
     Task<IReadOnlyList<DockerImage>> ListDockerImagesAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Names of all docker-format repositories — powers the register picker.</summary>
+    Task<IReadOnlyList<string>> ListDockerRepositoriesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Distinct, sorted image names within the given docker repository.</summary>
+    Task<IReadOnlyList<string>> ListDockerImageNamesAsync(string repository, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Deletes a single Nexus component (one package version, all its assets).
     /// </summary>

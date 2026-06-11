@@ -70,6 +70,30 @@ public sealed class NexusClient : INexusClient, IDisposable
             .ToArray();
     }
 
+    public async Task<IReadOnlyList<string>> ListDockerRepositoriesAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        var repos = await _http!.GetFromJsonAsync<RepositoryDto[]>("service/rest/v1/repositories", JsonOpts, cancellationToken)
+            ?? Array.Empty<RepositoryDto>();
+        return repos
+            .Where(r => string.Equals(r.Format, "docker", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(r.Name))
+            .Select(r => r.Name!)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    public async Task<IReadOnlyList<string>> ListDockerImageNamesAsync(string repository, CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+        if (string.IsNullOrWhiteSpace(repository)) return Array.Empty<string>();
+        var names = await ListAllComponentsAsync(repository, c => c.Name ?? string.Empty, cancellationToken);
+        return names
+            .Where(n => n.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     public Task DeleteNuGetPackageAsync(NuGetPackage package, CancellationToken cancellationToken = default)
     {
         EnsureConfigured();
@@ -311,6 +335,8 @@ public sealed class NexusClient : INexusClient, IDisposable
     public void Dispose() => _http?.Dispose();
 
     // --- DTOs (Nexus REST v1) ---
+
+    private sealed record RepositoryDto(string? Name, string? Format, string? Type, string? Url);
 
     private sealed record ComponentListDto(ComponentDto[]? Items, string? ContinuationToken);
 
