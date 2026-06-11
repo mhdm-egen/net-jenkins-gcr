@@ -11,16 +11,19 @@ using Jenkins.Domain.Handoffs;
 using Jenkins.Domain.Pipelines;
 using Jenkins.Domain.PipelineRuns;
 using Jenkins.Domain.SourceRepositories;
+using Jenkins.Infrastructure.PipelineRuns;
 using Jenkins.Infrastructure.Sync;
 using Jenkins.Infrastructure.Sync.Nexus;
 using Jenkins.Infrastructure.Messaging;
 using Jenkins.Infrastructure.Persistence;
+using Jenkins.Orchestrator;
 using Jenkins.Infrastructure.Persistence.Readers;
 using Jenkins.Infrastructure.Persistence.Repositories;
 using Jenkins.Infrastructure.Releases;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Jenkins.Infrastructure;
 
@@ -110,6 +113,33 @@ public static class DependencyInjection
             .GetValue<bool?>(nameof(JenkinsSyncOptions.Enabled)) ?? true;
         if (enabled)
             services.AddHostedService<JenkinsBuildSyncService>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Server-side pipeline-run execution: the run queue + console buffer (singletons), the
+    /// background executor, and the orchestrator (when Jenkins is configured). The
+    /// <c>IPipelineRunNotifier</c> impl is registered by the API host (it owns the SignalR hub).
+    /// </summary>
+    public static IServiceCollection AddJenkinsPipelineRuns(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddSingleton<IPipelineRunQueue, PipelineRunQueue>();
+        services.AddSingleton<IPipelineRunConsoleBuffer, PipelineRunConsoleBuffer>();
+        services.AddHostedService<PipelineRunExecutorService>();
+
+        // The orchestrator drives real Jenkins jobs — only available when Jenkins is configured.
+        var baseUrl = configuration["Jenkins:Url"];
+        var token = configuration["Jenkins:ApiToken"];
+        if (!string.IsNullOrWhiteSpace(baseUrl) && !string.IsNullOrWhiteSpace(token))
+        {
+            // Shared with the build-sync registration; TryAdd avoids a double-registration clash.
+            services.TryAddSingleton(new JenkinsOptions(baseUrl, configuration["Jenkins:User"] ?? "admin", token));
+            services.TryAddSingleton<IJenkinsClient>(sp => new JenkinsClient(sp.GetRequiredService<JenkinsOptions>()));
+            services.AddScoped<IPipelineOrchestrator, PipelineOrchestrator>();
+        }
 
         return services;
     }

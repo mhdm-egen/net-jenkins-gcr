@@ -16,6 +16,9 @@
     <ProjectReference Include="..\..\deployment\Deployment.Contracts\Deployment.Contracts.csproj" />
     <!-- Existing Jenkins HTTP client, wrapped by the build-ingestion adapters. -->
     <ProjectReference Include="..\Jenkins.Client\Jenkins.Client.csproj" />
+    <!-- Pipeline step-execution engine, reused server-side by the run executor. -->
+    <ProjectReference Include="..\Jenkins.Orchestrator\Jenkins.Orchestrator.csproj" />
+    <ProjectReference Include="..\Jenkins.Orchestrator.Abstractions\Jenkins.Orchestrator.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

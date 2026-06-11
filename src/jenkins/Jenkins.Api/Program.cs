@@ -5,6 +5,8 @@ using Jenkins.Application.Features.Pipelines;
 using Jenkins.Infrastructure;
 using Jenkins.Infrastructure.Persistence;
 using Cicd.Messaging;
+using Jenkins.Api.Hubs;
+using Jenkins.Application.Abstractions;
 using Microsoft.EntityFrameworkCore;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
@@ -33,6 +35,12 @@ builder.Services.AddJenkinsInfrastructure(builder.Configuration);
 // Build-sync background worker (Jenkins -> CI model). No-op when Jenkins is
 // unconfigured. Jenkins:Url + Jenkins:ApiToken + Jenkins:Sync.
 builder.Services.AddJenkinsBuildSync(builder.Configuration);
+
+// Server-side pipeline-run execution (queue + executor + orchestrator) and the live
+// SignalR stream (hub + notifier bridge from the Infrastructure executor).
+builder.Services.AddJenkinsPipelineRuns(builder.Configuration);
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IPipelineRunNotifier, PipelineRunNotifier>();
 
 // Wolverine: CQRS dispatcher + in-process bus. Handlers in Features/* are discovered
 // by convention from the Application + Infrastructure assemblies. EF-transaction
@@ -106,5 +114,9 @@ app.MapRepositoryEndpoints();
 app.MapBuildEndpoints();
 app.MapHandoffEndpoints();
 app.MapPipelineEndpoints();
+app.MapPipelineRunEndpoints();
+
+// Live pipeline-run stream (server-to-server SignalR from web-admin; no CORS needed).
+app.MapHub<PipelineRunHub>("/hubs/pipeline-runs");
 
 app.Run();
