@@ -128,6 +128,7 @@ public static class DependencyInjection
     {
         services.AddSingleton<IPipelineRunQueue, PipelineRunQueue>();
         services.AddSingleton<IPipelineRunConsoleBuffer, PipelineRunConsoleBuffer>();
+        services.AddSingleton<IPipelineRunCancellation, PipelineRunCancellation>();
         services.AddHostedService<PipelineRunExecutorService>();
 
         // The orchestrator drives real Jenkins jobs — only available when Jenkins is configured.
