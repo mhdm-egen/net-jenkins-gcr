@@ -1,6 +1,8 @@
 using FluentValidation;
 using Publisher.Application.Features.Channels;
+using Publisher.Application.Features.Promotions;
 using Publisher.Contracts.Channels;
+using Publisher.Contracts.Promotions;
 
 namespace Publisher.Api.Endpoints;
 
@@ -40,13 +42,32 @@ public static class ChannelsEndpoints
             });
         });
 
-        // Promotion to the remote registry (Nexus → GAR) is the next slice; not implemented yet.
-        group.MapPost("{name}/publish", (string name) =>
-            Results.Problem(
-                title: "Not implemented",
-                detail: $"Promoting channel '{name}' to a remote registry (Nexus → Google Artifact Registry) is not yet implemented.",
-                statusCode: StatusCodes.Status501NotImplemented))
-            .WithTags("Channels");
+        // Publish the channel's current container to a remote registry (the one specified, or the
+        // default). Convenience wrapper over the container-promote path.
+        group.MapPost("{name}/publish", async (
+            string name,
+            PromoteContainerRequest body,
+            GetChannelByNameHandler channels,
+            RequestManualPromotionHandler promote,
+            CancellationToken ct) =>
+        {
+            var channel = await channels.HandleAsync(new GetChannelByNameQuery(name), ct);
+            if (channel is null) return Results.NotFound();
+
+            try
+            {
+                var result = await promote.HandleAsync(
+                    new RequestManualPromotionCommand(channel.CurrentContainerId, body.RegistryId, body.TriggeredBy ?? $"channel:{name}"), ct);
+                return result.PromotionId is null
+                    ? Results.Ok(new { outcome = result.Outcome })
+                    : Results.Accepted($"/api/publisher/promotions/{result.PromotionId}",
+                        new { promotionId = result.PromotionId, outcome = result.Outcome });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Problem(title: "Cannot publish channel", detail: ex.Message, statusCode: 409);
+            }
+        });
 
         return app;
     }

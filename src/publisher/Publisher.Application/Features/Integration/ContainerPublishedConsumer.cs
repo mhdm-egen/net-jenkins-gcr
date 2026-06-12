@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Publisher.Application.Features.Containers;
+using Publisher.Application.Features.Rules;
 
 namespace Publisher.Application.Features.Integration;
 
@@ -15,6 +16,7 @@ public sealed class ContainerPublishedConsumer
     public async Task Handle(
         Cicd.IntegrationEvents.Ci.ContainerPublished evt,
         RecordContainerHandler recorder,
+        EvaluateContainerRulesHandler ruleEvaluator,
         ILogger<ContainerPublishedConsumer> logger,
         CancellationToken cancellationToken)
     {
@@ -34,5 +36,10 @@ public sealed class ContainerPublishedConsumer
             cancellationToken).ConfigureAwait(false);
 
         logger.LogInformation("[bus] ContainerPublished recorded as inventory container {ContainerId}.", id);
+
+        // Opt-in automation: enabled rules decide whether this container is pushed to a remote.
+        await ruleEvaluator.HandleAsync(
+            new EvaluateContainerRulesCommand(id, evt.RepositoryId, evt.ContainerName),
+            cancellationToken).ConfigureAwait(false);
     }
 }

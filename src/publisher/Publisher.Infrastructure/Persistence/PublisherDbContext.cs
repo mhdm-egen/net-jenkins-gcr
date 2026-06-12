@@ -1,6 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Publisher.Domain.Channels;
 using Publisher.Domain.Containers;
+using Publisher.Domain.Promotions;
+using Publisher.Domain.Registries;
+using Publisher.Domain.Rules;
 
 namespace Publisher.Infrastructure.Persistence;
 
@@ -16,6 +19,9 @@ public sealed class PublisherDbContext : DbContext
     public DbSet<PublishableContainer> Containers => Set<PublishableContainer>();
     public DbSet<PublishChannel> Channels => Set<PublishChannel>();
     public DbSet<ChannelBinding> ChannelBindings => Set<ChannelBinding>();
+    public DbSet<RemoteRegistry> Registries => Set<RemoteRegistry>();
+    public DbSet<AutomationRule> Rules => Set<AutomationRule>();
+    public DbSet<Promotion> Promotions => Set<Promotion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

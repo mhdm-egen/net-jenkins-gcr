@@ -7,6 +7,9 @@ public interface IChannelReader
 {
     Task<IReadOnlyList<PublishChannelDto>> ListAsync(CancellationToken cancellationToken = default);
     Task<PublishChannelDto?> GetByNameAsync(string name, CancellationToken cancellationToken = default);
+
+    /// <summary>Names of the channels that currently point at the given container (empty if none).</summary>
+    Task<IReadOnlyList<string>> ListChannelNamesForContainerAsync(Guid containerId, CancellationToken cancellationToken = default);
 }
 
 public sealed record ListChannelsQuery;

@@ -2,6 +2,9 @@ using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using Publisher.Application.Features.Channels;
 using Publisher.Application.Features.Containers;
+using Publisher.Application.Features.Promotions;
+using Publisher.Application.Features.Registries;
+using Publisher.Application.Features.Rules;
 
 namespace Publisher.Application;
 
@@ -25,8 +28,33 @@ public static class DependencyInjection
         services.AddScoped<ListChannelsHandler>();
         services.AddScoped<GetChannelByNameHandler>();
 
-        // The bus consumer (ContainerPublishedConsumer) is discovered by Wolverine from this
-        // assembly — no explicit registration needed; its injected RecordContainerHandler is above.
+        // Remote registries
+        services.AddScoped<CreateRegistryHandler>();
+        services.AddScoped<UpdateRegistryHandler>();
+        services.AddScoped<ChangeRegistryActivationHandler>();
+        services.AddScoped<SetDefaultRegistryHandler>();
+        services.AddScoped<DeleteRegistryHandler>();
+        services.AddScoped<ListRegistriesHandler>();
+        services.AddScoped<GetRegistryByIdHandler>();
+
+        // Automation rules
+        services.AddScoped<CreateRuleHandler>();
+        services.AddScoped<UpdateRuleHandler>();
+        services.AddScoped<ChangeRuleActivationHandler>();
+        services.AddScoped<DeleteRuleHandler>();
+        services.AddScoped<ListRulesHandler>();
+        services.AddScoped<GetRuleByIdHandler>();
+        services.AddScoped<EvaluateContainerRulesHandler>();
+
+        // Promotions
+        services.AddScoped<PromoteContainerHandler>();
+        services.AddScoped<RequestManualPromotionHandler>();
+        services.AddScoped<ListPromotionsHandler>();
+        services.AddScoped<GetPromotionByIdHandler>();
+
+        // The bus consumer (ContainerPublishedConsumer), the promotion executor (PromotionExecutor),
+        // and the success translator (PromotionSucceededTranslator) are discovered by Wolverine from
+        // this assembly — no explicit registration needed.
 
         return services;
     }

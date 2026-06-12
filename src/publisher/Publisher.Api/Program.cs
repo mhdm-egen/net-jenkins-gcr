@@ -45,9 +45,10 @@ builder.Host.UseWolverine(opts =>
         opts.PersistMessagesWithSqlServer(connection);
     }
 
-    // Cross-service event bus (provider-pluggable; RabbitMQ by default). The publisher only
-    // consumes CI container-published facts for now; it publishes nothing yet.
+    // Cross-service event bus (provider-pluggable; RabbitMQ by default). The publisher consumes CI
+    // container-published facts and publishes its own container-promoted facts on publisher.events.
     opts.AddCicdMessaging(builder.Configuration, topology => topology
+        .Publish<Cicd.IntegrationEvents.Publisher.ContainerPromoted>("publisher.events")
         .Subscribe("ci.events", subscriber: "publisher"));
 });
 
@@ -90,5 +91,8 @@ app.MapGet("/", () => Results.Ok(new
 
 app.MapContainersEndpoints();
 app.MapChannelsEndpoints();
+app.MapRegistriesEndpoints();
+app.MapRulesEndpoints();
+app.MapPromotionsEndpoints();
 
 app.Run();

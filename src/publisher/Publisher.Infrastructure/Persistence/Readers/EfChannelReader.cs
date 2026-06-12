@@ -49,4 +49,11 @@ internal sealed class EfChannelReader : IChannelReader
 
         return new PublishChannelDto(c.Id, c.Name, c.CurrentContainerId, c.CreatedAtUtc, c.UpdatedAtUtc, history);
     }
+
+    public async Task<IReadOnlyList<string>> ListChannelNamesForContainerAsync(Guid containerId, CancellationToken cancellationToken = default)
+        => await _db.Channels.AsNoTracking()
+            .Where(c => c.CurrentContainerId == containerId)
+            .OrderBy(c => c.Name)
+            .Select(c => c.Name)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
 }
