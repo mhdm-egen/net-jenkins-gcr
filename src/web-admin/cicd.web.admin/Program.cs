@@ -5,6 +5,7 @@ using Cicd.Web.Admin.Services;
 using Cicd.Web.Admin.Services.Builds;
 using Cicd.Web.Admin.Services.Ci;
 using Cicd.Web.Admin.Services.Deployment;
+using Cicd.Web.Admin.Services.Publisher;
 using Cicd.Web.Admin.Services.Gcp;
 using Cicd.Web.Admin.Services.Nexus;
 using Microsoft.EntityFrameworkCore;
@@ -96,6 +97,18 @@ builder.Services.AddHttpClient<JenkinsApiClient>(c =>
     c.BaseAddress = new Uri(jenkinsApiOptions.BaseUrl.EndsWith('/')
         ? jenkinsApiOptions.BaseUrl
         : jenkinsApiOptions.BaseUrl + "/");
+    c.Timeout = TimeSpan.FromSeconds(30);
+});
+
+// Publisher service (Publisher.Api) — typed HttpClient. BaseUrl from config (PublisherApi:BaseUrl).
+var publisherApiOptions = builder.Configuration.GetSection(PublisherApiOptions.SectionName).Get<PublisherApiOptions>()
+                          ?? new PublisherApiOptions();
+builder.Services.AddSingleton(publisherApiOptions);
+builder.Services.AddHttpClient<PublisherApiClient>(c =>
+{
+    c.BaseAddress = new Uri(publisherApiOptions.BaseUrl.EndsWith('/')
+        ? publisherApiOptions.BaseUrl
+        : publisherApiOptions.BaseUrl + "/");
     c.Timeout = TimeSpan.FromSeconds(30);
 });
 

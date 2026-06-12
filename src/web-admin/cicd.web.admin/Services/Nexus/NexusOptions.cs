@@ -18,4 +18,11 @@ public sealed record NexusOptions
 
     /// <summary>Name of the hosted Docker repository to enumerate (Nexus repo name, not URL).</summary>
     public string DockerHostedRepository { get; init; } = "docker-hosted";
+
+    /// <summary>
+    /// Host:port of the Nexus docker registry connector (NOT the :8081 REST API) — used to build
+    /// the pull reference (<c>host/name:tag</c>) when manually adding a container to the publisher
+    /// inventory. Matches the registry the build pipeline pushes to.
+    /// </summary>
+    public string DockerRegistryHost { get; init; } = "nexus:8082";
 }

@@ -93,8 +93,11 @@ pipeline {
                         def floatingTag = "${repo}:${CONTAINER_TAG}"
                         def buildTag    = "${repo}:ci-${SOURCE_BUILD_NUM}"
                         def commitTag   = "${repo}:${GIT_COMMIT_SHORT}"
+                        // Combined build-number + commit tag: a single immutable, unique handle
+                        // for this exact build (unlike the floating/version tags which can move).
+                        def buildCommitTag = "${repo}:${SOURCE_BUILD_NUM}-${GIT_COMMIT_SHORT}"
 
-                        println "Nexus tags: ${floatingTag}, ${buildTag}, ${commitTag}"
+                        println "Nexus tags: ${floatingTag}, ${buildTag}, ${commitTag}, ${buildCommitTag}"
 
                         sh """
                             set -e
@@ -102,6 +105,7 @@ pipeline {
                             docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${floatingTag}
                             docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${buildTag}
                             docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${commitTag}
+                            docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${buildCommitTag}
 
                             echo "Logging in to Nexus docker registry ${params.NEXUS_DOCKER_HOST}"
                             echo "\$NEXUS_DOCKER_PASS" | docker login ${params.NEXUS_DOCKER_PROTOCOL}${params.NEXUS_DOCKER_HOST} -u "\$NEXUS_DOCKER_USER" --password-stdin
@@ -110,6 +114,7 @@ pipeline {
                             docker push ${floatingTag}
                             docker push ${buildTag}
                             docker push ${commitTag}
+                            docker push ${buildCommitTag}
                         """
                         NEXUS_DOCKER_AUTHENTICATED = true
                     }
