@@ -16,12 +16,15 @@ var jenkinsUrl = builder.AddParameter("JenkinsUrl");
 //   dotnet user-secrets set Parameters:NexusUrl http://<nexus>:8081
 //   dotnet user-secrets set Parameters:NexusPassword <password>
 //   dotnet user-secrets set Parameters:NexusDockerHost <nexus>:8082
+// The PASSWORD uses the lazy/secret parameter form (like JenkinsApiToken) so Aspire resolves it
+// from the AppHost's parameter user-secrets — an eager `builder.Configuration["Parameters:..."]`
+// read returns empty here, which previously injected a blank password and disabled the reconcile.
+// The non-secret values stay eager-with-default: a *required* lazy parameter (no value, no default)
+// blocks the resource from starting when it can't be resolved headlessly. Defaults are the
+// docker-network names + this project's hosted docker repo ("docker-private", not "docker-hosted").
+var nexusPassword = builder.AddParameter("NexusPassword", secret: true);
 var nexusUrl = builder.AddParameter("NexusUrl", builder.Configuration["Parameters:NexusUrl"] ?? "http://nexus:8081");
-var nexusPassword = builder.AddParameter("NexusPassword", builder.Configuration["Parameters:NexusPassword"] ?? "", secret: true);
 var nexusDockerHost = builder.AddParameter("NexusDockerHost", builder.Configuration["Parameters:NexusDockerHost"] ?? "nexus:8082");
-// The hosted docker repo the build pipeline pushes to (via the :8082 connector). This project's
-// Nexus names it "docker-private" — NOT the generic "docker-hosted" the options classes default
-// to, so the reconcile/UI must be pointed here or they search an empty repo.
 var nexusDockerRepo = builder.AddParameter("NexusDockerRepository", builder.Configuration["Parameters:NexusDockerRepository"] ?? "docker-private");
 
 // SQL Server (container) + the deployment DB. The database resource name
