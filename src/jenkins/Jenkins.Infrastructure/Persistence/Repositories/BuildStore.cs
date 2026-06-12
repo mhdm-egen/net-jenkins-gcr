@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Jenkins.Infrastructure.Persistence.Repositories;
 
-internal sealed class BuildStore : EfRepository<Build, Guid>, IBuildStore
+public sealed class BuildStore : EfRepository<Build, Guid>, IBuildStore
 {
     public BuildStore(JenkinsCiDbContext db) : base(db) { }
 

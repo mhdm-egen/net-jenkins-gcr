@@ -3,7 +3,7 @@ using Publisher.Domain.Rules;
 
 namespace Publisher.Infrastructure.Persistence.Repositories;
 
-internal sealed class AutomationRuleRepository
+public sealed class AutomationRuleRepository
     : EfRepository<AutomationRule, Guid>, IAutomationRuleRepository
 {
     public AutomationRuleRepository(PublisherDbContext db) : base(db) { }

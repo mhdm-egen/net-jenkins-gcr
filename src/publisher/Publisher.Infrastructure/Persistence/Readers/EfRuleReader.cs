@@ -4,7 +4,7 @@ using Publisher.Contracts.Rules;
 
 namespace Publisher.Infrastructure.Persistence.Readers;
 
-internal sealed class EfRuleReader : IRuleReader
+public sealed class EfRuleReader : IRuleReader
 {
     private readonly PublisherDbContext _db;
     public EfRuleReader(PublisherDbContext db) => _db = db;

@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Jenkins.Infrastructure.Persistence.Repositories;
 
-internal sealed class SourceRepositoryStore : EfRepository<SourceRepository, Guid>, ISourceRepositoryStore
+public sealed class SourceRepositoryStore : EfRepository<SourceRepository, Guid>, ISourceRepositoryStore
 {
     public SourceRepositoryStore(JenkinsCiDbContext db) : base(db) { }
 

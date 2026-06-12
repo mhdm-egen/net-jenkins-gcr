@@ -4,7 +4,7 @@ using Publisher.Contracts.Containers;
 
 namespace Publisher.Infrastructure.Persistence.Readers;
 
-internal sealed class EfContainerInventoryReader : IContainerInventoryReader
+public sealed class EfContainerInventoryReader : IContainerInventoryReader
 {
     private readonly PublisherDbContext _db;
 

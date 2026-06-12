@@ -9,7 +9,7 @@ namespace Jenkins.Infrastructure.Persistence.Readers;
 /// stages + their params) loads the aggregate via <c>IPipelineStore</c> and maps in
 /// memory, avoiding EF translation of the params JSON column.
 /// </summary>
-internal sealed class EfPipelineReader : IPipelineReader
+public sealed class EfPipelineReader : IPipelineReader
 {
     private readonly JenkinsCiDbContext _db;
 

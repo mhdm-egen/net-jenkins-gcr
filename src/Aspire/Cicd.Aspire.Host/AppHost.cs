@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+
 var builder = DistributedApplication.CreateBuilder(args);
 
 // Secrets / parameters — set via the AppHost's user-secrets:
@@ -16,9 +18,24 @@ var jenkinsUrl = builder.AddParameter("JenkinsUrl");
 //   dotnet user-secrets set Parameters:NexusUrl http://<nexus>:8081
 //   dotnet user-secrets set Parameters:NexusPassword <password>
 //   dotnet user-secrets set Parameters:NexusDockerHost <nexus>:8082
-var nexusUrl = builder.AddParameter("NexusUrl", builder.Configuration["Parameters:NexusUrl"] ?? "http://nexus:8081");
-var nexusPassword = builder.AddParameter("NexusPassword", builder.Configuration["Parameters:NexusPassword"] ?? "", secret: true);
-var nexusDockerHost = builder.AddParameter("NexusDockerHost", builder.Configuration["Parameters:NexusDockerHost"] ?? "nexus:8082");
+// Nexus parameters. These must be EAGER (fixed value) — a lazy `AddParameter(name, secret: true)`
+// that Aspire can't auto-resolve becomes a pending interactive prompt that blocks the referencing
+// resource (jenkins-api / web-admin) from starting in a headless `dotnet run`. But the AppHost's
+// `builder.Configuration` does NOT surface the parameter user-secrets, so we read them explicitly
+// from the user-secrets store and pass the values directly. Defaults are the docker-network names
+// + this project's hosted docker repo ("docker-private", NOT the generic "docker-hosted").
+var paramSecrets = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+    .AddUserSecrets("7e3b1a2c-9d4f-4a6b-8c1e-2f5a9b0c3d4e")
+    .Build();
+string NexusParam(string key, string fallback) =>
+    builder.Configuration[$"Parameters:{key}"] is { Length: > 0 } v ? v
+    : paramSecrets[$"Parameters:{key}"] is { Length: > 0 } s ? s
+    : fallback;
+
+var nexusUrl = builder.AddParameter("NexusUrl", NexusParam("NexusUrl", "http://nexus:8081"));
+var nexusPassword = builder.AddParameter("NexusPassword", NexusParam("NexusPassword", ""), secret: true);
+var nexusDockerHost = builder.AddParameter("NexusDockerHost", NexusParam("NexusDockerHost", "nexus:8082"));
+var nexusDockerRepo = builder.AddParameter("NexusDockerRepository", NexusParam("NexusDockerRepository", "docker-private"));
 
 // SQL Server (container) + the deployment DB. The database resource name
 // "Deployment" becomes ConnectionStrings__Deployment on referencing services.
@@ -62,7 +79,8 @@ var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
     // Nexus reconcile (option b): populates the publisher inventory by detecting pushed images.
     .WithEnvironment("Nexus__Url", nexusUrl)
     .WithEnvironment("Nexus__Password", nexusPassword)
-    .WithEnvironment("Nexus__DockerRegistryHost", nexusDockerHost);
+    .WithEnvironment("Nexus__DockerRegistryHost", nexusDockerHost)
+    .WithEnvironment("Nexus__DockerRepository", nexusDockerRepo);
 
 // Publisher: moves containers from local Nexus to remote registries (GAR for now). Consumes the
 // CI ContainerPublished bus event to keep a local inventory; exposes an API to tag containers
@@ -87,8 +105,10 @@ builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WithEnvironment("Jenkins__Url", jenkinsUrl)
     // Same Nexus config as jenkins-api — the admin UI browses the docker registry (Docker page,
     // and the inventory "Add container" dialog builds pull refs from Nexus:DockerRegistryHost).
+    // NOTE: web-admin's NexusOptions key is DockerHostedRepository (jenkins uses DockerRepository).
     .WithEnvironment("Nexus__Url", nexusUrl)
     .WithEnvironment("Nexus__Password", nexusPassword)
-    .WithEnvironment("Nexus__DockerRegistryHost", nexusDockerHost);
+    .WithEnvironment("Nexus__DockerRegistryHost", nexusDockerHost)
+    .WithEnvironment("Nexus__DockerHostedRepository", nexusDockerRepo);
 
 builder.Build().Run();

@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Jenkins.Infrastructure.Persistence.Repositories;
 
-internal sealed class ContainerReleaseHandoffStore
+public sealed class ContainerReleaseHandoffStore
     : EfRepository<ContainerReleaseHandoff, Guid>, IContainerReleaseHandoffStore
 {
     public ContainerReleaseHandoffStore(JenkinsCiDbContext db) : base(db) { }

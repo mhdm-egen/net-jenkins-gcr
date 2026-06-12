@@ -8,7 +8,7 @@ namespace Jenkins.Infrastructure.Persistence.Readers;
 /// Read-model for pipeline runs. Steps live in a JSON column (not separately queryable), so
 /// these load the (no-tracking) entities and map in memory rather than projecting in SQL.
 /// </summary>
-internal sealed class EfPipelineRunReader : IPipelineRunReader
+public sealed class EfPipelineRunReader : IPipelineRunReader
 {
     private readonly JenkinsCiDbContext _db;
 

@@ -3,7 +3,7 @@ using Publisher.Domain.Containers;
 
 namespace Publisher.Infrastructure.Persistence.Repositories;
 
-internal sealed class PublishableContainerRepository
+public sealed class PublishableContainerRepository
     : EfRepository<PublishableContainer, Guid>, IPublishableContainerRepository
 {
     public PublishableContainerRepository(PublisherDbContext db) : base(db) { }

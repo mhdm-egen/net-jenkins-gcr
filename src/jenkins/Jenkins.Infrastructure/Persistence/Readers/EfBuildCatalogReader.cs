@@ -10,7 +10,7 @@ namespace Jenkins.Infrastructure.Persistence.Readers;
 /// served by loading the aggregate via <c>IBuildStore</c> and mapping in memory,
 /// which avoids fragile EF translation of the nested collections + tags column.
 /// </summary>
-internal sealed class EfBuildCatalogReader : IBuildCatalogReader
+public sealed class EfBuildCatalogReader : IBuildCatalogReader
 {
     private readonly JenkinsCiDbContext _db;
 

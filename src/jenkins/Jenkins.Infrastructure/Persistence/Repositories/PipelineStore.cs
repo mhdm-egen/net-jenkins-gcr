@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Jenkins.Infrastructure.Persistence.Repositories;
 
-internal sealed class PipelineStore : EfRepository<Pipeline, Guid>, IPipelineStore
+public sealed class PipelineStore : EfRepository<Pipeline, Guid>, IPipelineStore
 {
     public PipelineStore(JenkinsCiDbContext db) : base(db) { }
 

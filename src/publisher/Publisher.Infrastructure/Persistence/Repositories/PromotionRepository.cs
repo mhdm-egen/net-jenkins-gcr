@@ -3,7 +3,7 @@ using Publisher.Domain.Promotions;
 
 namespace Publisher.Infrastructure.Persistence.Repositories;
 
-internal sealed class PromotionRepository
+public sealed class PromotionRepository
     : EfRepository<Promotion, Guid>, IPromotionRepository
 {
     public PromotionRepository(PublisherDbContext db) : base(db) { }

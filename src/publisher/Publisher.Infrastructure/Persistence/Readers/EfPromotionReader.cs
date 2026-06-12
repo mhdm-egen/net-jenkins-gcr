@@ -4,7 +4,7 @@ using Publisher.Contracts.Promotions;
 
 namespace Publisher.Infrastructure.Persistence.Readers;
 
-internal sealed class EfPromotionReader : IPromotionReader
+public sealed class EfPromotionReader : IPromotionReader
 {
     private readonly PublisherDbContext _db;
     public EfPromotionReader(PublisherDbContext db) => _db = db;

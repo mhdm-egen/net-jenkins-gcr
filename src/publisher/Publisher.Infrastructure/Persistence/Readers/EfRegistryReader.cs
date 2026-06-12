@@ -4,7 +4,7 @@ using Publisher.Contracts.Registries;
 
 namespace Publisher.Infrastructure.Persistence.Readers;
 
-internal sealed class EfRegistryReader : IRegistryReader
+public sealed class EfRegistryReader : IRegistryReader
 {
     private readonly PublisherDbContext _db;
     public EfRegistryReader(PublisherDbContext db) => _db = db;
