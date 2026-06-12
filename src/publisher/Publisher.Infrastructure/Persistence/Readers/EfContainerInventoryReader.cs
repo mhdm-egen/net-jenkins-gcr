@@ -24,7 +24,8 @@ internal sealed class EfContainerInventoryReader : IContainerInventoryReader
             orderby c.LastSeenAtUtc descending
             select new PublishableContainerDto(
                 c.Id, c.RepositoryId, c.BuildId, c.ContainerName, c.Version,
-                c.CommitSha, c.ArtifactUri, c.ImageDigest, c.FirstSeenAtUtc, c.LastSeenAtUtc);
+                c.CommitSha, c.ArtifactUri, c.ImageDigest, c.IsActive, (ContainerSourceDto)(int)c.Source,
+                c.FirstSeenAtUtc, c.LastSeenAtUtc);
 
         return await query.ToListAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -36,7 +37,8 @@ internal sealed class EfContainerInventoryReader : IContainerInventoryReader
             where c.Id == id
             select new PublishableContainerDto(
                 c.Id, c.RepositoryId, c.BuildId, c.ContainerName, c.Version,
-                c.CommitSha, c.ArtifactUri, c.ImageDigest, c.FirstSeenAtUtc, c.LastSeenAtUtc)
+                c.CommitSha, c.ArtifactUri, c.ImageDigest, c.IsActive, (ContainerSourceDto)(int)c.Source,
+                c.FirstSeenAtUtc, c.LastSeenAtUtc)
         ).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
     }
 }

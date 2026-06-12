@@ -1,4 +1,6 @@
+using FluentValidation;
 using Publisher.Application.Features.Containers;
+using Publisher.Contracts.Containers;
 
 namespace Publisher.Api.Endpoints;
 
@@ -29,6 +31,35 @@ public static class ContainersEndpoints
         {
             var hit = await handler.HandleAsync(new GetContainerByIdQuery(id), ct);
             return hit is null ? Results.NotFound() : Results.Ok(hit);
+        });
+
+        // Manually add a container (picked from the local Nexus docker registry in the UI). Active.
+        group.MapPost("", async (
+            AddContainerRequest body,
+            AddContainerManuallyHandler handler,
+            GetContainerByIdHandler get,
+            IValidator<AddContainerManuallyCommand> validator,
+            CancellationToken ct) =>
+        {
+            var cmd = new AddContainerManuallyCommand(body.ContainerName, body.Version, body.CommitSha, body.ArtifactUri);
+            return await EndpointHelpers.ValidateAndRun(validator, cmd, ct, async () =>
+            {
+                var id = await handler.HandleAsync(cmd, ct);
+                var dto = await get.HandleAsync(new GetContainerByIdQuery(id), ct);
+                return Results.Created($"/api/publisher/containers/{id}", dto);
+            });
+        });
+
+        group.MapPost("{id:guid}/activate", async (Guid id, ChangeContainerActivationHandler handler, CancellationToken ct) =>
+        {
+            await handler.HandleAsync(new ChangeContainerActivationCommand(id, Active: true), ct);
+            return Results.NoContent();
+        });
+
+        group.MapPost("{id:guid}/deactivate", async (Guid id, ChangeContainerActivationHandler handler, CancellationToken ct) =>
+        {
+            await handler.HandleAsync(new ChangeContainerActivationCommand(id, Active: false), ct);
+            return Results.NoContent();
         });
 
         return app;

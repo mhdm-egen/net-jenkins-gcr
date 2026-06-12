@@ -50,6 +50,7 @@ public sealed class PromoteContainerHandler
     {
         var container = await _containers.GetByIdAsync(cmd.ContainerId, cancellationToken).ConfigureAwait(false);
         if (container is null) return new PromoteResult(null, "container-not-found");
+        if (!container.IsActive) return new PromoteResult(null, "container-inactive");
 
         var registry = await _registries.GetByIdAsync(cmd.RegistryId, cancellationToken).ConfigureAwait(false);
         if (registry is null) return new PromoteResult(null, "registry-not-found");

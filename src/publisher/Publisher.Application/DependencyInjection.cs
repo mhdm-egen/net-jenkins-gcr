@@ -20,6 +20,8 @@ public static class DependencyInjection
 
         // Container inventory
         services.AddScoped<RecordContainerHandler>();
+        services.AddScoped<AddContainerManuallyHandler>();
+        services.AddScoped<ChangeContainerActivationHandler>();
         services.AddScoped<ListContainersHandler>();
         services.AddScoped<GetContainerByIdHandler>();
 

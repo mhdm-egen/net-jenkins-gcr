@@ -19,3 +19,9 @@ public sealed record ContainerReferenceUpdated(
     string ArtifactUri,
     string? ImageDigest,
     DateTimeOffset OccurredAtUtc) : IDomainEvent;
+
+/// <summary>A container was activated or deactivated for promotion.</summary>
+public sealed record ContainerActivationChanged(
+    Guid ContainerId,
+    bool IsActive,
+    DateTimeOffset OccurredAtUtc) : IDomainEvent;

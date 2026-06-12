@@ -23,6 +23,8 @@ public sealed class PublishableContainerConfiguration : IEntityTypeConfiguration
         b.Property(c => c.CommitSha).HasMaxLength(100).IsRequired();
         b.Property(c => c.ArtifactUri).HasMaxLength(1000).IsRequired();
         b.Property(c => c.ImageDigest).HasMaxLength(200);
+        b.Property(c => c.IsActive).IsRequired().HasDefaultValue(true);
+        b.Property(c => c.Source).HasConversion<int>().IsRequired().HasDefaultValue(Publisher.Domain.Containers.ContainerSource.Bus);
         b.Property(c => c.FirstSeenAtUtc).IsRequired();
         b.Property(c => c.LastSeenAtUtc).IsRequired();
 

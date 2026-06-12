@@ -96,6 +96,15 @@ public sealed class PublisherApiClient
                ?? new List<PublishableContainerDto>();
     }
 
+    public Task<PublishableContainerDto> AddContainerAsync(AddContainerRequest body, CancellationToken ct = default)
+        => PostJsonAsync<AddContainerRequest, PublishableContainerDto>("api/publisher/containers", body, ct);
+
+    public Task ActivateContainerAsync(Guid id, CancellationToken ct = default)
+        => PostAsync($"api/publisher/containers/{id}/activate", ct);
+
+    public Task DeactivateContainerAsync(Guid id, CancellationToken ct = default)
+        => PostAsync($"api/publisher/containers/{id}/deactivate", ct);
+
     // ---- Channels ----
 
     public async Task<IReadOnlyList<PublishChannelDto>> ListChannelsAsync(CancellationToken ct = default)

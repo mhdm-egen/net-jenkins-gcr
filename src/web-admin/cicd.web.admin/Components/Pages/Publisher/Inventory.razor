@@ -1,5 +1,7 @@
 @page "/publisher/inventory"
 @inject PublisherApiClient Api
+@inject INexusClient Nexus
+@inject NexusOptions NexusOpts
 @inject ISnackbar Snackbar
 
 <PageTitle>Publisher — Inventory</PageTitle>
@@ -7,9 +9,10 @@
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
     <MudText Typo="Typo.h4">Container inventory</MudText>
     <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
-        containers recorded from local Nexus (via the CI ContainerPublished event)
+        containers recorded from local Nexus (via the CI ContainerPublished event, or added manually)
     </MudText>
     <MudSpacer />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenAdd">Add container</MudButton>
     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
 </MudStack>
 
@@ -26,7 +29,7 @@
     else if (_items is { Count: 0 })
     {
         <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
-            No containers recorded yet. They appear here once a build publishes a container to the local Nexus docker registry.
+            No containers recorded yet. They appear here once a build publishes a container to the local Nexus docker registry — or click <strong>Add container</strong>.
         </MudText>
     }
     else if (_items is not null)
@@ -34,28 +37,45 @@
         <MudTable Items="@_items" Dense="true" Hover="true" Striped="true" T="PublishableContainerDto">
             <HeaderContent>
                 <MudTh>Container</MudTh>
-                <MudTh Style="width: 9rem;">Version</MudTh>
+                <MudTh Style="width: 11rem;">Version</MudTh>
                 <MudTh>Nexus ref</MudTh>
+                <MudTh Style="width: 6rem;">Source</MudTh>
                 <MudTh Style="width: 9rem;">Channels</MudTh>
-                <MudTh Style="width: 11rem;">Last seen</MudTh>
-                <MudTh Style="width: 14rem; text-align: right;"></MudTh>
+                <MudTh Style="width: 6rem;">Status</MudTh>
+                <MudTh Style="width: 16rem; text-align: right;"></MudTh>
             </HeaderContent>
             <RowTemplate>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@context.ContainerName</MudTd>
-                <MudTd>@context.Version</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@context.Version</MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.8em;">@context.ArtifactUri</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                             Color="@(context.Source == ContainerSourceDto.Manual ? Color.Secondary : Color.Default)">
+                        @context.Source
+                    </MudChip>
+                </MudTd>
                 <MudTd>
                     @foreach (var ch in ChannelsFor(context.Id))
                     {
                         <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">@ch</MudChip>
                     }
                 </MudTd>
-                <MudTd>@context.LastSeenAtUtc.LocalDateTime.ToString("g")</MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="@(context.IsActive ? Color.Success : Color.Default)" Variant="Variant.Filled">
+                        @(context.IsActive ? "Active" : "Inactive")
+                    </MudChip>
+                </MudTd>
                 <MudTd Style="text-align: right; white-space: nowrap;">
                     <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Label"
                                OnClick="@(() => OpenTag(context))">Tag</MudButton>
-                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!context.IsActive)"
                                StartIcon="@Icons.Material.Filled.CloudUpload" OnClick="@(() => OpenPromote(context))">Promote</MudButton>
+                    <MudTooltip Text="@(context.IsActive ? "Deactivate" : "Activate")">
+                        <MudIconButton Size="Size.Small"
+                                       Icon="@(context.IsActive ? Icons.Material.Filled.ToggleOn : Icons.Material.Filled.ToggleOff)"
+                                       Color="@(context.IsActive ? Color.Success : Color.Default)"
+                                       OnClick="@(() => ToggleActiveAsync(context))" />
+                    </MudTooltip>
                 </MudTd>
             </RowTemplate>
         </MudTable>
@@ -93,6 +113,80 @@
         </MudTable>
     }
 </MudPaper>
+
+@* ---- Add-from-Nexus dialog ---- *@
+<MudDialog @bind-Visible="_showAdd" Options="_wideDialogOptions">
+    <TitleContent>Add container from Nexus</TitleContent>
+    <DialogContent>
+        @if (!Nexus.IsConfigured)
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                Nexus is not configured (@Nexus.ConfigurationError). Set Nexus:Url / Nexus:Password to browse the docker registry.
+            </MudAlert>
+        }
+        else if (_addLoading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-2" Style="color: var(--mud-palette-text-secondary);">
+                Pick a container, then a <code>&lt;build#&gt;-&lt;hash&gt;</code> tag. Registry: <strong>@NexusOpts.DockerRegistryHost</strong>
+            </MudText>
+            <MudGrid>
+                <MudItem xs="6">
+                    <MudText Typo="Typo.subtitle2">Containers</MudText>
+                    <MudPaper Outlined="true" Style="max-height: 16rem; overflow:auto;">
+                        <MudList T="string" Dense="true">
+                            @foreach (var n in _names)
+                            {
+                                <MudListItem T="string" Text="@n" Icon="@Icons.Material.Filled.Inventory2"
+                                             OnClick="@(() => SelectName(n))"
+                                             Style="@(n == _selectedName ? "background: var(--mud-palette-action-default-hover);" : "")" />
+                            }
+                        </MudList>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="6">
+                    <MudText Typo="Typo.subtitle2">Tags (&lt;build#&gt;-&lt;hash&gt;)</MudText>
+                    <MudPaper Outlined="true" Style="max-height: 16rem; overflow:auto;">
+                        @if (_selectedName is null)
+                        {
+                            <MudText Typo="Typo.caption" Class="pa-2" Style="color: var(--mud-palette-text-secondary);">Select a container.</MudText>
+                        }
+                        else if (_tags.Count == 0)
+                        {
+                            <MudText Typo="Typo.caption" Class="pa-2" Style="color: var(--mud-palette-text-secondary);">No build#-hash tags for this container.</MudText>
+                        }
+                        else
+                        {
+                            <MudList T="string" Dense="true">
+                                @foreach (var t in _tags)
+                                {
+                                    <MudListItem T="string" Text="@t" Icon="@Icons.Material.Filled.Sell"
+                                                 OnClick="@(() => _selectedTag = t)"
+                                                 Style="@(t == _selectedTag ? "background: var(--mud-palette-action-default-hover);" : "")" />
+                                }
+                            </MudList>
+                        }
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+            @if (_selectedName is not null && _selectedTag is not null)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Variant="Variant.Text" Class="mt-2"
+                          Style="font-family: ui-monospace, monospace;">
+                    @NexusOpts.DockerRegistryHost/@_selectedName:@_selectedTag
+                </MudAlert>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showAdd = false)">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="AddAsync"
+                   Disabled="@(_busy || _selectedName is null || _selectedTag is null)">Add (active)</MudButton>
+    </DialogActions>
+</MudDialog>
 
 @* ---- Tag publishable dialog ---- *@
 <MudDialog @bind-Visible="_showTag" Options="_dialogOptions">
@@ -134,11 +228,24 @@
     private string? _error;
 
     private static readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+    private static readonly DialogOptions _wideDialogOptions = new() { MaxWidth = MaxWidth.Medium, FullWidth = true };
 
+    // Add-from-Nexus dialog state
+    private bool _showAdd, _addLoading;
+    private IReadOnlyList<DockerImage> _dockerImages = new List<DockerImage>();
+    private IReadOnlyList<string> _names = new List<string>();
+    private List<string> _tags = new();
+    private string? _selectedName, _selectedTag;
+
+    // Tag / promote dialog state
     private bool _showTag, _showPromote;
     private PublishableContainerDto? _target;
     private string _channelName = "";
     private Guid _promoteRegistryId = Guid.Empty;
+
+    // <build#>-<hash> tag, e.g. 42-7a4b9c1
+    private static readonly System.Text.RegularExpressions.Regex BuildHashTag =
+        new(@"^\d+-[0-9a-fA-F]{7,40}$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -163,6 +270,63 @@
         var c = _items?.FirstOrDefault(x => x.Id == id);
         return c is null ? id.ToString()[..8] + "…" : $"{c.ContainerName} {c.Version}";
     }
+
+    // ---- Add from Nexus ----
+
+    private async Task OpenAdd()
+    {
+        _showAdd = true;
+        _selectedName = null; _selectedTag = null; _tags = new();
+        if (!Nexus.IsConfigured) return;
+        _addLoading = true; StateHasChanged();
+        try
+        {
+            _dockerImages = await Nexus.ListDockerImagesAsync();
+            _names = _dockerImages.Select(i => i.Name).Distinct().OrderBy(n => n).ToList();
+        }
+        catch (Exception ex) { Snackbar.Add($"Could not list Nexus docker images: {ex.Message}", Severity.Error); }
+        finally { _addLoading = false; StateHasChanged(); }
+    }
+
+    private void SelectName(string name)
+    {
+        _selectedName = name;
+        _selectedTag = null;
+        _tags = _dockerImages.Where(i => i.Name == name && BuildHashTag.IsMatch(i.Tag))
+                             .Select(i => i.Tag).Distinct().OrderByDescending(t => t).ToList();
+    }
+
+    private async Task AddAsync()
+    {
+        if (_selectedName is null || _selectedTag is null) return;
+        _busy = true;
+        try
+        {
+            var commit = _selectedTag.Contains('-') ? _selectedTag[(_selectedTag.IndexOf('-') + 1)..] : null;
+            var artifactUri = $"{NexusOpts.DockerRegistryHost}/{_selectedName}:{_selectedTag}";
+            await Api.AddContainerAsync(new AddContainerRequest(_selectedName, _selectedTag, commit, artifactUri));
+            Snackbar.Add($"Added '{_selectedName}:{_selectedTag}'.", Severity.Success);
+            _showAdd = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    // ---- Active toggle ----
+
+    private async Task ToggleActiveAsync(PublishableContainerDto c)
+    {
+        try
+        {
+            if (c.IsActive) await Api.DeactivateContainerAsync(c.Id); else await Api.ActivateContainerAsync(c.Id);
+            Snackbar.Add($"{(c.IsActive ? "Deactivated" : "Activated")} '{c.ContainerName}'.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
+    // ---- Tag / promote ----
 
     private void OpenTag(PublishableContainerDto c) { _target = c; _channelName = ""; _showTag = true; }
 

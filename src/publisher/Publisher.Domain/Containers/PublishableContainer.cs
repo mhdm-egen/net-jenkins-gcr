@@ -39,6 +39,12 @@ public sealed class PublishableContainer : AggregateRoot<Guid>
     public DateTimeOffset FirstSeenAtUtc { get; private set; }
     public DateTimeOffset LastSeenAtUtc { get; private set; }
 
+    /// <summary>Whether this container participates in promotion (rules + manual). New records are active.</summary>
+    public bool IsActive { get; private set; }
+
+    /// <summary>How the record entered inventory: the CI bus event, or a manual add from the UI.</summary>
+    public ContainerSource Source { get; private set; }
+
     private PublishableContainer()
     {
         ContainerName = string.Empty;
@@ -55,7 +61,8 @@ public sealed class PublishableContainer : AggregateRoot<Guid>
         string version,
         string commitSha,
         string artifactUri,
-        DateTimeOffset observedAtUtc)
+        DateTimeOffset observedAtUtc,
+        ContainerSource source = ContainerSource.Bus)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
         if (string.IsNullOrWhiteSpace(containerName))
@@ -73,8 +80,26 @@ public sealed class PublishableContainer : AggregateRoot<Guid>
         ImageDigest = ParseDigest(ArtifactUri);
         FirstSeenAtUtc = observedAtUtc;
         LastSeenAtUtc = observedAtUtc;
+        IsActive = true;
+        Source = source;
 
         RaiseEvent(new ContainerRecorded(Id, RepositoryId, BuildId, ContainerName, Version, ArtifactUri, ImageDigest, observedAtUtc));
+    }
+
+    public void Deactivate(DateTimeOffset occurredAtUtc)
+    {
+        if (!IsActive) return;
+        IsActive = false;
+        LastSeenAtUtc = occurredAtUtc;
+        RaiseEvent(new ContainerActivationChanged(Id, IsActive, occurredAtUtc));
+    }
+
+    public void Reactivate(DateTimeOffset occurredAtUtc)
+    {
+        if (IsActive) return;
+        IsActive = true;
+        LastSeenAtUtc = occurredAtUtc;
+        RaiseEvent(new ContainerActivationChanged(Id, IsActive, occurredAtUtc));
     }
 
     /// <summary>
