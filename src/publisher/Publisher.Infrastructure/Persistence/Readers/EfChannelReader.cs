@@ -4,7 +4,7 @@ using Publisher.Contracts.Channels;
 
 namespace Publisher.Infrastructure.Persistence.Readers;
 
-internal sealed class EfChannelReader : IChannelReader
+public sealed class EfChannelReader : IChannelReader
 {
     private readonly PublisherDbContext _db;
 

@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Jenkins.Infrastructure.Persistence.Readers;
 
 /// <summary>Read-model reader for handoffs — flat projections to the wire DTO.</summary>
-internal sealed class EfHandoffReader : IHandoffReader
+public sealed class EfHandoffReader : IHandoffReader
 {
     private readonly JenkinsCiDbContext _db;
 

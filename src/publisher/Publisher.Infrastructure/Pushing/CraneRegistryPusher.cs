@@ -16,7 +16,7 @@ namespace Publisher.Infrastructure.Pushing;
 ///
 /// <c>crane copy</c> on a digest that already exists at the destination is effectively a no-op.
 /// </summary>
-internal sealed class CraneRegistryPusher : IRegistryPusher
+public sealed class CraneRegistryPusher : IRegistryPusher
 {
     private readonly IOptionsMonitor<PublisherPushOptions> _options;
     private readonly ILogger<CraneRegistryPusher> _logger;

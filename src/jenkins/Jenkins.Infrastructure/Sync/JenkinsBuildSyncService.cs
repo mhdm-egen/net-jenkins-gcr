@@ -26,7 +26,7 @@ namespace Jenkins.Infrastructure.Sync;
 /// requires a commit). Artifact/publication ingestion (Nexus/registry correlation)
 /// is a separate concern and not done here.
 /// </summary>
-internal sealed class JenkinsBuildSyncService : BackgroundService
+public sealed class JenkinsBuildSyncService : BackgroundService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

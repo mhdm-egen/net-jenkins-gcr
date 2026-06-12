@@ -57,4 +57,7 @@ public sealed record ContainerPublished(
     Guid PublicationId,
     string ContainerName,
     string Reference,
+    Guid RepositoryId,
+    string Version,
+    string CommitSha,
     DateTimeOffset OccurredAtUtc) : IDomainEvent;

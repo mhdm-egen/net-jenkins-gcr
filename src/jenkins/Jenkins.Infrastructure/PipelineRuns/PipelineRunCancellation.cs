@@ -7,7 +7,7 @@ namespace Jenkins.Infrastructure.PipelineRuns;
 /// Registry of in-flight run cancellation sources. The executor tracks each run's linked CTS
 /// while it runs; a cancel request cancels it. Single-instance only.
 /// </summary>
-internal sealed class PipelineRunCancellation : IPipelineRunCancellation
+public sealed class PipelineRunCancellation : IPipelineRunCancellation
 {
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _inFlight = new();
 

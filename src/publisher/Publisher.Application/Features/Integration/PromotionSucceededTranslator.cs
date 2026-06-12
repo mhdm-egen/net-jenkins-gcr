@@ -1,5 +1,7 @@
 using Publisher.Domain.Promotions.Events;
 
+using Wolverine.Attributes;
+
 namespace Publisher.Application.Features.Integration;
 
 /// <summary>
@@ -8,6 +10,7 @@ namespace Publisher.Application.Features.Integration;
 /// integration event. Discovered by Wolverine; the cascaded return is published through the SQL
 /// outbox onto the "publisher.events" channel.
 /// </summary>
+[WolverineHandler]
 public sealed class PromotionSucceededTranslator
 {
     public Cicd.IntegrationEvents.Publisher.ContainerPromoted Handle(PromotionSucceeded evt)

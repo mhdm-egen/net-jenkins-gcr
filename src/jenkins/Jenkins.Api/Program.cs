@@ -50,6 +50,13 @@ builder.Host.UseWolverine(opts =>
     opts.Discovery.IncludeAssembly(typeof(Jenkins.Application.DependencyInjection).Assembly);
     opts.Discovery.IncludeAssembly(typeof(JenkinsCiDbContext).Assembly);
 
+    // IDeploymentReleaseClient is a typed HttpClient (an opaque lambda factory registration),
+    // which Wolverine's generated handler code can't construct inline — it would otherwise throw
+    // InvalidServiceLocationException for the ContainerPublished/BuildSucceeded handlers (which
+    // reach it via AutoPublishHandler → PromoteToReleaseHandler). Tell Wolverine to resolve it
+    // from the container at runtime instead.
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Jenkins.Application.Abstractions.IDeploymentReleaseClient>();
+
     // Enrol handlers in the DbContext transaction + durable SQL Server outbox/inbox
     // (mirrors the deployment service) so integration events publish reliably.
     opts.UseEntityFrameworkCoreTransactions();

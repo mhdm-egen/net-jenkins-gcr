@@ -3,7 +3,7 @@ using Publisher.Domain.Registries;
 
 namespace Publisher.Infrastructure.Persistence.Repositories;
 
-internal sealed class RemoteRegistryRepository
+public sealed class RemoteRegistryRepository
     : EfRepository<RemoteRegistry, Guid>, IRemoteRegistryRepository
 {
     public RemoteRegistryRepository(PublisherDbContext db) : base(db) { }

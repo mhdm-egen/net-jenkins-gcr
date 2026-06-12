@@ -9,7 +9,7 @@ namespace Publisher.Infrastructure.Persistence.Repositories;
 /// aggregate-specific lookup helpers. The persistence flush is owned by
 /// <see cref="UnitOfWork"/> — repositories only mutate the change-tracker.
 /// </summary>
-internal abstract class EfRepository<TAggregate, TId> : IRepository<TAggregate, TId>
+public abstract class EfRepository<TAggregate, TId> : IRepository<TAggregate, TId>
     where TAggregate : AggregateRoot<TId>
     where TId : notnull
 {

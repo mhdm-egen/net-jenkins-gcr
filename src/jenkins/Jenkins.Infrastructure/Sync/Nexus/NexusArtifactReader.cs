@@ -14,7 +14,7 @@ namespace Jenkins.Infrastructure.Sync.Nexus;
 /// components by version/tag, and reads the digest from each component's asset
 /// checksums. Read-only; a focused subset of the web UI's NexusClient.
 /// </summary>
-internal sealed class NexusArtifactReader : INexusArtifactReader, IDisposable
+public sealed class NexusArtifactReader : INexusArtifactReader, IDisposable
 {
     private static readonly JsonSerializerOptions Json = new()
     {

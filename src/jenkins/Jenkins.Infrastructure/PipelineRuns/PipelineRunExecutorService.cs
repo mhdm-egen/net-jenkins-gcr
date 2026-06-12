@@ -18,7 +18,7 @@ namespace Jenkins.Infrastructure.PipelineRuns;
 /// results on the <see cref="PipelineRun"/> aggregate and settles it — whose domain events
 /// translate to integration events on the bus.
 /// </summary>
-internal sealed class PipelineRunExecutorService : BackgroundService
+public sealed class PipelineRunExecutorService : BackgroundService
 {
     private readonly IPipelineRunQueue _queue;
     private readonly IServiceScopeFactory _scopes;

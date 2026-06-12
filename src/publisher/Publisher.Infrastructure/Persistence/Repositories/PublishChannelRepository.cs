@@ -3,7 +3,7 @@ using Publisher.Domain.Channels;
 
 namespace Publisher.Infrastructure.Persistence.Repositories;
 
-internal sealed class PublishChannelRepository
+public sealed class PublishChannelRepository
     : EfRepository<PublishChannel, Guid>, IPublishChannelRepository
 {
     public PublishChannelRepository(PublisherDbContext db) : base(db) { }

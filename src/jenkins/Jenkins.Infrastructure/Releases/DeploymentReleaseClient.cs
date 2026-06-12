@@ -14,7 +14,7 @@ namespace Jenkins.Infrastructure.Releases;
 /// CI-local inputs to <c>Deployment.Contracts</c> wire types. Enums are sent as
 /// strings to match the deployment API's JSON shape.
 /// </summary>
-internal sealed class DeploymentReleaseClient : IDeploymentReleaseClient
+public sealed class DeploymentReleaseClient : IDeploymentReleaseClient
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {

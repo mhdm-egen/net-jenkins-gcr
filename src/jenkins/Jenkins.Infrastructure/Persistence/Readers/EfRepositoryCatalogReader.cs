@@ -8,7 +8,7 @@ namespace Jenkins.Infrastructure.Persistence.Readers;
 /// Read-model reader for the repository catalog: flat projections to
 /// <see cref="RepositoryDto"/> (with nested components) without tracking.
 /// </summary>
-internal sealed class EfRepositoryCatalogReader : IRepositoryCatalogReader
+public sealed class EfRepositoryCatalogReader : IRepositoryCatalogReader
 {
     private readonly JenkinsCiDbContext _db;
 

@@ -8,7 +8,7 @@ namespace Jenkins.Infrastructure.PipelineRuns;
 /// Bounded per-(run, job) console buffer for replay on (re)connect. Single-instance only —
 /// a scaled-out host would need a shared store + SignalR backplane.
 /// </summary>
-internal sealed class PipelineRunConsoleBuffer : IPipelineRunConsoleBuffer
+public sealed class PipelineRunConsoleBuffer : IPipelineRunConsoleBuffer
 {
     private const int PerJobCharCap = 1_000_000;
     private readonly ConcurrentDictionary<Guid, ConcurrentDictionary<string, StringBuilder>> _runs = new();

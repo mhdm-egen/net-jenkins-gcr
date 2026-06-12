@@ -4,7 +4,7 @@ using Jenkins.Application.Abstractions;
 namespace Jenkins.Infrastructure.PipelineRuns;
 
 /// <summary>Unbounded in-memory queue of run ids feeding the single executor loop.</summary>
-internal sealed class PipelineRunQueue : IPipelineRunQueue
+public sealed class PipelineRunQueue : IPipelineRunQueue
 {
     private readonly Channel<Guid> _channel =
         Channel.CreateUnbounded<Guid>(new UnboundedChannelOptions { SingleReader = true });

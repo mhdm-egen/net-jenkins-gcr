@@ -1,4 +1,5 @@
 using Jenkins.Domain.PipelineRuns.Events;
+using Wolverine.Attributes;
 
 namespace Jenkins.Application.Features.Integration;
 
@@ -7,6 +8,7 @@ namespace Jenkins.Application.Features.Integration;
 /// <see cref="Cicd.IntegrationEvents.Ci.PipelineStepCompleted"/> integration event (cascaded
 /// onto "ci.events" via the outbox).
 /// </summary>
+[WolverineHandler]
 public sealed class PipelineRunStepSucceededTranslator
 {
     public Cicd.IntegrationEvents.Ci.PipelineStepCompleted Handle(PipelineRunStepSucceeded evt)
@@ -25,6 +27,7 @@ public sealed class PipelineRunStepSucceededTranslator
 /// Translation edge (CI → bus): a successful whole pipeline run → the cross-service
 /// <see cref="Cicd.IntegrationEvents.Ci.PipelineCompleted"/> integration event.
 /// </summary>
+[WolverineHandler]
 public sealed class PipelineRunSucceededTranslator
 {
     public Cicd.IntegrationEvents.Ci.PipelineCompleted Handle(PipelineRunSucceeded evt)
@@ -43,6 +46,7 @@ public sealed class PipelineRunSucceededTranslator
 /// Translation edge (CI → bus): a cancelled pipeline run → the cross-service
 /// <see cref="Cicd.IntegrationEvents.Ci.PipelineCancelled"/> integration event.
 /// </summary>
+[WolverineHandler]
 public sealed class PipelineRunCancelledTranslator
 {
     public Cicd.IntegrationEvents.Ci.PipelineCancelled Handle(PipelineRunCancelled evt)
