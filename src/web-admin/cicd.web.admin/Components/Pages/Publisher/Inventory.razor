@@ -1,0 +1,223 @@
+@page "/publisher/inventory"
+@inject PublisherApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>Publisher — Inventory</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Container inventory</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+        containers recorded from local Nexus (via the CI ContainerPublished event)
+    </MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
+</MudStack>
+
+@if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    @if (_loading && _items is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_items is { Count: 0 })
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+            No containers recorded yet. They appear here once a build publishes a container to the local Nexus docker registry.
+        </MudText>
+    }
+    else if (_items is not null)
+    {
+        <MudTable Items="@_items" Dense="true" Hover="true" Striped="true" T="PublishableContainerDto">
+            <HeaderContent>
+                <MudTh>Container</MudTh>
+                <MudTh Style="width: 9rem;">Version</MudTh>
+                <MudTh>Nexus ref</MudTh>
+                <MudTh Style="width: 9rem;">Channels</MudTh>
+                <MudTh Style="width: 11rem;">Last seen</MudTh>
+                <MudTh Style="width: 14rem; text-align: right;"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@context.ContainerName</MudTd>
+                <MudTd>@context.Version</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.8em;">@context.ArtifactUri</MudTd>
+                <MudTd>
+                    @foreach (var ch in ChannelsFor(context.Id))
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">@ch</MudChip>
+                    }
+                </MudTd>
+                <MudTd>@context.LastSeenAtUtc.LocalDateTime.ToString("g")</MudTd>
+                <MudTd Style="text-align: right; white-space: nowrap;">
+                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Label"
+                               OnClick="@(() => OpenTag(context))">Tag</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.CloudUpload" OnClick="@(() => OpenPromote(context))">Promote</MudButton>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+<MudText Typo="Typo.h6" Class="mb-2">Publishable channels</MudText>
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    @if (_channels is { Count: 0 })
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+            No channels yet. Tag a container above to create a named publishable alias.
+        </MudText>
+    }
+    else if (_channels is not null)
+    {
+        <MudTable Items="@_channels" Dense="true" Hover="true" T="PublishChannelDto">
+            <HeaderContent>
+                <MudTh>Channel</MudTh>
+                <MudTh>Current container</MudTh>
+                <MudTh Style="width: 7rem;">Moves</MudTh>
+                <MudTh Style="width: 11rem;">Updated</MudTh>
+                <MudTh Style="width: 10rem; text-align: right;"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd><MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">@context.Name</MudChip></MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@ContainerLabel(context.CurrentContainerId)</MudTd>
+                <MudTd>@context.History.Count</MudTd>
+                <MudTd>@context.UpdatedAtUtc.LocalDateTime.ToString("g")</MudTd>
+                <MudTd Style="text-align: right;">
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.CloudUpload" OnClick="@(() => PublishChannelAsync(context))">Publish</MudButton>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+@* ---- Tag publishable dialog ---- *@
+<MudDialog @bind-Visible="_showTag" Options="_dialogOptions">
+    <TitleContent>Tag publishable</TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-2">Container: <strong>@_target?.ContainerName</strong> @_target?.Version</MudText>
+        <MudTextField @bind-Value="_channelName" Label="Channel name" Required="true"
+                      HelperText="A stable publishable name, e.g. stable or prod-candidate. Re-tagging moves it here." />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showTag = false)">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="TagAsync" Disabled="_busy">Tag</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@* ---- Promote dialog ---- *@
+<MudDialog @bind-Visible="_showPromote" Options="_dialogOptions">
+    <TitleContent>Promote to remote registry</TitleContent>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-2">Container: <strong>@_target?.ContainerName</strong> @_target?.Version</MudText>
+        <MudSelect @bind-Value="_promoteRegistryId" Label="Registry" T="Guid" HelperText="Defaults to the default registry if left unset.">
+            @foreach (var r in _registries ?? new List<RemoteRegistryDto>())
+            {
+                <MudSelectItem Value="@r.Id">@r.Name (@r.RegistryHost)@(r.IsDefault ? " — default" : "")</MudSelectItem>
+            }
+        </MudSelect>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showPromote = false)">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="PromoteAsync" Disabled="_busy">Promote</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private IReadOnlyList<PublishableContainerDto>? _items;
+    private IReadOnlyList<PublishChannelDto>? _channels;
+    private IReadOnlyList<RemoteRegistryDto>? _registries;
+    private bool _loading, _busy;
+    private string? _error;
+
+    private static readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    private bool _showTag, _showPromote;
+    private PublishableContainerDto? _target;
+    private string _channelName = "";
+    private Guid _promoteRegistryId = Guid.Empty;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            _items = await Api.ListContainersAsync();
+            _channels = await Api.ListChannelsAsync();
+            _registries = await Api.ListRegistriesAsync();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private IEnumerable<string> ChannelsFor(Guid containerId)
+        => _channels?.Where(c => c.CurrentContainerId == containerId).Select(c => c.Name) ?? Enumerable.Empty<string>();
+
+    private string ContainerLabel(Guid id)
+    {
+        var c = _items?.FirstOrDefault(x => x.Id == id);
+        return c is null ? id.ToString()[..8] + "…" : $"{c.ContainerName} {c.Version}";
+    }
+
+    private void OpenTag(PublishableContainerDto c) { _target = c; _channelName = ""; _showTag = true; }
+
+    private void OpenPromote(PublishableContainerDto c)
+    {
+        _target = c;
+        _promoteRegistryId = _registries?.FirstOrDefault(r => r.IsDefault)?.Id ?? _registries?.FirstOrDefault()?.Id ?? Guid.Empty;
+        _showPromote = true;
+    }
+
+    private async Task TagAsync()
+    {
+        if (_target is null || string.IsNullOrWhiteSpace(_channelName)) { Snackbar.Add("Channel name is required.", Severity.Warning); return; }
+        _busy = true;
+        try
+        {
+            await Api.TagPublishableAsync(_channelName.Trim(), new TagPublishableRequest(_target.Id, "ui"));
+            Snackbar.Add($"Tagged '{_target.ContainerName}' as '{_channelName}'.", Severity.Success);
+            _showTag = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private async Task PromoteAsync()
+    {
+        if (_target is null) return;
+        _busy = true;
+        try
+        {
+            Guid? reg = _promoteRegistryId == Guid.Empty ? null : _promoteRegistryId;
+            var res = await Api.PromoteContainerAsync(_target.Id, new PromoteContainerRequest(reg, "ui"));
+            Announce(res);
+            _showPromote = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private async Task PublishChannelAsync(PublishChannelDto channel)
+    {
+        try
+        {
+            var res = await Api.PublishChannelAsync(channel.Name, new PromoteContainerRequest(null, "ui"));
+            Announce(res);
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
+    private void Announce(PromoteResponse res)
+    {
+        if (res.PromotionId is not null) Snackbar.Add("Promotion queued.", Severity.Success);
+        else Snackbar.Add($"No push: {res.Outcome}.", Severity.Info);
+    }
+}

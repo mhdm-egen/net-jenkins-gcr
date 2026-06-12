@@ -49,7 +49,7 @@ var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
 // Publisher: moves containers from local Nexus to remote registries (GAR for now). Consumes the
 // CI ContainerPublished bus event to keep a local inventory; exposes an API to tag containers
 // publishable under a stable channel name.
-builder.AddProject<Projects.Publisher_Api>("publisher-api")
+var publisher = builder.AddProject<Projects.Publisher_Api>("publisher-api")
     .WithReference(publisherDb)
     .WaitFor(sql)
     .WithReference(rabbit)
@@ -60,8 +60,11 @@ builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WithReference(deployment)
     .WithReference(jenkins)
     .WaitFor(jenkins)
+    .WithReference(publisher)
+    .WaitFor(publisher)
     .WithEnvironment("Deployment__Api__BaseUrl", deployment.GetEndpoint("http"))
     .WithEnvironment("JenkinsApi__BaseUrl", jenkins.GetEndpoint("http"))
+    .WithEnvironment("PublisherApi__BaseUrl", publisher.GetEndpoint("http"))
     .WithEnvironment("Jenkins__ApiToken", jenkinsToken)
     .WithEnvironment("Jenkins__Url", jenkinsUrl);
 
