@@ -1,6 +1,5 @@
 using Util.Commands.Abstractions;
 using Util.Commands.Nexus;
-using Util.Commands.Pipeline;
 
 namespace Util.Commands;
 
@@ -13,7 +12,6 @@ public static class CommandRegistry
         var commands = new ICommand[]
         {
             new PurgeRepoCommand(),
-            new RunPipelineCommand(),
         };
         return commands.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
     }

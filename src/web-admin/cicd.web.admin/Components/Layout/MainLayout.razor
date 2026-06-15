@@ -1,6 +1,5 @@
 @inherits LayoutComponentBase
 @inject IJSRuntime JS
-@inject JenkinsOptions JenkinsOpts
 
 <MudThemeProvider Theme="@_active.Theme" IsDarkMode="@_active.IsDarkMode" />
 <MudPopoverProvider />
@@ -14,11 +13,9 @@
                        Edge="Edge.Start"
                        OnClick="@ToggleDrawer"
                        aria-label="Toggle menu" />
-        <MudText Typo="Typo.h6">Jenkins WebUI</MudText>
+        <MudText Typo="Typo.h6">CICD WebUI</MudText>
         <MudSpacer />
         <ThemeSwitcher CurrentThemeId="@_active.Id" ThemeChanged="OnThemeChangedAsync" />
-        <BuildSyncBadge />
-        <JenkinsStatusBadge />
     </MudAppBar>
 
     <MudDrawer @bind-Open="_drawerOpen"
@@ -26,31 +23,6 @@
                Variant="DrawerVariant.Responsive"
                ClipMode="DrawerClipMode.Always">
         <MudNavMenu>
-            <MudNavGroup Title="Jenkins"
-                         Icon="@Icons.Material.Filled.Build"
-                         Expanded="true">
-                <MudNavLink Href="jenkins/orchestrator"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.AccountTree">
-                    Orchestrator
-                </MudNavLink>
-                <MudNavLink Href="jenkins/pipelines"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.PlayArrow">
-                    Pipelines
-                </MudNavLink>
-                <MudNavLink Href="jenkins/builds"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.History">
-                    Builds
-                </MudNavLink>
-                @* External link to the Jenkins server's own UI — opens in a new tab. *@
-                <MudNavLink Href="@JenkinsOpts.BaseUrl"
-                            Target="_blank"
-                            Icon="@Icons.Material.Filled.OpenInNew">
-                    Admin
-                </MudNavLink>
-            </MudNavGroup>
             <MudNavGroup Title="Nexus"
                          Icon="@Icons.Material.Filled.Inventory2"
                          Expanded="true">
@@ -87,82 +59,6 @@
                             Target="_blank"
                             Icon="@Icons.Material.Filled.FolderOpen">
                     Sbom Repo
-                </MudNavLink>
-            </MudNavGroup>
-            <MudNavGroup Title="SCA"
-                         Icon="@Icons.Material.Filled.Analytics"
-                         Expanded="true">
-                <MudNavLink Href="sca/sbom"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.DataObject">
-                    SBOM
-                </MudNavLink>
-            </MudNavGroup>
-            <MudNavGroup Title="Deployment"
-                         Icon="@Icons.Material.Filled.RocketLaunch"
-                         Expanded="true">
-                <MudNavLink Href="deployment/services"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Apps">
-                    Services
-                </MudNavLink>
-                <MudNavLink Href="deployment/applications"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.AppRegistration">
-                    Applications
-                </MudNavLink>
-                <MudNavLink Href="deployment/environments"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Public">
-                    Environments
-                </MudNavLink>
-                <MudNavLink Href="deployment/deployments"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.RocketLaunch">
-                    Deployments
-                </MudNavLink>
-                <MudNavLink Href="deployment/dashboards/effective-versions"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Dashboard">
-                    Effective versions
-                </MudNavLink>
-            </MudNavGroup>
-            <MudNavGroup Title="CI"
-                         Icon="@Icons.Material.Filled.Hub"
-                         Expanded="true">
-                <MudNavLink Href="ci/repositories"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Source">
-                    Repositories
-                </MudNavLink>
-                <MudNavLink Href="ci/pipelines"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.AccountTree">
-                    Pipelines
-                </MudNavLink>
-            </MudNavGroup>
-            <MudNavGroup Title="Publisher"
-                         Icon="@Icons.Material.Filled.CloudUpload"
-                         Expanded="true">
-                <MudNavLink Href="publisher/inventory"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Inventory2">
-                    Inventory
-                </MudNavLink>
-                <MudNavLink Href="publisher/registries"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Dns">
-                    Registries
-                </MudNavLink>
-                <MudNavLink Href="publisher/rules"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Rule">
-                    Rules
-                </MudNavLink>
-                <MudNavLink Href="publisher/promotions"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.History">
-                    Promotions
                 </MudNavLink>
             </MudNavGroup>
             <MudNavGroup Title="Cloud"
