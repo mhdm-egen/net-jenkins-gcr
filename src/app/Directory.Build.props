@@ -1,0 +1,23 @@
+<Project>
+
+  <!--
+    Container opt-in contract for CI.
+
+    A project becomes "containerizable" by setting <Containerizable>true</Containerizable>
+    in its own .csproj. The cicd-build job (jenkins/build/Jenkinsfile, "Discover Containers"
+    stage) enumerates the solution, reads these properties via `dotnet msbuild -getProperty`,
+    and records a container manifest in build-info.json that drives the
+    cicd-publish-nexus-docker job. Projects that do not opt in inherit Containerizable=false
+    and produce only NuGet packages (no container) — e.g. a standalone library.
+
+    Optional companion property:
+      <CiContainerName>…</CiContainerName>  — the image name pushed to Nexus and matched
+      against DeployableComponent.ContainerName. When omitted, the build job falls back to
+      the lowercased assembly name. Pin it explicitly to keep a stable image name across
+      assembly renames (the entry assembly itself is taken from $(AssemblyName)).
+  -->
+  <PropertyGroup>
+    <Containerizable Condition="'$(Containerizable)' == ''">false</Containerizable>
+  </PropertyGroup>
+
+</Project>

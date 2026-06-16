@@ -18,6 +18,7 @@ internal static class RepositoryMapping
         CiJobName: r.CiJobName,
         BaseVersion: r.BaseVersion,
         IsActive: r.IsActive,
+        AllowContainerPublish: r.AllowContainerPublish,
         CreatedAtUtc: r.CreatedAtUtc,
         Components: r.Components.OrderBy(c => c.ContainerName).Select(c => c.ToDto()).ToList());
 

@@ -30,6 +30,11 @@ public sealed record RepositoryReactivated(
     Guid RepositoryId,
     DateTimeOffset OccurredAtUtc) : IDomainEvent;
 
+public sealed record RepositoryContainerPublishAllowedChanged(
+    Guid RepositoryId,
+    bool AllowContainerPublish,
+    DateTimeOffset OccurredAtUtc) : IDomainEvent;
+
 public sealed record DeployableComponentAdded(
     Guid RepositoryId,
     Guid DeployableComponentId,

@@ -101,6 +101,59 @@ pipeline {
             }
         }
 
+        stage ('Discover Containers') {
+            steps {
+                script {
+                    // Determine which projects opt in to being containerized
+                    // (<Containerizable>true</Containerizable>, see src/app/Directory.Build.props).
+                    // For each opted-in project record { project, containerName, assembly }.
+                    // A library-only solution yields an empty list and produces no container
+                    // downstream — the cicd-publish-nexus-docker job self-skips on [].
+                    CONTAINERS = []
+                    def buildFile = params.BUILD_FILE.trim()
+                    def isSln = buildFile.toLowerCase().endsWith('.sln')
+
+                    // Enumerate candidate projects: every .csproj in the solution, or the
+                    // single project when BUILD_FILE is itself a .csproj.
+                    def projects = []
+                    if (isSln) {
+                        def slnDir = buildFile.contains('/') ? buildFile.substring(0, buildFile.lastIndexOf('/')) : '.'
+                        def listed = sh(script: "dotnet sln ${buildFile} list", returnStdout: true).trim()
+                        listed.readLines().each { line ->
+                            def p = line.trim().replace('\\', '/')
+                            if (p.toLowerCase().endsWith('.csproj')) {
+                                // `dotnet sln list` prints paths relative to the .sln directory.
+                                projects << (p.startsWith('/') ? p : "${slnDir}/${p}")
+                            }
+                        }
+                    } else {
+                        projects << buildFile
+                    }
+
+                    // Query the opt-in properties without building (-getProperty is the
+                    // build-less evaluator). Multiple -getProperty flags emit JSON:
+                    //   {"Properties":{"Containerizable":"true","CiContainerName":"…","AssemblyName":"…"}}
+                    projects.each { proj ->
+                        def raw = sh(
+                            script: "dotnet msbuild '${proj}' -getProperty:Containerizable -getProperty:CiContainerName -getProperty:AssemblyName -nologo",
+                            returnStdout: true).trim()
+                        def props = readJSON(text: raw).Properties ?: [:]
+                        if ((props.Containerizable ?: '').toString().equalsIgnoreCase('true')) {
+                            def assembly = (props.AssemblyName ?: '').toString().trim()
+                            def name = (props.CiContainerName ?: '').toString().trim()
+                            if (!name) name = assembly.toLowerCase()
+                            CONTAINERS << [project: proj, containerName: name, assembly: assembly]
+                            println "Containerizable: ${proj} -> ${name} (dotnet ${assembly}.dll)"
+                        }
+                    }
+
+                    if (CONTAINERS.isEmpty()) {
+                        println "No containerizable projects (library-only build)."
+                    }
+                }
+            }
+        }
+
         stage ('SBOM') {
             steps {
                 // Installs the CycloneDX dotnet global tool into a workspace-local tools dir
@@ -229,7 +282,10 @@ pipeline {
                         buildFile:            params.BUILD_FILE,
                         gitUrl:               params.GIT_URL,
                         gitBranch:            params.GIT_BRANCH,
-                        buildTimestamp:       new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone('UTC'))
+                        buildTimestamp:       new Date().format("yyyy-MM-dd'T'HH:mm:ss'Z'", TimeZone.getTimeZone('UTC')),
+                        // Container manifest discovered above; [] for library-only builds.
+                        // Drives cicd-publish-nexus-docker (which self-skips on []).
+                        containers:           CONTAINERS
                     ], pretty: 2
 
                     sh "cat build-info.json"

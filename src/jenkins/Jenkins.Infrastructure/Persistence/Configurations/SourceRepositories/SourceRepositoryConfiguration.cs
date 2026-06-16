@@ -23,6 +23,8 @@ public sealed class SourceRepositoryConfiguration : IEntityTypeConfiguration<Sou
         b.Property(r => r.CiJobName).HasMaxLength(200).IsRequired();
         b.Property(r => r.BaseVersion).HasMaxLength(64).IsRequired();
         b.Property(r => r.IsActive).IsRequired();
+        // Default true so existing rows keep producing containers after the column is added.
+        b.Property(r => r.AllowContainerPublish).IsRequired().HasDefaultValue(true);
         b.Property(r => r.CreatedAtUtc).IsRequired();
         b.HasIndex(r => r.Name).IsUnique();
 

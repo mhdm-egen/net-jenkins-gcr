@@ -5,8 +5,8 @@ pipeline {
     parameters {
         string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
         string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
-        string(name: 'DOCKER_BUILD_FILE', defaultValue: './src/app/Web.AppHost/Dockerfile', description: 'Path to the Dockerfile for building the web app host image')
-        string(name: 'CONTAINER_NAME', defaultValue: 'webapphost', description: 'Name for the local container')
+        string(name: 'DOCKER_BUILD_FILE', defaultValue: 'jenkins/docker/runtime/Dockerfile', description: 'Shared copy-only runtime Dockerfile. Build context is the per-app publish output, not source — no in-container compile.')
+        string(name: 'CONTAINER_NAME', defaultValue: '', description: 'Optional single-container override. Normally blank: the container list comes from build-info.json (the cicd-build container manifest).')
         string(name: 'NEXUS_DOCKER_HOST', defaultValue: 'nexus:8082', description: 'Nexus docker registry host:port (port determines the target hosted repo via the Nexus connector)')
         string(name: 'NEXUS_DOCKER_CREDENTIAL_ID', defaultValue: 'rhythm-docker', description: 'Jenkins credential id (Username/Password) for the Nexus docker registry')
         string(name: 'NEXUS_DOCKER_USER', defaultValue: 'admin', description: 'Nexus docker registry username (for Jenkins credentials)')
@@ -64,61 +64,101 @@ pipeline {
 
                     PACKAGE_VERSION  = info.packageVersion
                     INFO_VERSION     = info.informationalVersion
+                    ASSEMBLY_VERSION = info.assemblyVersion
+                    FILE_VERSION     = info.fileVersion
                     GIT_COMMIT_HASH  = info.gitCommitHash
                     GIT_COMMIT_SHORT = info.gitCommitShort
                     SOURCE_BUILD_NUM = info.buildNumber
+
+                    // Container manifest from cicd-build. Empty for library-only builds.
+                    // An explicit CONTAINER_NAME override (rare) replaces the manifest with a
+                    // single entry whose project = BUILD_FILE.
+                    CONTAINERS = info.containers ?: []
+                    if (params.CONTAINER_NAME?.trim()) {
+                        CONTAINERS = [[project: info.buildFile, containerName: params.CONTAINER_NAME.trim(), assembly: params.CONTAINER_NAME.trim()]]
+                    }
 
                     println "Resolved upstream build: #${SOURCE_BUILD_NUM}"
                     println "  packageVersion : ${PACKAGE_VERSION}"
                     println "  infoVersion    : ${INFO_VERSION}"
                     println "  gitCommitHash  : ${GIT_COMMIT_HASH}"
                     println "  gitCommitShort : ${GIT_COMMIT_SHORT}"
+                    println "  containers     : ${CONTAINERS.collect { it.containerName }} (${CONTAINERS.size()})"
 
-                    currentBuild.description = "publish ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM} (${PACKAGE_VERSION})"
+                    currentBuild.description = "publish ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM} (${PACKAGE_VERSION}) — ${CONTAINERS.size()} container(s)"
                 }
             }
         }
 
-        stage('Create local docker image') {
-            steps {
-                sh "docker build --file ${params.DOCKER_BUILD_FILE} -t ${params.CONTAINER_NAME}:${CONTAINER_TAG} ./src/app"
-            }
-        }
-
-        stage('Push to Nexus') {
+        stage('Build and push containers') {
+            // Skip cleanly for library-only builds (no containerizable projects upstream).
+            when { expression { return !CONTAINERS.isEmpty() } }
             steps {
                 withCredentials([usernamePassword(credentialsId: "${params.NEXUS_DOCKER_CREDENTIAL_ID}", usernameVariable: 'NEXUS_DOCKER_USER', passwordVariable: 'NEXUS_DOCKER_PASS')]) {
                     script {
-                        def repo = "${params.NEXUS_DOCKER_HOST}/${params.CONTAINER_NAME}"
-                        def floatingTag = "${repo}:${CONTAINER_TAG}"
-                        def buildTag    = "${repo}:ci-${SOURCE_BUILD_NUM}"
-                        def commitTag   = "${repo}:${GIT_COMMIT_SHORT}"
-                        // Combined build-number + commit tag: a single immutable, unique handle
-                        // for this exact build (unlike the floating/version tags which can move).
-                        def buildCommitTag = "${repo}:${SOURCE_BUILD_NUM}-${GIT_COMMIT_SHORT}"
-
-                        println "Nexus tags: ${floatingTag}, ${buildTag}, ${commitTag}, ${buildCommitTag}"
-
+                        // One docker login for the whole batch.
                         sh """
                             set -e
-                            echo "Tagging local image ${params.CONTAINER_NAME}:${CONTAINER_TAG} for Nexus registry ${params.NEXUS_DOCKER_HOST}"
-                            docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${floatingTag}
-                            docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${buildTag}
-                            docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${commitTag}
-                            docker tag ${params.CONTAINER_NAME}:${CONTAINER_TAG} ${buildCommitTag}
-
                             echo "Logging in to Nexus docker registry ${params.NEXUS_DOCKER_HOST}"
                             echo "\$NEXUS_DOCKER_PASS" | docker login ${params.NEXUS_DOCKER_PROTOCOL}${params.NEXUS_DOCKER_HOST} -u "\$NEXUS_DOCKER_USER" --password-stdin
-
-                            echo "Pushing tags to Nexus registry ${params.NEXUS_DOCKER_HOST}"
-                            docker push ${floatingTag}
-                            docker push ${buildTag}
-                            docker push ${commitTag}
-                            docker push ${buildCommitTag}
                         """
                         NEXUS_DOCKER_AUTHENTICATED = true
+
+                        CONTAINERS.each { c ->
+                            def project  = c.project
+                            def name     = c.containerName
+                            def assembly = c.assembly ?: name
+                            def outDir   = "publish/${name}"
+                            def repo     = "${params.NEXUS_DOCKER_HOST}/${name}"
+                            // Same four tags as before: floating, per-build, per-commit, and a
+                            // combined immutable build+commit handle.
+                            def tags = [
+                                "${repo}:${CONTAINER_TAG}",
+                                "${repo}:ci-${SOURCE_BUILD_NUM}",
+                                "${repo}:${GIT_COMMIT_SHORT}",
+                                "${repo}:${SOURCE_BUILD_NUM}-${GIT_COMMIT_SHORT}"
+                            ]
+
+                            println "Container '${name}': publish ${project} -> ${outDir}, image runs dotnet ${assembly}.dll"
+                            println "Nexus tags: ${tags.join(', ')}"
+
+                            // 1) Publish the app on the agent (NOT inside the container).
+                            // 2) Build the copy-only runtime image from that publish output.
+                            // 3) Tag + push the four tags.
+                            sh """
+                                set -e
+                                rm -rf ${outDir}
+                                dotnet publish '${project}' -c Release -o ${outDir} \\
+                                    /p:UseAppHost=false \\
+                                    /p:Version=${PACKAGE_VERSION} \\
+                                    /p:AssemblyVersion=${ASSEMBLY_VERSION} \\
+                                    /p:FileVersion=${FILE_VERSION} \\
+                                    /p:InformationalVersion="${INFO_VERSION}"
+
+                                docker build --file ${params.DOCKER_BUILD_FILE} \\
+                                    --build-arg ENTRY_ASSEMBLY='${assembly}' \\
+                                    -t ${name}:${CONTAINER_TAG} ${outDir}
+
+                                docker tag ${name}:${CONTAINER_TAG} ${tags[0]}
+                                docker tag ${name}:${CONTAINER_TAG} ${tags[1]}
+                                docker tag ${name}:${CONTAINER_TAG} ${tags[2]}
+                                docker tag ${name}:${CONTAINER_TAG} ${tags[3]}
+
+                                docker push ${tags[0]}
+                                docker push ${tags[1]}
+                                docker push ${tags[2]}
+                                docker push ${tags[3]}
+                            """
+                        }
                     }
                 }
+            }
+        }
+
+        stage('Library-only (no container)') {
+            when { expression { return CONTAINERS.isEmpty() } }
+            steps {
+                echo "Upstream build ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM} has no containerizable projects — nothing to publish to the docker registry. Succeeding."
             }
         }
 
@@ -140,7 +180,7 @@ pipeline {
             echo "Post-publish cleanup completed"
         }
         success {
-            echo "Build #${BUILD_NUMBER} published ${params.CONTAINER_NAME}:ci-${SOURCE_BUILD_NUM} to Nexus (from ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM})"
+            echo "Build #${BUILD_NUMBER} published ${CONTAINERS.size()} container(s) ${CONTAINERS.collect { it.containerName }} at ci-${SOURCE_BUILD_NUM} to Nexus (from ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM})"
         }
         failure {
             echo "Build #${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"

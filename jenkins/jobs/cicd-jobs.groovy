@@ -111,8 +111,8 @@ makePipeline('cicd-publish-nexus-docker',
     false) {
     stringParam('BUILD_CONTAINER_IMAGE', BUILD_IMAGE, 'Image for the build container')
     stringParam('BUILD_CONTAINER_ARGS', BUILD_ARGS_PUBLISH, 'Arguments for the build container')
-    stringParam('DOCKER_BUILD_FILE', './src/app/Web.AppHost/Dockerfile', 'Path to the Dockerfile for the web app host image')
-    stringParam('CONTAINER_NAME', 'webapphost', 'Name for the local container')
+    stringParam('DOCKER_BUILD_FILE', 'jenkins/docker/runtime/Dockerfile', 'Shared copy-only runtime Dockerfile (build context is per-app publish output; no in-container compile)')
+    stringParam('CONTAINER_NAME', '', 'Optional single-container override; normally blank — containers come from the cicd-build manifest in build-info.json')
     stringParam('NEXUS_DOCKER_HOST', 'nexus:8082', 'Nexus docker registry host:port')
     stringParam('NEXUS_DOCKER_CREDENTIAL_ID', 'rhythm-docker', 'Jenkins credential id (Username/Password) for the Nexus docker registry')
     stringParam('NEXUS_DOCKER_USER', 'admin', 'Nexus docker registry username')

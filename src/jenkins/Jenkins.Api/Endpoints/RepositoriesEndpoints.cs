@@ -78,6 +78,18 @@ public static class RepositoriesEndpoints
                 Results.Ok(await handler.HandleAsync(cmd, ct)));
         });
 
+        group.MapPost("{id:guid}/container-publish", async (
+            Guid id,
+            SetRepositoryContainerPublishRequest body,
+            SetRepositoryContainerPublishHandler handler,
+            IValidator<SetRepositoryContainerPublishCommand> validator,
+            CancellationToken ct) =>
+        {
+            var cmd = new SetRepositoryContainerPublishCommand(id, body.AllowContainerPublish);
+            return await ValidateAndRun(validator, cmd, ct, async () =>
+                Results.Ok(await handler.HandleAsync(cmd, ct)));
+        });
+
         // --- Component mapping (upsert by container name) ---
 
         group.MapPost("{id:guid}/components", async (
