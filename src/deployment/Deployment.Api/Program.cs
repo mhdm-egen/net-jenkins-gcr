@@ -1,0 +1,69 @@
+using System.Text.Json.Serialization;
+using Cicd.Messaging;
+using Deployment.Api.Endpoints;
+using Deployment.Application;
+using Deployment.Infrastructure;
+using Deployment.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Wolverine;
+using Wolverine.EntityFrameworkCore;
+using Wolverine.SqlServer;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.AddServiceDefaults();
+builder.Services.AddOpenApi();
+builder.Services.ConfigureHttpJsonOptions(opts => opts.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
+builder.Services.AddDeploymentApplication();
+builder.Services.AddDeploymentInfrastructure(builder.Configuration);
+
+// Wolverine: CQRS dispatcher + in-process bus + durable cross-service messaging.
+// Handlers (the ContainerPublished consumer, the run executor, the success translator) are
+// discovered from Application + Infrastructure.
+builder.Host.UseWolverine(opts =>
+{
+    opts.Discovery.IncludeAssembly(typeof(Deployment.Application.DependencyInjection).Assembly);
+    opts.Discovery.IncludeAssembly(typeof(DeploymentDbContext).Assembly);
+
+    opts.UseEntityFrameworkCoreTransactions();
+
+    var connection = builder.Configuration.GetConnectionString("Deployment");
+    if (!string.IsNullOrEmpty(connection))
+        opts.PersistMessagesWithSqlServer(connection);
+
+    // Consume CI container-published facts; publish service-deployed facts.
+    opts.AddCicdMessaging(builder.Configuration, topology => topology
+        .Publish<Cicd.IntegrationEvents.Deployment.ServiceDeployed>("deployment.events")
+        .Subscribe("ci.events", subscriber: "deployment"));
+});
+
+var app = builder.Build();
+app.MapDefaultEndpoints();
+
+if (builder.Configuration.GetValue<bool>("Database:AutoMigrate"))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<DeploymentDbContext>();
+    for (var attempt = 1; ; attempt++)
+    {
+        try { await db.Database.MigrateAsync(); break; }
+        catch (Exception ex) when (attempt < 12)
+        {
+            app.Logger.LogWarning(ex, "DB migrate attempt {Attempt} failed; retrying in 5s…", attempt);
+            await Task.Delay(TimeSpan.FromSeconds(5));
+        }
+    }
+}
+
+if (app.Environment.IsDevelopment()) app.MapOpenApi();
+if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
+
+app.MapGet("/", () => Results.Ok(new { name = "Deployment.Api", status = "ready" }));
+
+app.MapServiceEndpoints();
+app.MapEnvironmentEndpoints();
+app.MapMappingEndpoints();
+app.MapRunEndpoints();
+
+app.Run();

@@ -38,6 +38,7 @@ var nexusDockerRepo = builder.AddParameter("NexusDockerRepository", NexusParam("
 var sqlPassword = builder.AddParameter("sql-password", secret: true);
 var sql = builder.AddSqlServer("sql", password: sqlPassword).WithDataVolume();
 var jenkinsDb = sql.AddDatabase("JenkinsCi");
+var deploymentDb = sql.AddDatabase("Deployment");
 
 // RabbitMQ broker for the CI service's outbox/event publishing. Ephemeral (no data volume) —
 // Wolverine's per-service SQL outbox provides durability, so the broker itself is disposable.
@@ -57,10 +58,23 @@ var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
     .WithEnvironment("Nexus__DockerRegistryHost", nexusDockerHost)
     .WithEnvironment("Nexus__DockerRepository", nexusDockerRepo);
 
+// Deployment: maps services↔environments↔containers and runs deployments (promote Nexus→GAR,
+// then create/update Cloud Run). Consumes the CI ContainerPublished event for auto-deploy. GCP
+// auth is ambient ADC (gcloud / GOOGLE_APPLICATION_CREDENTIALS); crane must reach Nexus + GAR.
+var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
+    .WithReference(deploymentDb)
+    .WaitFor(sql)
+    .WithReference(rabbit)
+    .WaitFor(rabbit)
+    .WithEnvironment("Database__AutoMigrate", "true");
+
 builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WithReference(jenkins)
     .WaitFor(jenkins)
+    .WithReference(deployment)
+    .WaitFor(deployment)
     .WithEnvironment("JenkinsApi__BaseUrl", jenkins.GetEndpoint("http"))
+    .WithEnvironment("Deployment__Api__BaseUrl", deployment.GetEndpoint("http"))
     .WithEnvironment("Jenkins__ApiToken", jenkinsToken)
     .WithEnvironment("Jenkins__Url", jenkinsUrl)
     // Nexus config for the admin UI's Docker/NuGet pages.

@@ -112,6 +112,14 @@
                     Pipelines
                 </MudNavLink>
             </MudNavGroup>
+            <MudNavGroup Title="Deployment"
+                         Icon="@Icons.Material.Filled.RocketLaunch"
+                         Expanded="true">
+                <MudNavLink Href="deployment/services" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apps">Services</MudNavLink>
+                <MudNavLink Href="deployment/environments" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Public">Environments</MudNavLink>
+                <MudNavLink Href="deployment/mappings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Link">Mappings</MudNavLink>
+                <MudNavLink Href="deployment/runs" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.History">Deployments</MudNavLink>
+            </MudNavGroup>
             <MudNavGroup Title="Cloud"
                          Icon="@Icons.Material.Filled.Cloud"
                          Expanded="true">

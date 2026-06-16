@@ -85,6 +85,17 @@ builder.Services.AddHttpClient<JenkinsApiClient>(c =>
     c.Timeout = TimeSpan.FromSeconds(30);
 });
 
+// Deployment service (Deployment.Api) — typed HttpClient. BaseUrl from config (Deployment:Api:BaseUrl).
+var deploymentApiOptions = builder.Configuration.GetSection(Cicd.Web.Admin.Services.Deployment.DeploymentApiOptions.SectionName)
+                               .Get<Cicd.Web.Admin.Services.Deployment.DeploymentApiOptions>()
+                           ?? new Cicd.Web.Admin.Services.Deployment.DeploymentApiOptions();
+builder.Services.AddSingleton(deploymentApiOptions);
+builder.Services.AddHttpClient<Cicd.Web.Admin.Services.Deployment.DeploymentApiClient>(c =>
+{
+    c.BaseAddress = new Uri(deploymentApiOptions.BaseUrl.EndsWith('/') ? deploymentApiOptions.BaseUrl : deploymentApiOptions.BaseUrl + "/");
+    c.Timeout = TimeSpan.FromSeconds(60);
+});
+
 var app = builder.Build();
 
 // Aspire defaults: /alive (liveness — also what the Dockerfile HEALTHCHECK hits) + /health.
