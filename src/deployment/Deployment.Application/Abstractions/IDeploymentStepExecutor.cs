@@ -35,3 +35,35 @@ public interface IDeploymentStepExecutor
     DeploymentStepKind Kind { get; }
     Task<StepOutcome> ExecuteAsync(DeploymentContext context, CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Resolves the registered <see cref="IDeploymentStepExecutor"/> for a given step kind. Exists so the
+/// Wolverine run handler depends on a single service instead of injecting
+/// <c>IEnumerable&lt;IDeploymentStepExecutor&gt;</c> directly: Wolverine's generated handler code
+/// mis-resolves an injected executor collection (it duplicates the last registration and drops the
+/// others), whereas this registry is built by the DI container's own (correct) IEnumerable injection.
+/// </summary>
+public interface IStepExecutorRegistry
+{
+    bool TryGet(DeploymentStepKind kind, out IDeploymentStepExecutor executor);
+}
+
+/// <summary>
+/// Default registry: indexes the DI-provided executors by their <see cref="IDeploymentStepExecutor.Kind"/>
+/// (last registration wins on a duplicate kind). Constructed via normal constructor injection, so the
+/// executor collection is materialised correctly.
+/// </summary>
+public sealed class StepExecutorRegistry : IStepExecutorRegistry
+{
+    private readonly IReadOnlyDictionary<DeploymentStepKind, IDeploymentStepExecutor> _byKind;
+
+    public StepExecutorRegistry(IEnumerable<IDeploymentStepExecutor> executors)
+    {
+        var map = new Dictionary<DeploymentStepKind, IDeploymentStepExecutor>();
+        foreach (var e in executors) map[e.Kind] = e;
+        _byKind = map;
+    }
+
+    public bool TryGet(DeploymentStepKind kind, out IDeploymentStepExecutor executor)
+        => _byKind.TryGetValue(kind, out executor!);
+}

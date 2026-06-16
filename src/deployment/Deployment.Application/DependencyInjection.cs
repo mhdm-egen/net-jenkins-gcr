@@ -46,6 +46,7 @@ public static class DependencyInjection
         services.AddScoped<ListRunsHandler>();
         services.AddScoped<GetRunByIdHandler>();
         services.AddScoped<ListKnownContainersHandler>();
+        services.AddScoped<AddKnownContainerHandler>();
 
         return services;
     }

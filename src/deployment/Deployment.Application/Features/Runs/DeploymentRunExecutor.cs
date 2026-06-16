@@ -4,6 +4,7 @@ using Deployment.Domain.Abstractions;
 using Deployment.Domain.Mappings;
 using Deployment.Domain.Runs;
 using Deployment.Domain.Runs.Events;
+using Wolverine.Attributes;
 
 namespace Deployment.Application.Features.Runs;
 
@@ -12,14 +13,19 @@ namespace Deployment.Application.Features.Runs;
 /// default), recording each step's outcome, then settles the run. Discovered by Wolverine as a
 /// handler for <see cref="DeploymentRunRequested"/>, so it runs asynchronously off the request that
 /// created the run, with the bus's retry + SQL outbox.
+///
+/// [WolverineHandler] is REQUIRED: Wolverine's convention only auto-discovers types whose names end
+/// in "Handler"/"Consumer", so a "*Executor" is invisible without it (the run stays Pending because
+/// nothing consumes <see cref="DeploymentRunRequested"/>).
 /// </summary>
+[WolverineHandler]
 public sealed class DeploymentRunExecutor
 {
     public async Task Handle(
         DeploymentRunRequested evt,
         IDeploymentRunRepository runs,
         IDeploymentMappingRepository mappings,
-        IEnumerable<IDeploymentStepExecutor> stepExecutors,
+        IStepExecutorRegistry stepExecutors,
         IUnitOfWork uow,
         TimeProvider clock,
         ILogger<DeploymentRunExecutor> logger,
@@ -44,13 +50,12 @@ public sealed class DeploymentRunExecutor
             CloudRunServiceName = run.CloudRunServiceName,
         };
 
-        var byKind = stepExecutors.ToDictionary(e => e.Kind);
         var failed = false;
         string? failReason = null;
 
         foreach (var step in steps.OrderBy(s => s.Order))
         {
-            if (!byKind.TryGetValue(step.Kind, out var executor))
+            if (!stepExecutors.TryGet(step.Kind, out var executor))
             {
                 run.RecordStep(step.Order, step.Kind, "Skipped", "no executor registered for this step kind");
                 continue;

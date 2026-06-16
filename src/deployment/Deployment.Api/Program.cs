@@ -26,6 +26,22 @@ builder.Host.UseWolverine(opts =>
     opts.Discovery.IncludeAssembly(typeof(Deployment.Application.DependencyInjection).Assembly);
     opts.Discovery.IncludeAssembly(typeof(DeploymentDbContext).Assembly);
 
+    // The repositories, step executors, and the directly-invoked RequestDeploymentHandler all resolve
+    // to *internal* concrete types (Infrastructure persistence/steps). Wolverine's generated handler
+    // code can't `new` up an internal type, so without this it throws InvalidServiceLocationException
+    // (ServiceLocationPolicy.NotAllowed) and the DeploymentRunRequested/ContainerPublished handlers
+    // never compile — leaving deployment runs stuck Pending. Tell Wolverine to resolve these from the
+    // container at runtime instead (mirrors the jenkins service's IDeploymentReleaseClient handling).
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.Runs.IDeploymentRunRepository>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.Mappings.IDeploymentMappingRepository>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.Services.IServiceRepository>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.Containers.IKnownContainerRepository>();
+    // Service-located (not inlined) on purpose: the registry's constructor takes the executor
+    // collection, and letting Wolverine inline `new StepExecutorRegistry(IEnumerable<…>)` would
+    // re-trigger the codegen bug it exists to avoid (a mis-materialised executor collection).
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Abstractions.IStepExecutorRegistry>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.Runs.RequestDeploymentHandler>();
+
     opts.UseEntityFrameworkCoreTransactions();
 
     var connection = builder.Configuration.GetConnectionString("Deployment");

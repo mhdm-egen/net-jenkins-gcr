@@ -53,9 +53,12 @@ public static class DependencyInjection
         services.AddSingleton<IArtifactPromoter, CraneArtifactPromoter>();
         services.AddSingleton<ICloudRunDeployer, GoogleCloudRunDeployer>();
 
-        // Pluggable step executors — one per DeploymentStepKind.
+        // Pluggable step executors — one per DeploymentStepKind — fronted by a registry the run
+        // handler resolves by kind (see IStepExecutorRegistry for why the handler can't inject the
+        // executor collection directly).
         services.AddScoped<IDeploymentStepExecutor, GarPushStepExecutor>();
         services.AddScoped<IDeploymentStepExecutor, CloudRunDeployStepExecutor>();
+        services.AddScoped<IStepExecutorRegistry, StepExecutorRegistry>();
 
         return services;
     }

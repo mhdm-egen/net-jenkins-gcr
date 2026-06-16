@@ -33,3 +33,6 @@ public sealed record TriggerDeploymentRequest(string? Version, string? Triggered
 public sealed record KnownContainerDto(
     Guid Id, string ContainerName, string Version, string? ImageDigest, string NexusRef,
     DateTimeOffset FirstSeenAtUtc, DateTimeOffset LastSeenAtUtc);
+
+/// <summary>Manually seed the inventory (for testing the deploy flow without a live CI push).</summary>
+public sealed record AddKnownContainerRequest(string ContainerName, string Version, string NexusRef);

@@ -61,12 +61,29 @@ var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
 // Deployment: maps services↔environments↔containers and runs deployments (promote Nexus→GAR,
 // then create/update Cloud Run). Consumes the CI ContainerPublished event for auto-deploy. GCP
 // auth is ambient ADC (gcloud / GOOGLE_APPLICATION_CREDENTIALS); crane must reach Nexus + GAR.
+// GarPush shells out to go-containerregistry `crane` (NOT the similarly-named michaelsauter/crane
+// that ships on chocolatey's PATH). Point this at the real crane.exe; defaults to "crane" on PATH.
+// Override via the AppHost's user-secrets:
+//   dotnet user-secrets set Parameters:CraneExecutable <path-to-go-containerregistry-crane.exe>
+var craneExecutable = NexusParam("CraneExecutable", "crane");
+
+// crane reads registry auth from $DOCKER_CONFIG/config.json. The host's default ~/.docker config
+// uses Docker Desktop's locked "desktop" credsStore (crane can't write it), so we hand crane an
+// isolated, inline-auth config dir pre-seeded via `crane auth login` for Nexus (and later the GAR
+// gcloud credHelper). Empty => crane uses its default. Override via the AppHost's user-secrets:
+//   dotnet user-secrets set Parameters:DockerConfigDir <dir-containing-config.json>
+var dockerConfigDir = NexusParam("DockerConfigDir", "");
+
 var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithReference(deploymentDb)
     .WaitFor(sql)
     .WithReference(rabbit)
     .WaitFor(rabbit)
-    .WithEnvironment("Database__AutoMigrate", "true");
+    .WithEnvironment("Database__AutoMigrate", "true")
+    .WithEnvironment("Deployment__GoogleCloudRun__CraneExecutable", craneExecutable);
+
+if (dockerConfigDir.Length > 0)
+    deployment = deployment.WithEnvironment("DOCKER_CONFIG", dockerConfigDir);
 
 builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WithReference(jenkins)
