@@ -49,6 +49,7 @@ public sealed class EfRepositoryCatalogReader : IRepositoryCatalogReader
         r.CiJobName,
         r.BaseVersion,
         r.IsActive,
+        r.AllowContainerPublish,
         r.CreatedAtUtc,
         r.Components
             .OrderBy(c => c.ContainerName)

@@ -8,6 +8,12 @@
     <UserSecretsId>b8ff2947-f571-4d43-ad77-6be0374e8dcb</UserSecretsId>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <DockerfileContext>..\..</DockerfileContext>
+    <!-- CI container opt-in (see src/app/Directory.Build.props). This Web app is
+         containerized; CI publishes its output into the shared runtime image. The
+         pinned name keeps the existing "webapphost" tag history / DeployableComponent
+         mapping stable rather than deriving "web.apphost" from the assembly name. -->
+    <Containerizable>true</Containerizable>
+    <CiContainerName>webapphost</CiContainerName>
   </PropertyGroup>
 
   <ItemGroup>

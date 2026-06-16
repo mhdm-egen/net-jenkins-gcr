@@ -83,6 +83,12 @@
                         <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
                                        OnClick="@(() => OpenEdit(context))" />
                     </MudTooltip>
+                    <MudTooltip Text="@(context.AllowContainerPublish ? "Container publish: ON — click to disable" : "Container publish: OFF — click to enable")">
+                        <MudIconButton Size="Size.Small"
+                                       Icon="@(context.AllowContainerPublish ? Icons.Material.Filled.Inventory2 : Icons.Material.Filled.Block)"
+                                       Color="@(context.AllowContainerPublish ? Color.Info : Color.Default)"
+                                       OnClick="@(() => ToggleContainerPublishAsync(context))" />
+                    </MudTooltip>
                     <MudTooltip Text="@(context.IsActive ? "Deactivate" : "Activate")">
                         <MudIconButton Size="Size.Small"
                                        Icon="@(context.IsActive ? Icons.Material.Filled.ToggleOn : Icons.Material.Filled.ToggleOff)"
@@ -260,6 +266,20 @@
         {
             await Api.SetRepositoryActiveAsync(repo.Id, new SetRepositoryActiveRequest(!repo.IsActive));
             Snackbar.Add($"{(repo.IsActive ? "Deactivated" : "Activated")} '{repo.Name}'.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task ToggleContainerPublishAsync(RepositoryDto repo)
+    {
+        try
+        {
+            await Api.SetRepositoryContainerPublishAsync(repo.Id, new SetRepositoryContainerPublishRequest(!repo.AllowContainerPublish));
+            Snackbar.Add($"Container publish {(repo.AllowContainerPublish ? "disabled" : "enabled")} for '{repo.Name}'.", Severity.Success);
             await LoadAsync();
         }
         catch (Exception ex)

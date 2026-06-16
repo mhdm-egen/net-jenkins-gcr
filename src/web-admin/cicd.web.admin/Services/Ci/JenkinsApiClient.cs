@@ -57,6 +57,9 @@ public sealed class JenkinsApiClient
     public Task<RepositoryDto> SetRepositoryActiveAsync(Guid id, SetRepositoryActiveRequest body, CancellationToken ct = default)
         => PostJsonAsync<SetRepositoryActiveRequest, RepositoryDto>($"api/jenkins/repositories/{id}/active", body, ct);
 
+    public Task<RepositoryDto> SetRepositoryContainerPublishAsync(Guid id, SetRepositoryContainerPublishRequest body, CancellationToken ct = default)
+        => PostJsonAsync<SetRepositoryContainerPublishRequest, RepositoryDto>($"api/jenkins/repositories/{id}/container-publish", body, ct);
+
     public Task<DeployableComponentDto> MapComponentAsync(Guid repositoryId, MapComponentRequest body, CancellationToken ct = default)
         => PostJsonAsync<MapComponentRequest, DeployableComponentDto>($"api/jenkins/repositories/{repositoryId}/components", body, ct);
 

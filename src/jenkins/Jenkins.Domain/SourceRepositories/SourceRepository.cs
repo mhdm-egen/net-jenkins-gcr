@@ -28,6 +28,17 @@ public sealed class SourceRepository : AggregateRoot<Guid>
     public string BaseVersion { get; private set; }
 
     public bool IsActive { get; private set; }
+
+    /// <summary>
+    /// Per-repo gate on producing container images (the "combination" with the code-level
+    /// opt-in: a project declares it is containerizable via the <c>Containerizable</c> MSBuild
+    /// property, and the repo must also permit it). Default <c>true</c> so existing repos keep
+    /// producing containers; set <c>false</c> to suppress the container-publish stage for a repo
+    /// that should only ship NuGet packages. Does not affect NuGet publishing or the
+    /// <see cref="DeployableComponent"/> deployment mapping.
+    /// </summary>
+    public bool AllowContainerPublish { get; private set; }
+
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
     private readonly List<DeployableComponent> _components = new();
@@ -40,6 +51,7 @@ public sealed class SourceRepository : AggregateRoot<Guid>
         DefaultBranch = string.Empty;
         CiJobName = string.Empty;
         BaseVersion = string.Empty;
+        AllowContainerPublish = true;
     }
 
     public SourceRepository(
@@ -72,6 +84,7 @@ public sealed class SourceRepository : AggregateRoot<Guid>
         CiJobName = ciJobName.Trim();
         BaseVersion = baseVersion.Trim();
         IsActive = true;
+        AllowContainerPublish = true;
         CreatedAtUtc = createdAtUtc;
 
         RaiseEvent(new RepositoryRegistered(
@@ -178,6 +191,19 @@ public sealed class SourceRepository : AggregateRoot<Guid>
     public DeployableComponent? MatchComponent(string containerName) =>
         _components.FirstOrDefault(c =>
             c.IsActive && string.Equals(c.ContainerName, containerName?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    // --- Container-publish gate ---
+
+    /// <summary>
+    /// Allow or suppress container production for this repo (see
+    /// <see cref="AllowContainerPublish"/>). No-op if already at the requested value.
+    /// </summary>
+    public void SetContainerPublishAllowed(bool allowed, DateTimeOffset occurredAtUtc)
+    {
+        if (AllowContainerPublish == allowed) return;
+        AllowContainerPublish = allowed;
+        RaiseEvent(new RepositoryContainerPublishAllowedChanged(Id, allowed, occurredAtUtc));
+    }
 
     // --- Activation ---
 

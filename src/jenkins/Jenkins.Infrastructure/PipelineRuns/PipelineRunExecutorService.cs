@@ -176,11 +176,23 @@ public sealed class PipelineRunExecutorService : BackgroundService
         }
     }
 
+    /// <summary>The Jenkins job that builds + pushes the container image (the per-repo gate target).</summary>
+    private const string ContainerPublishJobName = "cicd-publish-nexus-docker";
+
     private static IReadOnlyList<PipelineStep> BuildSteps(Pipeline pipeline, SourceRepository? repo)
     {
         var steps = new List<PipelineStep>();
         foreach (var stage in pipeline.Stages)
         {
+            // Per-repo gate (combines with the code-level Containerizable opt-in): if the repo
+            // denies container production, drop the container-publish stage. NuGet + build stages
+            // are unaffected. (Library-only builds also self-skip in the job via an empty manifest.)
+            if (repo is { AllowContainerPublish: false } &&
+                string.Equals(stage.JobName, ContainerPublishJobName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             var upstreamless = string.IsNullOrWhiteSpace(stage.UpstreamJobName);
             var pars = new Dictionary<string, string>(StringComparer.Ordinal);
             if (repo is not null && upstreamless)

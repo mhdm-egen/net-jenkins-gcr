@@ -20,6 +20,7 @@ public sealed record RepositoryDto(
     string CiJobName,
     string BaseVersion,
     bool IsActive,
+    bool AllowContainerPublish,
     DateTimeOffset CreatedAtUtc,
     IReadOnlyList<DeployableComponentDto> Components);
 
@@ -50,6 +51,8 @@ public sealed record UpdateRepositoryRequest(
     string BaseVersion);
 
 public sealed record SetRepositoryActiveRequest(bool IsActive);
+
+public sealed record SetRepositoryContainerPublishRequest(bool AllowContainerPublish);
 
 public sealed record MapComponentRequest(
     string ContainerName,
