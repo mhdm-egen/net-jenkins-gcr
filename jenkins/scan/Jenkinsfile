@@ -1,0 +1,276 @@
+// cicd-scan — dedicated security/quality scan job.
+//
+// Runs between cicd-build and the publish jobs. Repo-agnostic: clones the exact
+// repo + commit cicd-build built (from the upstream build-info.json) and produces
+// the dependency SBOM (CycloneDX), the NuGet vulnerability report (with the
+// FAIL_ON_SEVERITY gate), and the Trivy VEX SBOM — then uploads them to Nexus.
+// Separated from cicd-build so the scan is a single responsibility and can be
+// re-run against a stored build's commit without rebuilding.
+pipeline {
+    parameters {
+        string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
+        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0', description: 'Arguments for the build container')
+        string(name: 'CYCLONEDX_TOOL_VERSION', defaultValue: '5.4.0', description: 'Version of the dotnet CycloneDX global tool to install (CycloneDX/cyclonedx-dotnet)')
+        string(name: 'TRIVY_VERSION', defaultValue: 'v0.55.0', description: 'Trivy release tag used to enrich the CycloneDX SBOM with vulnerability data (produces bom-vex.json)')
+        choice(name: 'FAIL_ON_SEVERITY', choices: ['none', 'high', 'critical'], description: 'Fail the scan when dependency vulnerabilities at this severity (or worse) are present. Default: do not fail.')
+        string(name: 'SBOM_NEXUS_REPO_URL', defaultValue: 'http://nexus:8081/repository/sboms/', description: 'Nexus raw (hosted) repo URL for bom.json + vulnerabilities.json + bom-vex.json')
+        string(name: 'SBOM_NEXUS_CREDENTIAL_ID', defaultValue: 'nexus-sbom', description: 'Jenkins credential id (Username/Password) for the Nexus REST API')
+        string(name: 'GIT_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins credentials ID for cloning a private app repo (leave blank for public/anonymous access)')
+        string(name: 'SOURCE_BUILD_JOB', defaultValue: 'cicd-build', description: 'Name of the upstream build job whose build-info.json will be pulled in')
+        string(name: 'SOURCE_BUILD_NUMBER', defaultValue: '', description: 'Specific upstream build number to scan. Leave empty for the last successful build.')
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+        // Repo-agnostic: we clone the app repo ourselves (from build-info.json's gitUrl,
+        // pinned to gitCommitHash) instead of relying on a pipeline-repo checkout.
+        skipDefaultCheckout(true)
+    }
+
+    agent {
+        docker {
+            image "${params.BUILD_CONTAINER_IMAGE}"
+            args "${params.BUILD_CONTAINER_ARGS}"
+            reuseNode true
+        }
+    }
+
+    stages {
+        stage ('Init') {
+            steps {
+                script {
+                    sh "git config --global --add safe.directory '*'"
+                    println "Initializing security/quality scan"
+                    println "Build #${BUILD_NUMBER} started at ${new Date().format("yyyy-MM-dd HH:mm:ss")}"
+                }
+            }
+        }
+
+        stage ('Resolve build') {
+            steps {
+                script {
+                    def srcBuild = params.SOURCE_BUILD_NUMBER?.trim()
+                    def selector = srcBuild
+                        ? [$class: 'SpecificBuildSelector', buildNumber: srcBuild]
+                        : [$class: 'StatusBuildSelector']
+                    def srcLabel = srcBuild ? "build #${srcBuild}" : "lastSuccessful()"
+                    println "Fetching build-info.json from ${params.SOURCE_BUILD_JOB} (${srcLabel})"
+
+                    // build-info.json lands at the workspace root; it is harmless alongside the
+                    // app-repo clone (untracked) and is re-archived together with the SBOMs so
+                    // downstream publish jobs pull everything from THIS job.
+                    copyArtifacts(
+                        projectName: params.SOURCE_BUILD_JOB,
+                        selector: selector,
+                        filter: 'build-info.json',
+                        fingerprintArtifacts: true
+                    )
+
+                    def info = readJSON file: 'build-info.json'
+
+                    PACKAGE_VERSION  = info.packageVersion
+                    SOURCE_BUILD_NUM = info.buildNumber
+                    BUILD_FILE       = info.buildFile
+                    GIT_URL          = info.gitUrl
+                    GIT_BRANCH       = info.gitBranch
+                    GIT_COMMIT_HASH  = info.gitCommitHash
+                    GIT_COMMIT_SHORT = info.gitCommitShort
+
+                    println "Resolved upstream build: #${SOURCE_BUILD_NUM}"
+                    println "  packageVersion : ${PACKAGE_VERSION}"
+                    println "  buildFile      : ${BUILD_FILE}"
+                    println "  gitUrl         : ${GIT_URL}"
+                    println "  gitCommitHash  : ${GIT_COMMIT_HASH}"
+
+                    currentBuild.description = "scan ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM} (${PACKAGE_VERSION})"
+                }
+            }
+        }
+
+        stage ('Checkout source') {
+            steps {
+                script {
+                    if (!GIT_URL?.trim()) {
+                        error "build-info.json has no gitUrl — cannot fetch the source to scan. Re-run cicd-build to produce a gitUrl."
+                    }
+                    // Clone the exact repo + commit cicd-build built. build-info.json (untracked)
+                    // survives the checkout.
+                    def remote = [url: GIT_URL.trim()]
+                    if (params.GIT_CREDENTIALS_ID?.trim()) {
+                        remote.credentialsId = params.GIT_CREDENTIALS_ID.trim()
+                    }
+                    println "Cloning ${GIT_URL} @ ${GIT_COMMIT_HASH}"
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: GIT_COMMIT_HASH]],
+                        userRemoteConfigs: [remote]
+                    ])
+                    sh "git config --global --add safe.directory '*'"
+                }
+            }
+        }
+
+        stage ('Restore') {
+            steps {
+                // CycloneDX + `dotnet list --vulnerable` read the restored dependency graph
+                // (project.assets.json); a full build is not required for the scan.
+                sh "dotnet restore ${BUILD_FILE}"
+            }
+        }
+
+        stage ('SBOM') {
+            steps {
+                // Installs the CycloneDX dotnet global tool into a workspace-local tools dir
+                // (avoids polluting the build container's user profile) and emits bom.json
+                // describing every direct + transitive package reference in the solution.
+                sh """
+                    set -e
+                    export PATH="\$PATH:${env.WORKSPACE}/.dotnet/tools"
+                    dotnet tool install --tool-path ${env.WORKSPACE}/.dotnet/tools \\
+                        CycloneDX --version ${params.CYCLONEDX_TOOL_VERSION}
+                    dotnet-CycloneDX ${BUILD_FILE} \\
+                        --output ${env.WORKSPACE} \\
+                        --filename bom.json \\
+                        --json
+                    ls -l ${env.WORKSPACE}/bom.json
+                """
+            }
+        }
+
+        stage ('Vulnerabilities') {
+            steps {
+                script {
+                    // dotnet list package --vulnerable queries the NuGet advisory DB and
+                    // returns a non-zero exit code when vulnerabilities are present. We
+                    // capture stdout regardless (status=0 means clean), then optionally
+                    // gate on severity per FAIL_ON_SEVERITY.
+                    def rc = sh(
+                        script: """
+                            dotnet list ${BUILD_FILE} package \\
+                                --vulnerable --include-transitive \\
+                                --format json --output-version 1 \\
+                                > vulnerabilities.json
+                        """,
+                        returnStatus: true
+                    )
+                    sh "cat vulnerabilities.json | head -120 || true"
+
+                    if (params.FAIL_ON_SEVERITY != 'none') {
+                        def report = readJSON file: 'vulnerabilities.json'
+                        // Schema: { projects: [ { frameworks: [ { topLevelPackages|transitivePackages: [ { vulnerabilities: [ { severity, advisoryurl } ] } ] } ] } ] }
+                        def severityRank = [low: 1, moderate: 2, high: 3, critical: 4]
+                        def threshold = severityRank[params.FAIL_ON_SEVERITY]
+                        def offenders = []
+                        report?.projects?.each { proj ->
+                            proj?.frameworks?.each { fw ->
+                                (fw?.topLevelPackages ?: []).plus(fw?.transitivePackages ?: []).each { pkg ->
+                                    pkg?.vulnerabilities?.each { v ->
+                                        def rank = severityRank[v?.severity?.toLowerCase()] ?: 0
+                                        if (rank >= threshold) {
+                                            offenders << "${pkg.id}@${pkg.resolvedVersion} ${v.severity} ${v.advisoryurl}"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (offenders) {
+                            error "Scan failed: ${offenders.size()} vulnerabilities at severity '${params.FAIL_ON_SEVERITY}' or higher:\n  - " + offenders.join('\n  - ')
+                        }
+                        println "No vulnerabilities at severity '${params.FAIL_ON_SEVERITY}' or higher."
+                    }
+                }
+            }
+        }
+
+        stage ('Trivy SBOM') {
+            steps {
+                // Enrich the CycloneDX SBOM with vulnerability data (VEX style) using Trivy.
+                // Output is bom-vex.json (CVEs from GitHub Advisory + NVD). Prefer the trivy
+                // baked into the build image; fall back to a workspace-local download.
+                sh """
+                    set -e
+                    if command -v trivy >/dev/null 2>&1; then
+                        TRIVY_BIN=\$(command -v trivy)
+                    else
+                        mkdir -p ${env.WORKSPACE}/.trivy
+                        TRIVY_BIN=${env.WORKSPACE}/.trivy/trivy
+                        if [ ! -x "\$TRIVY_BIN" ]; then
+                            TRIVY_VER_NO_V=\$(echo "${params.TRIVY_VERSION}" | sed 's/^v//')
+                            echo "Downloading Trivy ${params.TRIVY_VERSION}…"
+                            curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/${params.TRIVY_VERSION}/trivy_\${TRIVY_VER_NO_V}_Linux-64bit.tar.gz" \\
+                                | tar -xz -C ${env.WORKSPACE}/.trivy/ trivy
+                            chmod +x "\$TRIVY_BIN"
+                        fi
+                    fi
+                    "\$TRIVY_BIN" --version
+
+                    # --scanners vuln is required: --format cyclonedx silently disables
+                    # security scanning unless scanners are explicitly opted in.
+                    "\$TRIVY_BIN" sbom \\
+                        --format cyclonedx \\
+                        --scanners vuln \\
+                        --output bom-vex.json \\
+                        bom.json
+                    ls -l bom-vex.json
+                """
+            }
+        }
+
+        stage ('Publish SBOM') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${params.SBOM_NEXUS_CREDENTIAL_ID}", usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
+                    // Pushes the SBOM + vulnerability reports into a Nexus raw (hosted) repo
+                    // keyed by package version, so each artifact has a matching SBOM at:
+                    //   <SBOM_NEXUS_REPO_URL>sbom/<PACKAGE_VERSION>/{bom.json,vulnerabilities.json,bom-vex.json}
+                    sh """
+                        set -e
+                        base="${params.SBOM_NEXUS_REPO_URL}"
+                        base="\${base%/}"
+                        target="\$base/sbom/${PACKAGE_VERSION}"
+                        echo "Uploading SBOM artifacts to \$target/"
+
+                        upload() {
+                            local f="\$1"
+                            if [ ! -f "\$f" ]; then
+                                echo "WARN: \$f not present in workspace — skipping upload."
+                                return 0
+                            fi
+                            echo "  PUT \$target/\$f"
+                            curl -fsS --user "\$NEXUS_USER:\$NEXUS_PASS" \\
+                                 --upload-file "\$f" \\
+                                 "\$target/\$f"
+                            echo
+                        }
+
+                        upload bom.json
+                        upload vulnerabilities.json
+                        upload bom-vex.json
+                    """
+                }
+            }
+        }
+
+        stage ('Archive') {
+            steps {
+                // Re-archive build-info.json together with the SBOMs so downstream publish
+                // jobs (whose upstream is cicd-scan) pull everything as a unit.
+                archiveArtifacts(
+                    artifacts: 'build-info.json,bom.json,vulnerabilities.json,bom-vex.json',
+                    fingerprint: true,
+                    onlyIfSuccessful: true,
+                    allowEmptyArchive: true)
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Scan #${BUILD_NUMBER} passed for ${PACKAGE_VERSION} (from ${params.SOURCE_BUILD_JOB} #${SOURCE_BUILD_NUM})"
+        }
+        failure {
+            echo "Scan #${BUILD_NUMBER} failed at stage: ${env.STAGE_NAME}"
+        }
+    }
+}

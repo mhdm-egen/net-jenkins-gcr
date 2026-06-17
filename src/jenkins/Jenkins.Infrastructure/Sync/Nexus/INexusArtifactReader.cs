@@ -15,4 +15,11 @@ public interface INexusArtifactReader
         string commitShort,
         int ciBuildNumber,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The durable Nexus base URL for a build's SBOM artifacts, keyed by package version
+    /// (the cicd-scan job uploads <c>bom-vex.json</c> + <c>vulnerabilities.json</c> there).
+    /// e.g. <c>http://nexus:8081/repository/sboms/sbom/{version}</c>.
+    /// </summary>
+    string SbomBaseUrl(string packageVersion);
 }

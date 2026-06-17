@@ -35,6 +35,9 @@ public sealed class NexusArtifactReader : INexusArtifactReader, IDisposable
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
+    public string SbomBaseUrl(string packageVersion)
+        => $"{_options.Url.TrimEnd('/')}/repository/{_options.SbomRepository}/sbom/{packageVersion}";
+
     public async Task<IReadOnlyList<ArtifactSpec>> FindArtifactsAsync(
         string packageVersion, string commitShort, int ciBuildNumber, CancellationToken cancellationToken = default)
     {

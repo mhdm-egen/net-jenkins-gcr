@@ -312,7 +312,7 @@
         {
             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
                 This SBOM has no <code>vulnerabilities</code> array — it wasn't enriched
-                by a scanner. Most likely cause: the Trivy step in <code>cicd-build</code>
+                by a scanner. Most likely cause: the Trivy step in <code>cicd-scan</code>
                 couldn't reach (or download) the vulnerability database. Check that build's
                 log for <em>vulnerability DB</em> download warnings, or re-run the
                 <strong>Trivy SBOM</strong> stage once the network/DB cache is set up.
@@ -465,7 +465,8 @@
 
 @code {
     public const int IntervalSec = 30;
-    private const string _jobName = "cicd-build";
+    // The SBOM (bom-vex.json) is produced by the dedicated cicd-scan job, not cicd-build.
+    private const string _jobName = "cicd-scan";
     private const int _buildListCount = 25;
     // Bigger cap than the artifact viewer — Trivy-enriched SBOMs can run a few MB.
     private const long MaxPreviewBytes = 10L * 1024 * 1024;
@@ -650,7 +651,7 @@
         if (ex is HttpRequestException hre && hre.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return $"Build #{buildNumber} did not archive bom-vex.json. " +
-                   "Re-run cicd-build (Trivy stage generates the file) and try again.";
+                   "Re-run cicd-scan (Trivy SBOM stage generates the file) and try again.";
         }
         return ex.Message;
     }

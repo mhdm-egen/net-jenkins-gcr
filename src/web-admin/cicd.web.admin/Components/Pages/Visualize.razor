@@ -524,7 +524,8 @@
 
 @code {
     public const long MaxPreviewBytes = 10L * 1024 * 1024;
-    private const string _jobName  = "cicd-build";
+    // The SBOM (bom-vex.json) is produced by the dedicated cicd-scan job, not cicd-build.
+    private const string _jobName  = "cicd-scan";
     private const string JsonView  = "json";
     private const string GraphView = "graph";
 
@@ -986,8 +987,8 @@
     {
         if (ex is HttpRequestException hre && hre.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
-            return "This build did not archive bom-vex.json. Re-run cicd-build " +
-                   "(Trivy stage generates the file) and try again.";
+            return "This build did not archive bom-vex.json. Re-run cicd-scan " +
+                   "(Trivy SBOM stage generates the file) and try again.";
         }
         return ex.Message;
     }

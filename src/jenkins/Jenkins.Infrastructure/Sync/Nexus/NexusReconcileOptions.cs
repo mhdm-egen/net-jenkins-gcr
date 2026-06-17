@@ -19,6 +19,13 @@ public sealed class NexusReconcileOptions
     public string DockerRepository { get; set; } = "docker-hosted";
 
     /// <summary>
+    /// Nexus raw (hosted) repo where the cicd-scan job uploads SBOMs, keyed by package
+    /// version (<c>{Url}/repository/{SbomRepository}/sbom/{version}/{bom-vex.json|vulnerabilities.json}</c>).
+    /// Used to source durable BuildQuality URIs.
+    /// </summary>
+    public string SbomRepository { get; set; } = "sboms";
+
+    /// <summary>
     /// Docker registry connector host for pull-by-digest references (e.g.
     /// <c>nexus:8082</c>) — the host used in <c>{host}/{name}@sha256:…</c>. When
     /// empty, container artifacts are skipped (no resolvable pull reference).

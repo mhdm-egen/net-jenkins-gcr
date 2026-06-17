@@ -57,12 +57,15 @@ public sealed class SeedDefaultPipelineHandler
     {
         if (await _pipelines.AnyAsync(cancellationToken).ConfigureAwait(false)) return;
 
+        // Authoritative default chain: build → scan → publish (NuGet + container) to Nexus.
+        // Keep in sync with Jenkins.Orchestrator.DefaultPipelines.CicdMain() (documentation).
         var now = _clock.GetUtcNow();
         var pipeline = new Pipeline(Guid.NewGuid(), "CICD Main",
-            "Build, then publish the NuGet package and container image to Nexus.", now);
+            "Build, scan (SBOM + vulnerabilities), then publish the NuGet package and container image to Nexus.", now);
         pipeline.AddStage(Guid.NewGuid(), "cicd-build", null, null, now);
-        pipeline.AddStage(Guid.NewGuid(), "cicd-publish-nexus-nuget", "cicd-build", null, now);
-        pipeline.AddStage(Guid.NewGuid(), "cicd-publish-nexus-docker", "cicd-build", null, now);
+        pipeline.AddStage(Guid.NewGuid(), "cicd-scan", "cicd-build", null, now);
+        pipeline.AddStage(Guid.NewGuid(), "cicd-publish-nexus-nuget", "cicd-scan", null, now);
+        pipeline.AddStage(Guid.NewGuid(), "cicd-publish-nexus-docker", "cicd-scan", null, now);
 
         await _pipelines.AddAsync(pipeline, cancellationToken).ConfigureAwait(false);
         await _uow.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
