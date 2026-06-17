@@ -179,7 +179,7 @@ public sealed class JenkinsBuildSyncService : BackgroundService
             if (status is { } terminal)
             {
                 var versions = BuildVersionsFrom(info);
-                var quality = await BuildQualityFromAsync(repo.CiJobName, build, ct).ConfigureAwait(false);
+                var quality = BuildQualityFrom(nexus, info.PackageVersion);
                 var completedAt = DateTimeOffset.FromUnixTimeMilliseconds(build.Timestamp + Math.Max(0, build.Duration));
 
                 await completeBuild.HandleAsync(new CompleteBuildCommand(
@@ -256,27 +256,21 @@ public sealed class JenkinsBuildSyncService : BackgroundService
         }
     }
 
-    private async Task<BuildQualityInput?> BuildQualityFromAsync(string job, Build build, CancellationToken ct)
+    /// <summary>
+    /// Durable SBOM/vuln provenance URLs from Nexus (keyed by package version) — the
+    /// dedicated cicd-scan job uploads them there. Null when Nexus isn't configured or the
+    /// build has no package version. The artifacts may land a few seconds later (cicd-scan
+    /// runs after cicd-build), but the URLs are stable and resolve once uploaded.
+    /// </summary>
+    private static BuildQualityInput? BuildQualityFrom(INexusArtifactReader? nexus, string? packageVersion)
     {
-        try
-        {
-            var details = await _jenkins.GetBuildDetailsAsync(job, build.Number, ct).ConfigureAwait(false);
-            var sbom = details.Artifacts.FirstOrDefault(a => Ends(a.RelativePath, "bom-vex.json"))
-                       ?? details.Artifacts.FirstOrDefault(a => Ends(a.RelativePath, "bom.json"));
-            var vuln = details.Artifacts.FirstOrDefault(a => Ends(a.RelativePath, "vulnerabilities.json"));
-            if (sbom is null || vuln is null)
-                return null;
-
-            var baseUrl = build.Url.TrimEnd('/');
-            return new BuildQualityInput(
-                SbomUri: $"{baseUrl}/artifact/{sbom.RelativePath}",
-                VulnerabilityReportUri: $"{baseUrl}/artifact/{vuln.RelativePath}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Quality artifact lookup failed for {Job}#{Number}", job, build.Number);
+        if (nexus is null || string.IsNullOrWhiteSpace(packageVersion))
             return null;
-        }
+
+        var baseUrl = nexus.SbomBaseUrl(packageVersion!);
+        return new BuildQualityInput(
+            SbomUri: $"{baseUrl}/bom-vex.json",
+            VulnerabilityReportUri: $"{baseUrl}/vulnerabilities.json");
     }
 
     private static BuildVersionsInput? BuildVersionsFrom(JenkinsBuildInfo info)
@@ -304,9 +298,6 @@ public sealed class JenkinsBuildSyncService : BackgroundService
         BuildResult.Aborted => BuildStatusDto.Aborted,
         _ => null, // NotBuilt / null — not yet a terminal we record
     };
-
-    private static bool Ends(string path, string suffix) =>
-        path.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
 
     private static string Short(string sha) => sha.Length >= 7 ? sha[..7] : sha;
 
