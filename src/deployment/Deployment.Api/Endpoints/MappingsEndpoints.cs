@@ -20,7 +20,7 @@ public static class MappingsEndpoints
 
         g.MapPost("", async (CreateMappingRequest body, CreateMappingHandler h, IValidator<CreateMappingCommand> v, CancellationToken ct) =>
         {
-            var cmd = new CreateMappingCommand(body.ServiceId, body.EnvironmentId, body.CloudRunServiceName, body.AutoDeploy, body.Steps);
+            var cmd = new CreateMappingCommand(body.ServiceId, body.EnvironmentId, body.CloudRunServiceName, body.Kubernetes, body.AutoDeploy, body.Steps);
             return await EndpointHelpers.ValidateAndRun(v, cmd, ct, async () =>
             {
                 var id = await h.HandleAsync(cmd, ct);
@@ -30,7 +30,7 @@ public static class MappingsEndpoints
 
         g.MapPut("{id:guid}", async (Guid id, UpdateMappingRequest body, UpdateMappingHandler h, IValidator<UpdateMappingCommand> v, CancellationToken ct) =>
         {
-            var cmd = new UpdateMappingCommand(id, body.CloudRunServiceName, body.Steps);
+            var cmd = new UpdateMappingCommand(id, body.CloudRunServiceName, body.Kubernetes, body.Steps);
             return await EndpointHelpers.ValidateAndRun(v, cmd, ct, async () => { await h.HandleAsync(cmd, ct); return Results.NoContent(); });
         });
 

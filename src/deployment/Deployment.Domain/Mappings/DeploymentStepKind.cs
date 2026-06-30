@@ -8,4 +8,5 @@ public enum DeploymentStepKind
 {
     GarPush = 0,
     CloudRunDeploy = 1,
+    KubernetesApply = 2,
 }

@@ -6,7 +6,7 @@
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
     <MudText Typo="Typo.h4">Mappings</MudText>
-    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">service → environment: Cloud Run target + auto-deploy</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">service → environment: Cloud Run or Kubernetes target + auto-deploy</MudText>
     <MudSpacer />
     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreate"
                Disabled="@(_services is null or { Count: 0 } || _envs is null or { Count: 0 })">Add mapping</MudButton>
@@ -24,11 +24,11 @@
     else if (_items is not null)
     {
         <MudTable Items="@_items" Dense="true" Hover="true" Striped="true" T="DeploymentMappingDto">
-            <HeaderContent><MudTh>Service</MudTh><MudTh>Environment</MudTh><MudTh>Cloud Run</MudTh><MudTh>Steps</MudTh><MudTh Style="width:8rem;">Auto-deploy</MudTh><MudTh Style="width:14rem; text-align:right;"></MudTh></HeaderContent>
+            <HeaderContent><MudTh>Service</MudTh><MudTh>Environment</MudTh><MudTh>Target</MudTh><MudTh>Steps</MudTh><MudTh Style="width:8rem;">Auto-deploy</MudTh><MudTh Style="width:14rem; text-align:right;"></MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd>@context.ServiceName</MudTd>
                 <MudTd>@context.EnvironmentName</MudTd>
-                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@context.CloudRunServiceName</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@(context.Kubernetes is not null ? $"k8s: {context.Kubernetes.DeploymentName}" : context.CloudRunServiceName)</MudTd>
                 <MudTd Style="font-size:0.8em;">@string.Join(" → ", context.Steps.OrderBy(s => s.Order).Select(s => s.Kind))</MudTd>
                 <MudTd><MudSwitch T="bool" Value="@context.AutoDeploy" Color="Color.Primary" ValueChanged="@(v => ToggleAutoAsync(context, v))" /></MudTd>
                 <MudTd Style="text-align:right; white-space:nowrap;">
@@ -47,11 +47,23 @@
             @foreach (var s in _services ?? new List<ServiceDto>()) { <MudSelectItem Value="@s.Id">@s.Name (@s.ContainerName)</MudSelectItem> }
         </MudSelect>
         <MudSelect @bind-Value="_form.EnvironmentId" Label="Environment" T="Guid" Required="true">
-            @foreach (var e in _envs ?? new List<EnvironmentDto>()) { <MudSelectItem Value="@e.Id">@e.Name (@e.GcpProject/@e.Region)</MudSelectItem> }
+            @foreach (var e in _envs ?? new List<EnvironmentDto>()) { <MudSelectItem Value="@e.Id">@e.Name (@(IsK8s(e) ? $"k8s:{e.KubernetesContext}/{e.KubernetesNamespace}" : $"{e.GcpProject}/{e.Region}"))</MudSelectItem> }
         </MudSelect>
-        <MudTextField @bind-Value="_form.CloudRunServiceName" Label="Cloud Run service name" Required="true" />
-        <MudSwitch T="bool" @bind-Value="_form.AutoDeploy" Color="Color.Primary" Label="Auto-deploy on new container push" Class="mt-2" />
-        <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">Recipe: GarPush → CloudRunDeploy (default).</MudText>
+        @if (SelectedEnvIsK8s())
+        {
+            <MudTextField @bind-Value="_form.K8sDeploymentName" Label="Deployment name" HelperText="defaults to the container name" />
+            <MudNumericField @bind-Value="_form.K8sPort" Label="Container port" Min="1" />
+            <MudNumericField @bind-Value="_form.K8sReplicas" Label="Replicas" Min="1" />
+            <MudTextField @bind-Value="_form.K8sImagePullSecret" Label="Image pull secret (optional)" HelperText="for pulling from a private Nexus" />
+            <MudSwitch T="bool" @bind-Value="_form.AutoDeploy" Color="Color.Primary" Label="Auto-deploy on new container push" Class="mt-2" />
+            <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">Recipe: KubernetesApply (generated Deployment + Service).</MudText>
+        }
+        else
+        {
+            <MudTextField @bind-Value="_form.CloudRunServiceName" Label="Cloud Run service name" Required="true" />
+            <MudSwitch T="bool" @bind-Value="_form.AutoDeploy" Color="Color.Primary" Label="Auto-deploy on new container push" Class="mt-2" />
+            <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">Recipe: GarPush → CloudRunDeploy (default).</MudText>
+        }
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="@(() => _show = false)">Cancel</MudButton>
@@ -95,12 +107,26 @@
         _show = true;
     }
 
+    private static bool IsK8s(EnvironmentDto e) => !string.IsNullOrEmpty(e.KubernetesContext) && !string.IsNullOrEmpty(e.KubernetesNamespace);
+    private bool SelectedEnvIsK8s() => _envs?.FirstOrDefault(e => e.Id == _form.EnvironmentId) is { } e && IsK8s(e);
+
     private async Task SaveAsync()
     {
         _busy = true;
         try
         {
-            await Api.CreateMappingAsync(new CreateMappingRequest(_form.ServiceId, _form.EnvironmentId, _form.CloudRunServiceName, _form.AutoDeploy, null));
+            CreateMappingRequest req;
+            if (SelectedEnvIsK8s())
+            {
+                var k8s = new KubernetesSpecDto(_form.K8sDeploymentName ?? "", _form.K8sPort, _form.K8sReplicas, null,
+                    string.IsNullOrWhiteSpace(_form.K8sImagePullSecret) ? null : _form.K8sImagePullSecret, true);
+                req = new CreateMappingRequest(_form.ServiceId, _form.EnvironmentId, null, k8s, _form.AutoDeploy, null);
+            }
+            else
+            {
+                req = new CreateMappingRequest(_form.ServiceId, _form.EnvironmentId, _form.CloudRunServiceName, null, _form.AutoDeploy, null);
+            }
+            await Api.CreateMappingAsync(req);
             Snackbar.Add("Mapping added.", Severity.Success);
             _show = false; await LoadAsync();
         }
@@ -131,5 +157,15 @@
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
     }
 
-    private sealed class Form { public Guid ServiceId { get; set; } public Guid EnvironmentId { get; set; } public string CloudRunServiceName { get; set; } = ""; public bool AutoDeploy { get; set; } }
+    private sealed class Form
+    {
+        public Guid ServiceId { get; set; }
+        public Guid EnvironmentId { get; set; }
+        public string CloudRunServiceName { get; set; } = "";
+        public bool AutoDeploy { get; set; }
+        public string? K8sDeploymentName { get; set; }
+        public int K8sPort { get; set; } = 8080;
+        public int K8sReplicas { get; set; } = 1;
+        public string? K8sImagePullSecret { get; set; }
+    }
 }

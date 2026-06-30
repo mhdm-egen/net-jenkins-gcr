@@ -1,5 +1,7 @@
 using Deployment.Application.Abstractions;
 using Deployment.Domain.Mappings;
+using Deployment.Domain.Runs;
+using Deployment.Infrastructure.Kubernetes;
 
 namespace Deployment.Infrastructure.Steps;
 
@@ -64,8 +66,39 @@ internal sealed class CloudRunDeployStepExecutor : IDeploymentStepExecutor
             return StepOutcome.Fail("environment is missing GCP project/region.");
 
         var revision = await _deployer.DeployAsync(
-            new CloudRunDeployRequest(ctx.GcpProject, ctx.Region, ctx.CloudRunServiceName, ctx.ImageToDeploy), ct).ConfigureAwait(false);
+            new CloudRunDeployRequest(ctx.GcpProject, ctx.Region, ctx.CloudRunServiceName!, ctx.ImageToDeploy), ct).ConfigureAwait(false);
         ctx.CloudRunRevision = revision;
         return StepOutcome.Ok($"deployed revision {revision}");
+    }
+}
+
+/// <summary>KubernetesApply: deploy the image (GAR-promoted if a GarPush ran, else the Nexus source) to a cluster.</summary>
+internal sealed class KubernetesApplyStepExecutor : IDeploymentStepExecutor
+{
+    private readonly IKubernetesDeployer _deployer;
+    public KubernetesApplyStepExecutor(IKubernetesDeployer deployer) => _deployer = deployer;
+
+    public DeploymentStepKind Kind => DeploymentStepKind.KubernetesApply;
+
+    public async Task<StepOutcome> ExecuteAsync(DeploymentContext ctx, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(ctx.KubernetesContext) || string.IsNullOrWhiteSpace(ctx.KubernetesNamespace))
+            return StepOutcome.Fail("environment has no Kubernetes context/namespace.");
+        if (ctx.Kubernetes is not { } spec)
+            return StepOutcome.Fail("mapping has no Kubernetes spec.");
+
+        var name = string.IsNullOrWhiteSpace(spec.DeploymentName) ? LeafName(ctx.ContainerName) : spec.DeploymentName;
+        var resource = await _deployer.ApplyAsync(new KubernetesApplyRequest(
+            ctx.KubernetesContext!, ctx.KubernetesNamespace!, name, ctx.ImageToDeploy,
+            spec.ContainerPort <= 0 ? 8080 : spec.ContainerPort, spec.Replicas, spec.EnvVars, spec.ImagePullSecret, spec.CreateService), ct).ConfigureAwait(false);
+        ctx.KubernetesResource = resource;
+        return StepOutcome.Ok($"applied {resource}");
+    }
+
+    private static string LeafName(string containerName)
+    {
+        var n = containerName.Trim().Trim('/');
+        var slash = n.LastIndexOf('/');
+        return slash >= 0 ? n[(slash + 1)..] : n;
     }
 }

@@ -25,6 +25,15 @@ internal static class Json
         (a, b) => JsonSerializer.Serialize(a, Opts) == JsonSerializer.Serialize(b, Opts),
         v => JsonSerializer.Serialize(v, Opts).GetHashCode(),
         v => v.ToList());
+
+    public static ValueConverter<T?, string?> NullableObject<T>() where T : class => new(
+        v => v == null ? null : JsonSerializer.Serialize(v, Opts),
+        s => string.IsNullOrEmpty(s) ? null : JsonSerializer.Deserialize<T>(s, Opts));
+
+    public static ValueComparer<T?> NullableObjectComparer<T>() where T : class => new(
+        (a, b) => JsonSerializer.Serialize(a, Opts) == JsonSerializer.Serialize(b, Opts),
+        v => v == null ? 0 : JsonSerializer.Serialize(v, Opts).GetHashCode(),
+        v => v);
 }
 
 public sealed class ServiceConfiguration : IEntityTypeConfiguration<Service>
@@ -73,13 +82,16 @@ public sealed class MappingConfiguration : IEntityTypeConfiguration<DeploymentMa
         b.Property(m => m.Id).ValueGeneratedNever();
         b.Property(m => m.ServiceId).IsRequired();
         b.Property(m => m.EnvironmentId).IsRequired();
-        b.Property(m => m.CloudRunServiceName).HasMaxLength(300).IsRequired();
+        b.Property(m => m.CloudRunServiceName).HasMaxLength(300);
         b.Property(m => m.AutoDeploy).IsRequired();
         b.Property(m => m.CreatedAtUtc).IsRequired();
         b.Property(m => m.UpdatedAtUtc).IsRequired();
 
         b.Property(m => m.Steps)
             .HasConversion(Json.Converter<DeploymentStep>(), Json.Comparer<DeploymentStep>())
+            .HasColumnType("nvarchar(max)");
+        b.Property(m => m.Kubernetes)
+            .HasConversion(Json.NullableObject<KubernetesSpec>(), Json.NullableObjectComparer<KubernetesSpec>())
             .HasColumnType("nvarchar(max)");
 
         b.HasIndex(m => new { m.ServiceId, m.EnvironmentId }).IsUnique();
@@ -121,7 +133,10 @@ public sealed class RunConfiguration : IEntityTypeConfiguration<DeploymentRun>
         b.Property(r => r.GcpProject).HasMaxLength(200).IsRequired();
         b.Property(r => r.Region).HasMaxLength(100).IsRequired();
         b.Property(r => r.GarRepository).HasMaxLength(200).IsRequired();
-        b.Property(r => r.CloudRunServiceName).HasMaxLength(300).IsRequired();
+        b.Property(r => r.CloudRunServiceName).HasMaxLength(300);
+        b.Property(r => r.KubernetesContext).HasMaxLength(200);
+        b.Property(r => r.KubernetesNamespace).HasMaxLength(200);
+        b.Property(r => r.KubernetesResource).HasMaxLength(500);
         b.Property(r => r.Trigger).HasConversion<int>().IsRequired();
         b.Property(r => r.TriggeredBy).HasMaxLength(200).IsRequired();
         b.Property(r => r.Status).HasConversion<int>().IsRequired();
@@ -133,6 +148,9 @@ public sealed class RunConfiguration : IEntityTypeConfiguration<DeploymentRun>
 
         b.Property(r => r.Steps)
             .HasConversion(Json.Converter<RunStepResult>(), Json.Comparer<RunStepResult>())
+            .HasColumnType("nvarchar(max)");
+        b.Property(r => r.KubernetesSpec)
+            .HasConversion(Json.NullableObject<KubernetesSpec>(), Json.NullableObjectComparer<KubernetesSpec>())
             .HasColumnType("nvarchar(max)");
 
         b.HasIndex(r => r.ServiceId);

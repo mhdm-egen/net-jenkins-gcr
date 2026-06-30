@@ -12,13 +12,21 @@ public sealed class DeploymentContext
     public required string ContainerName { get; init; }
     public required string Version { get; init; }
     public required string SourceRef { get; init; }       // Nexus pull ref (digest-pinned when available)
-    public required string GcpProject { get; init; }
-    public required string Region { get; init; }
-    public required string GarRepository { get; init; }
-    public required string CloudRunServiceName { get; init; }
+
+    // Cloud Run target (empty for a Kubernetes-only deploy).
+    public string GcpProject { get; init; } = string.Empty;
+    public string Region { get; init; } = string.Empty;
+    public string GarRepository { get; init; } = string.Empty;
+    public string? CloudRunServiceName { get; init; }
+
+    // Kubernetes target (set for a KubernetesApply deploy).
+    public string? KubernetesContext { get; init; }
+    public string? KubernetesNamespace { get; init; }
+    public KubernetesSpec? Kubernetes { get; init; }
 
     public string? RemoteImageRef { get; set; }            // set by GarPush
     public string? CloudRunRevision { get; set; }          // set by CloudRunDeploy
+    public string? KubernetesResource { get; set; }        // set by KubernetesApply
 
     /// <summary>The image a deploy step should run: the promoted GAR ref if present, else the source.</summary>
     public string ImageToDeploy => string.IsNullOrWhiteSpace(RemoteImageRef) ? SourceRef : RemoteImageRef!;

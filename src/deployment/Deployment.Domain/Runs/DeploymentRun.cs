@@ -24,7 +24,12 @@ public sealed class DeploymentRun : AggregateRoot<Guid>
     public string GcpProject { get; private set; }
     public string Region { get; private set; }
     public string GarRepository { get; private set; }
-    public string CloudRunServiceName { get; private set; }
+    public string? CloudRunServiceName { get; private set; }
+
+    // Kubernetes target snapshot (set for KubernetesApply mappings).
+    public string? KubernetesContext { get; private set; }
+    public string? KubernetesNamespace { get; private set; }
+    public Mappings.KubernetesSpec? KubernetesSpec { get; private set; }
 
     public DeploymentTrigger Trigger { get; private set; }
     public string TriggeredBy { get; private set; }
@@ -35,6 +40,9 @@ public sealed class DeploymentRun : AggregateRoot<Guid>
 
     /// <summary>The Cloud Run revision that became ready.</summary>
     public string? CloudRunRevision { get; private set; }
+
+    /// <summary>The Kubernetes resource (e.g. <c>deployment/foo</c>) applied by the KubernetesApply step.</summary>
+    public string? KubernetesResource { get; private set; }
 
     public string? FailureReason { get; private set; }
     public DateTimeOffset RequestedAtUtc { get; private set; }
@@ -52,14 +60,14 @@ public sealed class DeploymentRun : AggregateRoot<Guid>
         GcpProject = string.Empty;
         Region = string.Empty;
         GarRepository = string.Empty;
-        CloudRunServiceName = string.Empty;
         TriggeredBy = string.Empty;
     }
 
     public DeploymentRun(
         Guid id, Guid mappingId, Guid serviceId, Guid environmentId,
         string serviceName, string containerName, string version, string sourceRef,
-        string gcpProject, string region, string garRepository, string cloudRunServiceName,
+        string gcpProject, string region, string garRepository, string? cloudRunServiceName,
+        string? kubernetesContext, string? kubernetesNamespace, Mappings.KubernetesSpec? kubernetesSpec,
         DeploymentTrigger trigger, string triggeredBy, DateTimeOffset requestedAtUtc)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
@@ -75,7 +83,10 @@ public sealed class DeploymentRun : AggregateRoot<Guid>
         GcpProject = gcpProject?.Trim() ?? string.Empty;
         Region = region?.Trim() ?? string.Empty;
         GarRepository = garRepository?.Trim() ?? string.Empty;
-        CloudRunServiceName = cloudRunServiceName?.Trim() ?? string.Empty;
+        CloudRunServiceName = string.IsNullOrWhiteSpace(cloudRunServiceName) ? null : cloudRunServiceName.Trim();
+        KubernetesContext = string.IsNullOrWhiteSpace(kubernetesContext) ? null : kubernetesContext.Trim();
+        KubernetesNamespace = string.IsNullOrWhiteSpace(kubernetesNamespace) ? null : kubernetesNamespace.Trim();
+        KubernetesSpec = kubernetesSpec;
         Trigger = trigger;
         TriggeredBy = string.IsNullOrWhiteSpace(triggeredBy) ? "system" : triggeredBy.Trim();
         Status = DeploymentRunStatus.Pending;
@@ -96,6 +107,7 @@ public sealed class DeploymentRun : AggregateRoot<Guid>
 
     public void SetRemoteImageRef(string remoteRef) => RemoteImageRef = remoteRef?.Trim();
     public void SetCloudRunRevision(string revision) => CloudRunRevision = revision?.Trim();
+    public void SetKubernetesResource(string resource) => KubernetesResource = resource?.Trim();
 
     public void Succeed(DateTimeOffset completedAtUtc)
     {
@@ -104,8 +116,8 @@ public sealed class DeploymentRun : AggregateRoot<Guid>
         CompletedAtUtc = completedAtUtc;
         RaiseEvent(new DeploymentRunSucceeded(
             Id, ServiceId, EnvironmentId, ServiceName, ContainerName, Version,
-            GcpProject, Region, CloudRunServiceName, RemoteImageRef ?? string.Empty,
-            CloudRunRevision ?? string.Empty, completedAtUtc));
+            GcpProject, Region, CloudRunServiceName ?? string.Empty, RemoteImageRef ?? string.Empty,
+            CloudRunRevision ?? KubernetesResource ?? string.Empty, completedAtUtc));
     }
 
     public void Fail(string reason, DateTimeOffset completedAtUtc, string? failedStep = null, string? category = null)

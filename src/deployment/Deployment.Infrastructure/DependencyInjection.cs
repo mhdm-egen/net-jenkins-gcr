@@ -19,6 +19,7 @@ using Deployment.Domain.Runs;
 using Deployment.Domain.Services;
 using Deployment.Infrastructure.Aspirate;
 using Deployment.Infrastructure.Gcp;
+using Deployment.Infrastructure.Kubernetes;
 using Deployment.Infrastructure.Nexus;
 using Deployment.Infrastructure.Messaging;
 using Deployment.Infrastructure.Persistence;
@@ -85,7 +86,13 @@ public static class DependencyInjection
         // executor collection directly).
         services.AddScoped<IDeploymentStepExecutor, GarPushStepExecutor>();
         services.AddScoped<IDeploymentStepExecutor, CloudRunDeployStepExecutor>();
+        services.AddScoped<IDeploymentStepExecutor, KubernetesApplyStepExecutor>();
         services.AddScoped<IStepExecutorRegistry, StepExecutorRegistry>();
+
+        // Kubernetes target: in-process KubernetesClient; cluster access via a kubeconfig + context.
+        services.AddOptions<KubernetesOptions>().Bind(configuration.GetSection(KubernetesOptions.SectionName));
+        services.AddSingleton<IKubeClientFactory, KubeClientFactory>();
+        services.AddSingleton<IKubernetesDeployer, KubernetesDeployer>();
 
         return services;
     }

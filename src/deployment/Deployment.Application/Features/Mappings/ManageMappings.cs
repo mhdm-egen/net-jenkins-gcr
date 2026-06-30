@@ -11,9 +11,16 @@ internal static class MappingConvert
 {
     public static IReadOnlyList<DeploymentStep>? ToDomain(this IReadOnlyList<DeploymentStepDto>? steps) =>
         steps?.Select(s => new DeploymentStep(s.Order, (DeploymentStepKind)(int)s.Kind, new Dictionary<string, string>())).ToList();
+
+    public static KubernetesSpec? ToDomain(this KubernetesSpecDto? k) =>
+        k is null ? null : new KubernetesSpec(k.DeploymentName, k.ContainerPort, k.Replicas,
+            k.EnvVars ?? new Dictionary<string, string>(), k.ImagePullSecret, k.CreateService);
+
+    public const string TargetMessage = "Provide a CloudRunServiceName (Cloud Run environment) or a Kubernetes spec (Kubernetes environment).";
+    public static bool HasTarget(string? cloudRun, KubernetesSpecDto? k) => !string.IsNullOrWhiteSpace(cloudRun) || k is not null;
 }
 
-public sealed record CreateMappingCommand(Guid ServiceId, Guid EnvironmentId, string CloudRunServiceName, bool AutoDeploy, IReadOnlyList<DeploymentStepDto>? Steps);
+public sealed record CreateMappingCommand(Guid ServiceId, Guid EnvironmentId, string? CloudRunServiceName, KubernetesSpecDto? Kubernetes, bool AutoDeploy, IReadOnlyList<DeploymentStepDto>? Steps);
 
 public sealed class CreateMappingValidator : AbstractValidator<CreateMappingCommand>
 {
@@ -21,7 +28,8 @@ public sealed class CreateMappingValidator : AbstractValidator<CreateMappingComm
     {
         RuleFor(x => x.ServiceId).NotEmpty();
         RuleFor(x => x.EnvironmentId).NotEmpty();
-        RuleFor(x => x.CloudRunServiceName).NotEmpty().MaximumLength(300);
+        RuleFor(x => x.CloudRunServiceName).MaximumLength(300);
+        RuleFor(x => x).Must(c => MappingConvert.HasTarget(c.CloudRunServiceName, c.Kubernetes)).WithMessage(MappingConvert.TargetMessage);
     }
 }
 
@@ -45,7 +53,7 @@ public sealed class CreateMappingHandler
             throw new InvalidOperationException("A mapping for this service + environment already exists.");
 
         var mapping = new DeploymentMapping(
-            Guid.NewGuid(), cmd.ServiceId, cmd.EnvironmentId, cmd.CloudRunServiceName,
+            Guid.NewGuid(), cmd.ServiceId, cmd.EnvironmentId, cmd.CloudRunServiceName, cmd.Kubernetes.ToDomain(),
             cmd.AutoDeploy, cmd.Steps.ToDomain(), _clock.GetUtcNow());
         await _mappings.AddAsync(mapping, ct).ConfigureAwait(false);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -53,14 +61,15 @@ public sealed class CreateMappingHandler
     }
 }
 
-public sealed record UpdateMappingCommand(Guid MappingId, string CloudRunServiceName, IReadOnlyList<DeploymentStepDto>? Steps);
+public sealed record UpdateMappingCommand(Guid MappingId, string? CloudRunServiceName, KubernetesSpecDto? Kubernetes, IReadOnlyList<DeploymentStepDto>? Steps);
 
 public sealed class UpdateMappingValidator : AbstractValidator<UpdateMappingCommand>
 {
     public UpdateMappingValidator()
     {
         RuleFor(x => x.MappingId).NotEmpty();
-        RuleFor(x => x.CloudRunServiceName).NotEmpty().MaximumLength(300);
+        RuleFor(x => x.CloudRunServiceName).MaximumLength(300);
+        RuleFor(x => x).Must(c => MappingConvert.HasTarget(c.CloudRunServiceName, c.Kubernetes)).WithMessage(MappingConvert.TargetMessage);
     }
 }
 
@@ -76,7 +85,7 @@ public sealed class UpdateMappingHandler
     {
         var mapping = await _mappings.GetByIdAsync(cmd.MappingId, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Mapping {cmd.MappingId} not found.");
-        mapping.Update(cmd.CloudRunServiceName, cmd.Steps.ToDomain(), _clock.GetUtcNow());
+        mapping.Update(cmd.CloudRunServiceName, cmd.Kubernetes.ToDomain(), cmd.Steps.ToDomain(), _clock.GetUtcNow());
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 }

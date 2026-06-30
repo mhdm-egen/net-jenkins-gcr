@@ -77,6 +77,9 @@ public sealed class RequestDeploymentHandler
             region: environment.Region,
             garRepository: environment.GarRepository,
             cloudRunServiceName: mapping.CloudRunServiceName,
+            kubernetesContext: environment.KubernetesContext,
+            kubernetesNamespace: environment.KubernetesNamespace,
+            kubernetesSpec: mapping.Kubernetes,
             trigger: cmd.Trigger,
             triggeredBy: cmd.TriggeredBy ?? (cmd.Trigger == DeploymentTrigger.Auto ? "auto" : "manual"),
             requestedAtUtc: _clock.GetUtcNow());

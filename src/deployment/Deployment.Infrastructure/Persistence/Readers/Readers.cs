@@ -85,7 +85,9 @@ internal sealed class EfMappingReader : IMappingReader
             .Select(m => new DeploymentMappingDto(
                 m.Id, m.ServiceId, svcNames.GetValueOrDefault(m.ServiceId, ""),
                 m.EnvironmentId, envNames.GetValueOrDefault(m.EnvironmentId, ""),
-                m.CloudRunServiceName, m.AutoDeploy,
+                m.CloudRunServiceName,
+                m.Kubernetes == null ? null : new KubernetesSpecDto(m.Kubernetes.DeploymentName, m.Kubernetes.ContainerPort, m.Kubernetes.Replicas, m.Kubernetes.EnvVars, m.Kubernetes.ImagePullSecret, m.Kubernetes.CreateService),
+                m.AutoDeploy,
                 m.Steps.Select(s => new DeploymentStepDto(s.Order, (DeploymentStepKindDto)(int)s.Kind)).ToList(),
                 m.CreatedAtUtc, m.UpdatedAtUtc))
             .ToList();
@@ -117,7 +119,7 @@ internal sealed class EfRunReader : IRunReader
         r.Id, r.MappingId, r.ServiceId, r.ServiceName, r.EnvironmentId, r.ContainerName, r.Version, r.SourceRef,
         r.GcpProject, r.Region, r.CloudRunServiceName,
         (DeploymentTriggerDto)(int)r.Trigger, r.TriggeredBy, (DeploymentRunStatusDto)(int)r.Status,
-        r.RemoteImageRef, r.CloudRunRevision, r.FailureReason,
+        r.RemoteImageRef, r.CloudRunRevision, r.KubernetesResource, r.FailureReason,
         r.Steps.Select(s => new RunStepResultDto(s.Order, s.Kind.ToString(), s.Status, s.Detail, s.FailureKind?.ToString())).ToList(),
         r.RequestedAtUtc, r.CompletedAtUtc);
 }

@@ -48,6 +48,9 @@ public sealed class DeploymentRunExecutor
             Region = run.Region,
             GarRepository = run.GarRepository,
             CloudRunServiceName = run.CloudRunServiceName,
+            KubernetesContext = run.KubernetesContext,
+            KubernetesNamespace = run.KubernetesNamespace,
+            Kubernetes = run.KubernetesSpec,
         };
 
         var failed = false;
@@ -100,6 +103,7 @@ public sealed class DeploymentRunExecutor
 
         if (ctx.RemoteImageRef is { Length: > 0 }) run.SetRemoteImageRef(ctx.RemoteImageRef);
         if (ctx.CloudRunRevision is { Length: > 0 }) run.SetCloudRunRevision(ctx.CloudRunRevision);
+        if (ctx.KubernetesResource is { Length: > 0 }) run.SetKubernetesResource(ctx.KubernetesResource);
 
         var now = clock.GetUtcNow();
         if (failed) run.Fail(failReason ?? "Deployment failed.", now, failedStep?.ToString(), failureKind?.ToString());

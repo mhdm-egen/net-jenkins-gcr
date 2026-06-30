@@ -4,9 +4,14 @@ public enum DeploymentStepKindDto
 {
     GarPush = 0,
     CloudRunDeploy = 1,
+    KubernetesApply = 2,
 }
 
 public sealed record DeploymentStepDto(int Order, DeploymentStepKindDto Kind);
+
+public sealed record KubernetesSpecDto(
+    string DeploymentName, int ContainerPort, int Replicas,
+    IReadOnlyDictionary<string, string>? EnvVars, string? ImagePullSecret, bool CreateService);
 
 public sealed record DeploymentMappingDto(
     Guid Id,
@@ -14,17 +19,18 @@ public sealed record DeploymentMappingDto(
     string ServiceName,
     Guid EnvironmentId,
     string EnvironmentName,
-    string CloudRunServiceName,
+    string? CloudRunServiceName,
+    KubernetesSpecDto? Kubernetes,
     bool AutoDeploy,
     IReadOnlyList<DeploymentStepDto> Steps,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
-/// <summary>Steps optional — when omitted the default GarPush→CloudRunDeploy recipe is used.</summary>
+/// <summary>Provide a CloudRunServiceName (Cloud Run env) or a Kubernetes spec (Kubernetes env). Steps optional — defaulted by target.</summary>
 public sealed record CreateMappingRequest(
-    Guid ServiceId, Guid EnvironmentId, string CloudRunServiceName, bool AutoDeploy, IReadOnlyList<DeploymentStepDto>? Steps);
+    Guid ServiceId, Guid EnvironmentId, string? CloudRunServiceName, KubernetesSpecDto? Kubernetes, bool AutoDeploy, IReadOnlyList<DeploymentStepDto>? Steps);
 
 public sealed record UpdateMappingRequest(
-    string CloudRunServiceName, IReadOnlyList<DeploymentStepDto>? Steps);
+    string? CloudRunServiceName, KubernetesSpecDto? Kubernetes, IReadOnlyList<DeploymentStepDto>? Steps);
 
 public sealed record SetAutoDeployRequest(bool AutoDeploy);
