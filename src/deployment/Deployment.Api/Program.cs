@@ -56,9 +56,10 @@ builder.Host.UseWolverine(opts =>
     if (!string.IsNullOrEmpty(connection))
         opts.PersistMessagesWithSqlServer(connection);
 
-    // Consume CI container-published facts; publish service-deployed facts.
+    // Consume CI container-published facts; publish service-deployed / -failed facts.
     opts.AddCicdMessaging(builder.Configuration, topology => topology
         .Publish<Cicd.IntegrationEvents.Deployment.ServiceDeployed>("deployment.events")
+        .Publish<Cicd.IntegrationEvents.Deployment.ServiceDeploymentFailed>("deployment.events")
         .Subscribe("ci.events", subscriber: "deployment"));
 });
 
