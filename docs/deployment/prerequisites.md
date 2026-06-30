@@ -23,24 +23,31 @@ Verify: `crane version`.
 The stack runs under .NET Aspire (`src/Aspire/Cicd.Aspire.Host`). The AppHost injects
 `Deployment__GoogleCloudRun__CraneExecutable` and (optionally) `DOCKER_CONFIG` into `deployment-api`
 from its **user-secrets** — this env var outranks `appsettings*.json`, so configure it here, not in
-appsettings:
+appsettings.
+
+`DockerConfigDir` is **a directory you create** that will hold crane's `config.json` — the file
+crane reads to get registry credentials (same format as `~/.docker/config.json`). You don't
+hand-write that file; the `crane auth login` / `gcloud auth configure-docker` commands in step 3
+populate it. Use a **dedicated, empty** dir rather than the default `~/.docker`, because the default
+config uses Docker Desktop's locked `desktop` credential store, which crane can't use for these
+registries. The name is arbitrary (`.cicd-docker` below is just an example). Leave `DockerConfigDir`
+unset to fall back to crane's default `~/.docker` config.
 
 ```powershell
-dotnet user-secrets --project src/Aspire/Cicd.Aspire.Host set Parameters:CraneExecutable "C:\path\to\crane.exe"
-dotnet user-secrets --project src/Aspire/Cicd.Aspire.Host set Parameters:DockerConfigDir "C:\path\to\cicd-docker"
-```
+# Create the (empty) dir that will hold crane's config.json — any path/name works.
+mkdir C:\Users\<you>\.cicd-docker
 
-`DockerConfigDir` is the directory holding the `config.json` that crane reads for registry auth. We
-use a dedicated dir because the default `~/.docker/config.json` uses Docker Desktop's locked
-`desktop` credential store, which crane can't use for these registries. Leave it unset to fall back
-to crane's default.
+dotnet user-secrets --project src/Aspire/Cicd.Aspire.Host set Parameters:CraneExecutable "C:\path\to\crane.exe"
+dotnet user-secrets --project src/Aspire/Cicd.Aspire.Host set Parameters:DockerConfigDir "C:\Users\<you>\.cicd-docker"
+```
 
 ## 3. Seed registry auth (into `DockerConfigDir`)
 
-Point `DOCKER_CONFIG` at the same dir for these one-time commands:
+Point `DOCKER_CONFIG` at that same dir so the commands below **write `config.json` into it** (these
+are one-time):
 
 ```powershell
-$env:DOCKER_CONFIG = "C:\path\to\cicd-docker"
+$env:DOCKER_CONFIG = "C:\Users\<you>\.cicd-docker"
 
 # Nexus (Docker) — for pulling the source image
 crane auth login <nexus-host:8082> -u <user> -p <password>
