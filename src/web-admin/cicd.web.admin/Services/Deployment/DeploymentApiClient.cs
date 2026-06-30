@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Deployment.Contracts.AspireApps;
 using Deployment.Contracts.Catalog;
 using Deployment.Contracts.Mappings;
 using Deployment.Contracts.Runs;
@@ -73,6 +74,22 @@ public sealed class DeploymentApiClient
         => await _http.GetFromJsonAsync<List<KnownContainerDto>>("api/deployment/containers", Json, ct).ConfigureAwait(false) ?? new();
     public Task<KnownContainerDto> AddKnownContainerAsync(AddKnownContainerRequest body, CancellationToken ct = default)
         => PostJsonAsync<AddKnownContainerRequest, KnownContainerDto>("api/deployment/containers", body, ct);
+
+    // ---- Aspire applications (Aspir8 → Kubernetes) ----
+    public async Task<IReadOnlyList<AspireApplicationDto>> ListAspireAppsAsync(CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<List<AspireApplicationDto>>("api/deployment/aspire-apps", Json, ct).ConfigureAwait(false) ?? new();
+    public Task<AspireApplicationDto> CreateAspireAppAsync(CreateAspireApplicationRequest body, CancellationToken ct = default)
+        => PostJsonAsync<CreateAspireApplicationRequest, AspireApplicationDto>("api/deployment/aspire-apps", body, ct);
+    public Task UpdateAspireAppAsync(Guid id, UpdateAspireApplicationRequest body, CancellationToken ct = default)
+        => PutJsonAsync($"api/deployment/aspire-apps/{id}", body, ct);
+    public Task DeleteAspireAppAsync(Guid id, CancellationToken ct = default) => DeleteAsync($"api/deployment/aspire-apps/{id}", ct);
+    public Task<DeployResponse> DeployAspireAppAsync(Guid id, TriggerAspireDeploymentRequest body, CancellationToken ct = default)
+        => PostJsonAsync<TriggerAspireDeploymentRequest, DeployResponse>($"api/deployment/aspire-apps/{id}/deploy", body, ct);
+    public async Task<IReadOnlyList<AspireApplicationRunDto>> ListAspireRunsAsync(Guid? applicationId = null, CancellationToken ct = default)
+    {
+        var url = applicationId is { } a ? $"api/deployment/aspire-runs?applicationId={a}" : "api/deployment/aspire-runs";
+        return await _http.GetFromJsonAsync<List<AspireApplicationRunDto>>(url, Json, ct).ConfigureAwait(false) ?? new();
+    }
 
     // ---- Plumbing ----
     private async Task PostAsync(string url, CancellationToken ct)

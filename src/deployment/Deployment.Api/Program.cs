@@ -49,6 +49,10 @@ builder.Host.UseWolverine(opts =>
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.Runs.RequestDeploymentHandler>();
     // The completion notifier wraps IHubContext, which the generated handler can't construct inline.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<IDeploymentRunNotifier>();
+    // Aspire-app deploy: the run executor resolves these internal/Infrastructure types — same codegen
+    // constraint as above, or the AspireApplicationRunRequested handler leaves runs stuck Pending.
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.AspireApps.Runs.IAspireApplicationRunRepository>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<IAspirateRunner>();
 
     opts.UseEntityFrameworkCoreTransactions();
 
@@ -90,6 +94,8 @@ app.MapServiceEndpoints();
 app.MapEnvironmentEndpoints();
 app.MapMappingEndpoints();
 app.MapRunEndpoints();
+app.MapAspireAppEndpoints();
+app.MapAspireRunEndpoints();
 app.MapHub<DeploymentRunHub>("/hubs/deployment-runs");
 
 app.Run();

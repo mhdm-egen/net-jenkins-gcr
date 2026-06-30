@@ -3,17 +3,21 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Deployment.Application.Abstractions;
+using Deployment.Application.Features.AspireApps;
 using Deployment.Application.Features.Containers;
 using Deployment.Application.Features.Environments;
 using Deployment.Application.Features.Mappings;
 using Deployment.Application.Features.Runs;
 using Deployment.Application.Features.Services;
 using Deployment.Domain.Abstractions;
+using Deployment.Domain.AspireApps;
+using Deployment.Domain.AspireApps.Runs;
 using Deployment.Domain.Containers;
 using Deployment.Domain.Environments;
 using Deployment.Domain.Mappings;
 using Deployment.Domain.Runs;
 using Deployment.Domain.Services;
+using Deployment.Infrastructure.Aspirate;
 using Deployment.Infrastructure.Gcp;
 using Deployment.Infrastructure.Messaging;
 using Deployment.Infrastructure.Persistence;
@@ -41,6 +45,8 @@ public static class DependencyInjection
         services.AddScoped<IDeploymentMappingRepository, DeploymentMappingRepository>();
         services.AddScoped<IKnownContainerRepository, KnownContainerRepository>();
         services.AddScoped<IDeploymentRunRepository, DeploymentRunRepository>();
+        services.AddScoped<IAspireApplicationRepository, AspireApplicationRepository>();
+        services.AddScoped<IAspireApplicationRunRepository, AspireApplicationRunRepository>();
 
         // Readers
         services.AddScoped<IServiceReader, EfServiceReader>();
@@ -48,6 +54,8 @@ public static class DependencyInjection
         services.AddScoped<IMappingReader, EfMappingReader>();
         services.AddScoped<IRunReader, EfRunReader>();
         services.AddScoped<IKnownContainerReader, EfKnownContainerReader>();
+        services.AddScoped<IAspireApplicationReader, EfAspireApplicationReader>();
+        services.AddScoped<IAspireApplicationRunReader, EfAspireApplicationRunReader>();
 
         // GCP adapters (ADC). Crane for Nexus→GAR, Cloud Run admin client for deploy.
         // ValidateOnStart fails the host immediately on a missing crane / bad timeouts, instead of
@@ -58,6 +66,13 @@ public static class DependencyInjection
             .ValidateOnStart();
         services.AddSingleton<IArtifactPromoter, CraneArtifactPromoter>();
         services.AddSingleton<ICloudRunDeployer, GoogleCloudRunDeployer>();
+
+        // Aspir8 (aspirate) CLI shell-out for whole-Aspire-app deploys to Kubernetes.
+        services.AddSingleton<IValidateOptions<AspireOptions>, AspireOptionsValidator>();
+        services.AddOptions<AspireOptions>()
+            .Bind(configuration.GetSection(AspireOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IAspirateRunner, AspirateRunner>();
 
         // Pluggable step executors — one per DeploymentStepKind — fronted by a registry the run
         // handler resolves by kind (see IStepExecutorRegistry for why the handler can't inject the

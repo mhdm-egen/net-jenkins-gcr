@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
+using Deployment.Application.Features.AspireApps;
 using Deployment.Application.Features.Containers;
 using Deployment.Application.Features.Environments;
 using Deployment.Application.Features.Mappings;
@@ -47,6 +48,16 @@ public static class DependencyInjection
         services.AddScoped<GetRunByIdHandler>();
         services.AddScoped<ListKnownContainersHandler>();
         services.AddScoped<AddKnownContainerHandler>();
+
+        // Aspire applications (Aspir8 → Kubernetes)
+        services.AddScoped<CreateAspireApplicationHandler>();
+        services.AddScoped<UpdateAspireApplicationHandler>();
+        services.AddScoped<DeleteAspireApplicationHandler>();
+        services.AddScoped<ListAspireApplicationsHandler>();
+        services.AddScoped<GetAspireApplicationByIdHandler>();
+        services.AddScoped<RequestAspireDeploymentHandler>();
+        services.AddScoped<ListAspireRunsHandler>();
+        services.AddScoped<GetAspireRunByIdHandler>();
 
         return services;
     }

@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Deployment.Domain.AspireApps;
+using Deployment.Domain.AspireApps.Runs;
 using Deployment.Domain.Containers;
 using Deployment.Domain.Environments;
 using Deployment.Domain.Mappings;
@@ -16,6 +18,8 @@ public sealed class DeploymentDbContext : DbContext
     public DbSet<DeploymentMapping> Mappings => Set<DeploymentMapping>();
     public DbSet<KnownContainer> KnownContainers => Set<KnownContainer>();
     public DbSet<DeploymentRun> Runs => Set<DeploymentRun>();
+    public DbSet<AspireApplication> AspireApplications => Set<AspireApplication>();
+    public DbSet<AspireApplicationRun> AspireApplicationRuns => Set<AspireApplicationRun>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Deployment.Domain.Abstractions;
+using Deployment.Domain.AspireApps;
+using Deployment.Domain.AspireApps.Runs;
 using Deployment.Domain.Common;
 using Deployment.Domain.Containers;
 using Deployment.Domain.Environments;
@@ -63,4 +65,16 @@ internal sealed class KnownContainerRepository : EfRepository<KnownContainer, Gu
 internal sealed class DeploymentRunRepository : EfRepository<DeploymentRun, Guid>, IDeploymentRunRepository
 {
     public DeploymentRunRepository(DeploymentDbContext db) : base(db) { }
+}
+
+internal sealed class AspireApplicationRepository : EfRepository<AspireApplication, Guid>, IAspireApplicationRepository
+{
+    public AspireApplicationRepository(DeploymentDbContext db) : base(db) { }
+    public Task<AspireApplication?> FindByNameAsync(string name, CancellationToken ct = default)
+    { var n = name.Trim(); return Set.FirstOrDefaultAsync(a => a.Name == n, ct); }
+}
+
+internal sealed class AspireApplicationRunRepository : EfRepository<AspireApplicationRun, Guid>, IAspireApplicationRunRepository
+{
+    public AspireApplicationRunRepository(DeploymentDbContext db) : base(db) { }
 }

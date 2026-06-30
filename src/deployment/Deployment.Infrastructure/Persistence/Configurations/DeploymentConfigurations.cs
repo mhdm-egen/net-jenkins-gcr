@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Deployment.Domain.AspireApps;
+using Deployment.Domain.AspireApps.Runs;
 using Deployment.Domain.Containers;
 using Deployment.Domain.Environments;
 using Deployment.Domain.Mappings;
@@ -133,6 +135,48 @@ public sealed class RunConfiguration : IEntityTypeConfiguration<DeploymentRun>
 
         b.HasIndex(r => r.ServiceId);
         b.HasIndex(r => r.MappingId);
+        b.HasIndex(r => r.Status);
+    }
+}
+
+public sealed class AspireApplicationConfiguration : IEntityTypeConfiguration<AspireApplication>
+{
+    public void Configure(EntityTypeBuilder<AspireApplication> b)
+    {
+        b.ToTable("AspireApplication");
+        b.HasKey(a => a.Id);
+        b.Property(a => a.Id).ValueGeneratedNever();
+        b.Property(a => a.Name).HasMaxLength(200).IsRequired();
+        b.Property(a => a.Description).HasMaxLength(1000);
+        b.Property(a => a.AppHostPath).HasMaxLength(1000).IsRequired();
+        b.Property(a => a.KubeContext).HasMaxLength(200).IsRequired();
+        b.Property(a => a.Namespace).HasMaxLength(200).IsRequired();
+        b.Property(a => a.IsActive).IsRequired();
+        b.Property(a => a.CreatedAtUtc).IsRequired();
+        b.Property(a => a.UpdatedAtUtc).IsRequired();
+        b.HasIndex(a => a.Name).IsUnique();
+    }
+}
+
+public sealed class AspireApplicationRunConfiguration : IEntityTypeConfiguration<AspireApplicationRun>
+{
+    public void Configure(EntityTypeBuilder<AspireApplicationRun> b)
+    {
+        b.ToTable("AspireApplicationRun");
+        b.HasKey(r => r.Id);
+        b.Property(r => r.Id).ValueGeneratedNever();
+        b.Property(r => r.ApplicationId).IsRequired();
+        b.Property(r => r.ApplicationName).HasMaxLength(200).IsRequired();
+        b.Property(r => r.AppHostPath).HasMaxLength(1000).IsRequired();
+        b.Property(r => r.KubeContext).HasMaxLength(200).IsRequired();
+        b.Property(r => r.Namespace).HasMaxLength(200).IsRequired();
+        b.Property(r => r.Status).HasConversion<int>().IsRequired();
+        b.Property(r => r.TriggeredBy).HasMaxLength(200).IsRequired();
+        b.Property(r => r.Log).HasColumnType("nvarchar(max)");
+        b.Property(r => r.FailureReason).HasMaxLength(2000);
+        b.Property(r => r.RequestedAtUtc).IsRequired();
+        b.Property(r => r.CompletedAtUtc);
+        b.HasIndex(r => r.ApplicationId);
         b.HasIndex(r => r.Status);
     }
 }

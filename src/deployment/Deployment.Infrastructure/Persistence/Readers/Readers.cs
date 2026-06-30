@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Deployment.Application.Features.AspireApps;
 using Deployment.Application.Features.Containers;
 using Deployment.Application.Features.Environments;
 using Deployment.Application.Features.Mappings;
 using Deployment.Application.Features.Runs;
 using Deployment.Application.Features.Services;
+using Deployment.Contracts.AspireApps;
 using Deployment.Contracts.Catalog;
 using Deployment.Contracts.Mappings;
 using Deployment.Contracts.Runs;
@@ -118,4 +120,38 @@ internal sealed class EfRunReader : IRunReader
         r.RemoteImageRef, r.CloudRunRevision, r.FailureReason,
         r.Steps.Select(s => new RunStepResultDto(s.Order, s.Kind.ToString(), s.Status, s.Detail, s.FailureKind?.ToString())).ToList(),
         r.RequestedAtUtc, r.CompletedAtUtc);
+}
+
+internal sealed class EfAspireApplicationReader : IAspireApplicationReader
+{
+    private readonly DeploymentDbContext _db;
+    public EfAspireApplicationReader(DeploymentDbContext db) => _db = db;
+    public async Task<IReadOnlyList<AspireApplicationDto>> ListAsync(CancellationToken ct = default)
+        => await _db.AspireApplications.AsNoTracking().OrderBy(a => a.Name)
+            .Select(a => new AspireApplicationDto(a.Id, a.Name, a.Description, a.AppHostPath, a.KubeContext, a.Namespace, a.IsActive, a.CreatedAtUtc, a.UpdatedAtUtc))
+            .ToListAsync(ct).ConfigureAwait(false);
+    public async Task<AspireApplicationDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        => await _db.AspireApplications.AsNoTracking().Where(a => a.Id == id)
+            .Select(a => new AspireApplicationDto(a.Id, a.Name, a.Description, a.AppHostPath, a.KubeContext, a.Namespace, a.IsActive, a.CreatedAtUtc, a.UpdatedAtUtc))
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+}
+
+internal sealed class EfAspireApplicationRunReader : IAspireApplicationRunReader
+{
+    private readonly DeploymentDbContext _db;
+    public EfAspireApplicationRunReader(DeploymentDbContext db) => _db = db;
+    public async Task<IReadOnlyList<AspireApplicationRunDto>> ListAsync(Guid? applicationId = null, CancellationToken ct = default)
+        => await _db.AspireApplicationRuns.AsNoTracking()
+            .Where(r => !applicationId.HasValue || r.ApplicationId == applicationId.Value)
+            .OrderByDescending(r => r.RequestedAtUtc)
+            .Select(r => new AspireApplicationRunDto(
+                r.Id, r.ApplicationId, r.ApplicationName, r.KubeContext, r.Namespace,
+                (AspireRunStatusDto)(int)r.Status, r.TriggeredBy, r.Log, r.FailureReason, r.RequestedAtUtc, r.CompletedAtUtc))
+            .ToListAsync(ct).ConfigureAwait(false);
+    public async Task<AspireApplicationRunDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        => await _db.AspireApplicationRuns.AsNoTracking().Where(r => r.Id == id)
+            .Select(r => new AspireApplicationRunDto(
+                r.Id, r.ApplicationId, r.ApplicationName, r.KubeContext, r.Namespace,
+                (AspireRunStatusDto)(int)r.Status, r.TriggeredBy, r.Log, r.FailureReason, r.RequestedAtUtc, r.CompletedAtUtc))
+            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
 }
