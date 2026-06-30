@@ -74,13 +74,23 @@ var craneExecutable = NexusParam("CraneExecutable", "crane");
 //   dotnet user-secrets set Parameters:DockerConfigDir <dir-containing-config.json>
 var dockerConfigDir = NexusParam("DockerConfigDir", "");
 
+// Aspir8 (aspirate) deploys a whole Aspire app to Kubernetes. Executable defaults to "aspirate" on
+// PATH (dotnet tool install -g Aspirate). PullRegistry is the registry the CLUSTER pulls from — set it
+// when the build/push host isn't node-reachable (local: host.docker.internal:8082 vs localhost:8082);
+// empty deploys the manifests as generated. Override via the AppHost's user-secrets:
+//   dotnet user-secrets set Parameters:AspiratePullRegistry host.docker.internal:8082
+var aspirateExecutable = NexusParam("AspirateExecutable", "aspirate");
+var aspiratePullRegistry = NexusParam("AspiratePullRegistry", "");
+
 var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithReference(deploymentDb)
     .WaitFor(sql)
     .WithReference(rabbit)
     .WaitFor(rabbit)
     .WithEnvironment("Database__AutoMigrate", "true")
-    .WithEnvironment("Deployment__GoogleCloudRun__CraneExecutable", craneExecutable);
+    .WithEnvironment("Deployment__GoogleCloudRun__CraneExecutable", craneExecutable)
+    .WithEnvironment("Deployment__Aspirate__Executable", aspirateExecutable)
+    .WithEnvironment("Deployment__Aspirate__PullRegistry", aspiratePullRegistry);
 
 if (dockerConfigDir.Length > 0)
     deployment = deployment.WithEnvironment("DOCKER_CONFIG", dockerConfigDir);

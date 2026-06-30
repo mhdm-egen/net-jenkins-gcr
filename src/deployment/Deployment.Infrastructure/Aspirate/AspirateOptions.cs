@@ -15,6 +15,15 @@ public sealed class AspireOptions
     /// <summary>Image pull policy written into the generated manifests.</summary>
     public string ImagePullPolicy { get; set; } = "IfNotPresent";
 
+    /// <summary>
+    /// Registry host the CLUSTER pulls from (e.g. <c>host.docker.internal:8082</c> for a local cluster
+    /// reaching the host's Nexus). When set, the runner rewrites the build registry host baked into the
+    /// generated manifests to this, via a Kustomize <c>images:</c> override — so the node can resolve the
+    /// images even when the build/push host (e.g. <c>localhost:8082</c>) is not node-reachable. Empty =
+    /// deploy the manifests as generated.
+    /// </summary>
+    public string PullRegistry { get; set; } = string.Empty;
+
     /// <summary>How long <c>aspirate generate</c> may run (builds the Aspire manifest).</summary>
     public int GenerateTimeoutSeconds { get; set; } = 600;
 

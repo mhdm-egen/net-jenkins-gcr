@@ -55,6 +55,12 @@ internal sealed partial class AspirateRunner : IAspirateRunner
         if (generate != 0)
             return new AspirateDeployResult(false, log.ToString(), $"aspirate generate exited {generate}: {Summarize(log)}");
 
+        // 1b) Rewrite the build registry host to a node-reachable pull registry, if configured. aspirate
+        // bakes the build/push registry (e.g. localhost:8082) into the manifests, which a cluster node
+        // can't resolve; a Kustomize images: override repoints them (e.g. host.docker.internal:8082).
+        if (!string.IsNullOrWhiteSpace(opts.PullRegistry))
+            RewriteImageHost(outputPath, opts.PullRegistry.Trim(), log);
+
         // 2) apply → deploy the manifests to the target kube context.
         var apply = await RunAsync(exe, new[]
         {
@@ -116,6 +122,49 @@ internal sealed partial class AspirateRunner : IAspirateRunner
         if (stderr.Length > 0) log.AppendLine(stderr.TrimEnd());
         return process.ExitCode;
     }
+
+    /// <summary>
+    /// Appends a Kustomize <c>images:</c> override to the generated root kustomization that repoints every
+    /// image's registry host to <paramref name="pullRegistry"/> (preserving repo + tag/digest). No-op if the
+    /// kustomization already declares overrides. This is the registry-host half of the provenance story;
+    /// digest-pinning from the container inventory is a further refinement.
+    /// </summary>
+    private static void RewriteImageHost(string outputPath, string pullRegistry, StringBuilder log)
+    {
+        var kustomization = Path.Combine(outputPath, "kustomization.yaml");
+        if (!File.Exists(kustomization)) return;
+        var existing = File.ReadAllText(kustomization);
+        if (existing.Contains("\nimages:", StringComparison.Ordinal)) return; // don't double-apply
+
+        var overrides = new Dictionary<string, string>(StringComparer.Ordinal); // name (host/repo) -> newName
+        foreach (var dep in Directory.GetFiles(outputPath, "deployment.yaml", SearchOption.AllDirectories))
+        {
+            foreach (Match m in ImageLine().Matches(File.ReadAllText(dep)))
+            {
+                var refStr = m.Groups[1].Value.Trim();
+                var slash = refStr.IndexOf('/');
+                if (slash <= 0) continue;
+                var host = refStr[..slash];
+                if (!host.Contains(':') && !host.Contains('.')) continue;          // not a registry host (e.g. library/x)
+                if (string.Equals(host, pullRegistry, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var repo = refStr[(slash + 1)..];
+                var at = repo.IndexOf('@'); if (at >= 0) repo = repo[..at];        // strip @digest
+                var colon = repo.IndexOf(':'); if (colon >= 0) repo = repo[..colon]; // strip :tag
+                overrides[$"{host}/{repo}"] = $"{pullRegistry}/{repo}";
+            }
+        }
+        if (overrides.Count == 0) return;
+
+        var sb = new StringBuilder(existing.TrimEnd()).AppendLine().AppendLine().AppendLine("images:");
+        foreach (var kv in overrides)
+            sb.AppendLine($"- name: {kv.Key}").AppendLine($"  newName: {kv.Value}");
+        File.WriteAllText(kustomization, sb.ToString());
+        log.AppendLine($"(rewrote image registry host -> {pullRegistry} for {overrides.Count} image(s))");
+    }
+
+    [GeneratedRegex(@"^\s*image:\s*(\S+)\s*$", RegexOptions.Multiline)]
+    private static partial Regex ImageLine();
 
     /// <summary>A concise one-liner for the failure reason: the first error-ish line, else the last non-empty line.</summary>
     private static string Summarize(StringBuilder log)
