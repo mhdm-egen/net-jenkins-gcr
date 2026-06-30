@@ -55,7 +55,7 @@ public static class CatalogEndpoints
 
         g.MapPost("", async (CreateEnvironmentRequest body, CreateEnvironmentHandler h, IValidator<CreateEnvironmentCommand> v, CancellationToken ct) =>
         {
-            var cmd = new CreateEnvironmentCommand(body.Name, body.GcpProject, body.Region, body.GarRepository);
+            var cmd = new CreateEnvironmentCommand(body.Name, body.GcpProject, body.Region, body.GarRepository, body.KubernetesContext, body.KubernetesNamespace);
             return await EndpointHelpers.ValidateAndRun(v, cmd, ct, async () =>
             {
                 var dto = await h.HandleAsync(cmd, ct);
@@ -65,7 +65,7 @@ public static class CatalogEndpoints
 
         g.MapPut("{id:guid}", async (Guid id, UpdateEnvironmentRequest body, UpdateEnvironmentHandler h, IValidator<UpdateEnvironmentCommand> v, CancellationToken ct) =>
         {
-            var cmd = new UpdateEnvironmentCommand(id, body.Name, body.GcpProject, body.Region, body.GarRepository);
+            var cmd = new UpdateEnvironmentCommand(id, body.Name, body.GcpProject, body.Region, body.GarRepository, body.KubernetesContext, body.KubernetesNamespace);
             return await EndpointHelpers.ValidateAndRun(v, cmd, ct, async () => { await h.HandleAsync(cmd, ct); return Results.NoContent(); });
         });
 

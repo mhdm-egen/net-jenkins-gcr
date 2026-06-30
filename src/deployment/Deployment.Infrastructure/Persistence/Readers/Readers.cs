@@ -32,11 +32,11 @@ internal sealed class EfEnvironmentReader : IEnvironmentReader
     public EfEnvironmentReader(DeploymentDbContext db) => _db = db;
     public async Task<IReadOnlyList<EnvironmentDto>> ListAsync(CancellationToken ct = default)
         => await _db.Environments.AsNoTracking().OrderBy(e => e.Name)
-            .Select(e => new EnvironmentDto(e.Id, e.Name, e.GcpProject, e.Region, e.GarRepository, e.IsActive, e.CreatedAtUtc, e.UpdatedAtUtc))
+            .Select(e => new EnvironmentDto(e.Id, e.Name, e.GcpProject, e.Region, e.GarRepository, e.KubernetesContext, e.KubernetesNamespace, e.IsActive, e.CreatedAtUtc, e.UpdatedAtUtc))
             .ToListAsync(ct).ConfigureAwait(false);
     public async Task<EnvironmentDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => await _db.Environments.AsNoTracking().Where(e => e.Id == id)
-            .Select(e => new EnvironmentDto(e.Id, e.Name, e.GcpProject, e.Region, e.GarRepository, e.IsActive, e.CreatedAtUtc, e.UpdatedAtUtc))
+            .Select(e => new EnvironmentDto(e.Id, e.Name, e.GcpProject, e.Region, e.GarRepository, e.KubernetesContext, e.KubernetesNamespace, e.IsActive, e.CreatedAtUtc, e.UpdatedAtUtc))
             .FirstOrDefaultAsync(ct).ConfigureAwait(false);
 }
 
@@ -126,32 +126,41 @@ internal sealed class EfAspireApplicationReader : IAspireApplicationReader
 {
     private readonly DeploymentDbContext _db;
     public EfAspireApplicationReader(DeploymentDbContext db) => _db = db;
+
+    private IQueryable<AspireApplicationDto> Query() =>
+        from a in _db.AspireApplications.AsNoTracking()
+        join e in _db.Environments.AsNoTracking() on a.EnvironmentId equals e.Id into ej
+        from e in ej.DefaultIfEmpty()
+        select new AspireApplicationDto(
+            a.Id, a.Name, a.Description, a.EnvironmentId, e != null ? e.Name : "", a.ManifestSource, a.Version,
+            a.IsActive, a.CreatedAtUtc, a.UpdatedAtUtc);
+
     public async Task<IReadOnlyList<AspireApplicationDto>> ListAsync(CancellationToken ct = default)
-        => await _db.AspireApplications.AsNoTracking().OrderBy(a => a.Name)
-            .Select(a => new AspireApplicationDto(a.Id, a.Name, a.Description, a.AppHostPath, a.KubeContext, a.Namespace, a.IsActive, a.CreatedAtUtc, a.UpdatedAtUtc))
-            .ToListAsync(ct).ConfigureAwait(false);
+        => await Query().OrderBy(a => a.Name).ToListAsync(ct).ConfigureAwait(false);
     public async Task<AspireApplicationDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
-        => await _db.AspireApplications.AsNoTracking().Where(a => a.Id == id)
-            .Select(a => new AspireApplicationDto(a.Id, a.Name, a.Description, a.AppHostPath, a.KubeContext, a.Namespace, a.IsActive, a.CreatedAtUtc, a.UpdatedAtUtc))
-            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        => await Query().Where(a => a.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
 }
 
 internal sealed class EfAspireApplicationRunReader : IAspireApplicationRunReader
 {
     private readonly DeploymentDbContext _db;
     public EfAspireApplicationRunReader(DeploymentDbContext db) => _db = db;
+
+    private static AspireApplicationRunDto ToDto(Domain.AspireApps.Runs.AspireApplicationRun r) => new(
+        r.Id, r.ApplicationId, r.ApplicationName, r.EnvironmentName, r.KubeContext, r.Namespace, r.ManifestSource, r.Version,
+        (AspireRunStatusDto)(int)r.Status, r.TriggeredBy, r.Log, r.FailureReason, r.RequestedAtUtc, r.CompletedAtUtc);
+
     public async Task<IReadOnlyList<AspireApplicationRunDto>> ListAsync(Guid? applicationId = null, CancellationToken ct = default)
-        => await _db.AspireApplicationRuns.AsNoTracking()
+    {
+        var runs = await _db.AspireApplicationRuns.AsNoTracking()
             .Where(r => !applicationId.HasValue || r.ApplicationId == applicationId.Value)
             .OrderByDescending(r => r.RequestedAtUtc)
-            .Select(r => new AspireApplicationRunDto(
-                r.Id, r.ApplicationId, r.ApplicationName, r.KubeContext, r.Namespace,
-                (AspireRunStatusDto)(int)r.Status, r.TriggeredBy, r.Log, r.FailureReason, r.RequestedAtUtc, r.CompletedAtUtc))
             .ToListAsync(ct).ConfigureAwait(false);
+        return runs.Select(ToDto).ToList();
+    }
     public async Task<AspireApplicationRunDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
-        => await _db.AspireApplicationRuns.AsNoTracking().Where(r => r.Id == id)
-            .Select(r => new AspireApplicationRunDto(
-                r.Id, r.ApplicationId, r.ApplicationName, r.KubeContext, r.Namespace,
-                (AspireRunStatusDto)(int)r.Status, r.TriggeredBy, r.Log, r.FailureReason, r.RequestedAtUtc, r.CompletedAtUtc))
-            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
+    {
+        var r = await _db.AspireApplicationRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
+        return r is null ? null : ToDto(r);
+    }
 }

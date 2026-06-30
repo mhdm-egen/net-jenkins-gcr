@@ -9,19 +9,33 @@ namespace Deployment.Application.Features.Environments;
 internal static class EnvironmentMapping
 {
     public static EnvironmentDto ToDto(this DeploymentEnvironment e) =>
-        new(e.Id, e.Name, e.GcpProject, e.Region, e.GarRepository, e.IsActive, e.CreatedAtUtc, e.UpdatedAtUtc);
+        new(e.Id, e.Name, e.GcpProject, e.Region, e.GarRepository, e.KubernetesContext, e.KubernetesNamespace,
+            e.IsActive, e.CreatedAtUtc, e.UpdatedAtUtc);
 }
 
-public sealed record CreateEnvironmentCommand(string Name, string GcpProject, string Region, string GarRepository);
+public sealed record CreateEnvironmentCommand(
+    string Name, string? GcpProject, string? Region, string? GarRepository, string? KubernetesContext, string? KubernetesNamespace);
+
+/// <summary>An environment must describe at least one target: Cloud Run (GCP project + region) or Kubernetes (context + namespace).</summary>
+internal static class EnvironmentRules
+{
+    public static bool HasCloudRun(string? project, string? region) => !string.IsNullOrWhiteSpace(project) && !string.IsNullOrWhiteSpace(region);
+    public static bool HasKubernetes(string? ctx, string? ns) => !string.IsNullOrWhiteSpace(ctx) && !string.IsNullOrWhiteSpace(ns);
+    public const string TargetMessage = "Specify a Cloud Run target (GcpProject + Region) and/or a Kubernetes target (KubernetesContext + KubernetesNamespace).";
+}
 
 public sealed class CreateEnvironmentValidator : AbstractValidator<CreateEnvironmentCommand>
 {
     public CreateEnvironmentValidator()
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.GcpProject).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.Region).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.GcpProject).MaximumLength(200);
+        RuleFor(x => x.Region).MaximumLength(100);
         RuleFor(x => x.GarRepository).MaximumLength(200);
+        RuleFor(x => x.KubernetesContext).MaximumLength(200);
+        RuleFor(x => x.KubernetesNamespace).MaximumLength(200);
+        RuleFor(x => x).Must(c => EnvironmentRules.HasCloudRun(c.GcpProject, c.Region) || EnvironmentRules.HasKubernetes(c.KubernetesContext, c.KubernetesNamespace))
+            .WithMessage(EnvironmentRules.TargetMessage);
     }
 }
 
@@ -37,14 +51,16 @@ public sealed class CreateEnvironmentHandler
     {
         if (await _envs.FindByNameAsync(cmd.Name, ct).ConfigureAwait(false) is not null)
             throw new InvalidOperationException($"An environment named '{cmd.Name}' already exists.");
-        var env = new DeploymentEnvironment(Guid.NewGuid(), cmd.Name, cmd.GcpProject, cmd.Region, cmd.GarRepository, _clock.GetUtcNow());
+        var env = new DeploymentEnvironment(Guid.NewGuid(), cmd.Name, cmd.GcpProject, cmd.Region, cmd.GarRepository,
+            cmd.KubernetesContext, cmd.KubernetesNamespace, _clock.GetUtcNow());
         await _envs.AddAsync(env, ct).ConfigureAwait(false);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
         return env.ToDto();
     }
 }
 
-public sealed record UpdateEnvironmentCommand(Guid EnvironmentId, string Name, string GcpProject, string Region, string GarRepository);
+public sealed record UpdateEnvironmentCommand(
+    Guid EnvironmentId, string Name, string? GcpProject, string? Region, string? GarRepository, string? KubernetesContext, string? KubernetesNamespace);
 
 public sealed class UpdateEnvironmentValidator : AbstractValidator<UpdateEnvironmentCommand>
 {
@@ -52,8 +68,12 @@ public sealed class UpdateEnvironmentValidator : AbstractValidator<UpdateEnviron
     {
         RuleFor(x => x.EnvironmentId).NotEmpty();
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.GcpProject).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.Region).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.GcpProject).MaximumLength(200);
+        RuleFor(x => x.Region).MaximumLength(100);
+        RuleFor(x => x.KubernetesContext).MaximumLength(200);
+        RuleFor(x => x.KubernetesNamespace).MaximumLength(200);
+        RuleFor(x => x).Must(c => EnvironmentRules.HasCloudRun(c.GcpProject, c.Region) || EnvironmentRules.HasKubernetes(c.KubernetesContext, c.KubernetesNamespace))
+            .WithMessage(EnvironmentRules.TargetMessage);
     }
 }
 
@@ -69,7 +89,7 @@ public sealed class UpdateEnvironmentHandler
     {
         var env = await _envs.GetByIdAsync(cmd.EnvironmentId, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Environment {cmd.EnvironmentId} not found.");
-        env.Update(cmd.Name, cmd.GcpProject, cmd.Region, cmd.GarRepository, _clock.GetUtcNow());
+        env.Update(cmd.Name, cmd.GcpProject, cmd.Region, cmd.GarRepository, cmd.KubernetesContext, cmd.KubernetesNamespace, _clock.GetUtcNow());
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
     }
 }

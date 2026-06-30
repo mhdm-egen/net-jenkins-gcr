@@ -81,6 +81,8 @@ var dockerConfigDir = NexusParam("DockerConfigDir", "");
 //   dotnet user-secrets set Parameters:AspiratePullRegistry host.docker.internal:8082
 var aspirateExecutable = NexusParam("AspirateExecutable", "aspirate");
 var aspiratePullRegistry = NexusParam("AspiratePullRegistry", "");
+// Optional kubeconfig for non-default/remote clusters; empty => the service's default ~/.kube/config.
+var aspirateKubeconfig = NexusParam("AspirateKubeconfig", "");
 
 // Nexus docker-v2 endpoint the deployment SERVICE can reach (e.g. http://localhost:8082) to resolve
 // image digests for provenance-pinning Aspire deploys. Empty => digest-pinning disabled (floating tag).
@@ -97,6 +99,7 @@ var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithEnvironment("Deployment__GoogleCloudRun__CraneExecutable", craneExecutable)
     .WithEnvironment("Deployment__Aspirate__Executable", aspirateExecutable)
     .WithEnvironment("Deployment__Aspirate__PullRegistry", aspiratePullRegistry)
+    .WithEnvironment("Deployment__Aspirate__Kubeconfig", aspirateKubeconfig)
     .WithEnvironment("Deployment__Nexus__RegistryV2Url", nexusRegistryV2Url)
     .WithEnvironment("Deployment__Nexus__Username", nexusUsername)
     .WithEnvironment("Deployment__Nexus__Password", nexusPassword);

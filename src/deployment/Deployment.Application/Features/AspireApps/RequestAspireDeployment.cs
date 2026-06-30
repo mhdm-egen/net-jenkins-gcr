@@ -2,13 +2,15 @@ using Microsoft.Extensions.Logging;
 using Deployment.Domain.Abstractions;
 using Deployment.Domain.AspireApps;
 using Deployment.Domain.AspireApps.Runs;
+using Deployment.Domain.Environments;
 
 namespace Deployment.Application.Features.AspireApps;
 
 /// <summary>
-/// Creates an <see cref="AspireApplicationRun"/> (Pending) for a registered Aspire application. The
-/// run's <c>AspireApplicationRunRequested</c> domain event drives <see cref="AspireApplicationRunExecutor"/>,
-/// which shells out to aspirate off the request (bus retry + outbox).
+/// Creates an <see cref="AspireApplicationRun"/> (Pending) for a registered Aspire application: resolves
+/// the target environment, snapshots its kube context/namespace + the app's manifest source/version onto
+/// the run, and saves it. The run's <c>AspireApplicationRunRequested</c> domain event drives
+/// <see cref="AspireApplicationRunExecutor"/>, which shells out to aspirate off the request.
 /// </summary>
 public sealed record RequestAspireDeploymentCommand(Guid ApplicationId, string? TriggeredBy);
 
@@ -17,16 +19,18 @@ public sealed record RequestAspireDeploymentResult(Guid? RunId, string Outcome);
 public sealed class RequestAspireDeploymentHandler
 {
     private readonly IAspireApplicationRepository _apps;
+    private readonly IEnvironmentRepository _envs;
     private readonly IAspireApplicationRunRepository _runs;
     private readonly IUnitOfWork _uow;
     private readonly TimeProvider _clock;
     private readonly ILogger<RequestAspireDeploymentHandler> _logger;
 
     public RequestAspireDeploymentHandler(
-        IAspireApplicationRepository apps, IAspireApplicationRunRepository runs,
+        IAspireApplicationRepository apps, IEnvironmentRepository envs, IAspireApplicationRunRepository runs,
         IUnitOfWork uow, TimeProvider clock, ILogger<RequestAspireDeploymentHandler> logger)
     {
         _apps = apps;
+        _envs = envs;
         _runs = runs;
         _uow = uow;
         _clock = clock;
@@ -39,21 +43,29 @@ public sealed class RequestAspireDeploymentHandler
         if (app is null) return new RequestAspireDeploymentResult(null, "application-not-found");
         if (!app.IsActive) return new RequestAspireDeploymentResult(null, "application-inactive");
 
+        var env = await _envs.GetByIdAsync(app.EnvironmentId, ct).ConfigureAwait(false);
+        if (env is null) return new RequestAspireDeploymentResult(null, "environment-not-found");
+        if (string.IsNullOrWhiteSpace(env.KubernetesContext) || string.IsNullOrWhiteSpace(env.KubernetesNamespace))
+            return new RequestAspireDeploymentResult(null, "environment-not-kubernetes");
+
         var run = new AspireApplicationRun(
             id: Guid.NewGuid(),
             applicationId: app.Id,
             applicationName: app.Name,
-            appHostPath: app.AppHostPath,
-            kubeContext: app.KubeContext,
-            @namespace: app.Namespace,
+            environmentId: env.Id,
+            environmentName: env.Name,
+            kubeContext: env.KubernetesContext!,
+            @namespace: env.KubernetesNamespace!,
+            manifestSource: app.ManifestSource,
+            version: app.Version,
             triggeredBy: cmd.TriggeredBy ?? "manual",
             requestedAtUtc: _clock.GetUtcNow());
 
         await _runs.AddAsync(run, ct).ConfigureAwait(false);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
 
-        _logger.LogInformation("[aspire] Requested deployment of {App} -> {Context}/{Namespace} (run {Run}).",
-            app.Name, app.KubeContext, app.Namespace, run.Id);
+        _logger.LogInformation("[aspire] Requested deployment of {App} -> {Env} ({Context}/{Namespace}) (run {Run}).",
+            app.Name, env.Name, env.KubernetesContext, env.KubernetesNamespace, run.Id);
         return new RequestAspireDeploymentResult(run.Id, "requested");
     }
 }

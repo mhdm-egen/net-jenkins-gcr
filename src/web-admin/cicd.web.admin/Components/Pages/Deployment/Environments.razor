@@ -6,7 +6,7 @@
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
     <MudText Typo="Typo.h4">Environments</MudText>
-    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">GCP targets (project / region / GAR repo)</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">deploy targets — Cloud Run (GCP) and/or Kubernetes (context + namespace)</MudText>
     <MudSpacer />
     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreate">Add environment</MudButton>
 </MudStack>
@@ -19,12 +19,13 @@
     else if (_items is not null)
     {
         <MudTable Items="@_items" Dense="true" Hover="true" Striped="true" T="EnvironmentDto">
-            <HeaderContent><MudTh>Name</MudTh><MudTh>GCP project</MudTh><MudTh>Region</MudTh><MudTh>GAR repo</MudTh><MudTh Style="width:9rem; text-align:right;"></MudTh></HeaderContent>
+            <HeaderContent><MudTh>Name</MudTh><MudTh>GCP project</MudTh><MudTh>Region</MudTh><MudTh>GAR repo</MudTh><MudTh>Kubernetes</MudTh><MudTh Style="width:9rem; text-align:right;"></MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd>@context.Name</MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@context.GcpProject</MudTd>
                 <MudTd>@context.Region</MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@context.GarRepository</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@(string.IsNullOrEmpty(context.KubernetesContext) ? "—" : $"{context.KubernetesContext} / {context.KubernetesNamespace}")</MudTd>
                 <MudTd Style="text-align:right;">
                     <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenEdit(context))" />
                     <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" />
@@ -38,9 +39,14 @@
     <TitleContent>@(_editingId is null ? "Add environment" : "Edit environment")</TitleContent>
     <DialogContent>
         <MudTextField @bind-Value="_form.Name" Label="Name" Required="true" HelperText="e.g. dev, staging, prod" />
-        <MudTextField @bind-Value="_form.GcpProject" Label="GCP project" Required="true" />
-        <MudTextField @bind-Value="_form.Region" Label="Region" Required="true" HelperText="e.g. us-central1" />
+        <MudText Typo="Typo.subtitle2" Class="mt-2">Cloud Run target (optional)</MudText>
+        <MudTextField @bind-Value="_form.GcpProject" Label="GCP project" />
+        <MudTextField @bind-Value="_form.Region" Label="Region" HelperText="e.g. us-central1" />
         <MudTextField @bind-Value="_form.GarRepository" Label="GAR repository" HelperText="Artifact Registry repo name" />
+        <MudText Typo="Typo.subtitle2" Class="mt-3">Kubernetes target (optional)</MudText>
+        <MudTextField @bind-Value="_form.KubernetesContext" Label="Kube context" HelperText="e.g. docker-desktop" />
+        <MudTextField @bind-Value="_form.KubernetesNamespace" Label="Namespace" />
+        <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">Provide a Cloud Run target and/or a Kubernetes target.</MudText>
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="@(() => _show = false)">Cancel</MudButton>
@@ -67,15 +73,15 @@
     }
 
     private void OpenCreate() { _editingId = null; _form = new Form(); _show = true; }
-    private void OpenEdit(EnvironmentDto e) { _editingId = e.Id; _form = new Form { Name = e.Name, GcpProject = e.GcpProject, Region = e.Region, GarRepository = e.GarRepository }; _show = true; }
+    private void OpenEdit(EnvironmentDto e) { _editingId = e.Id; _form = new Form { Name = e.Name, GcpProject = e.GcpProject, Region = e.Region, GarRepository = e.GarRepository, KubernetesContext = e.KubernetesContext ?? "", KubernetesNamespace = e.KubernetesNamespace ?? "" }; _show = true; }
 
     private async Task SaveAsync()
     {
         _busy = true;
         try
         {
-            if (_editingId is { } id) { await Api.UpdateEnvironmentAsync(id, new UpdateEnvironmentRequest(_form.Name, _form.GcpProject, _form.Region, _form.GarRepository)); Snackbar.Add("Saved.", Severity.Success); }
-            else { await Api.CreateEnvironmentAsync(new CreateEnvironmentRequest(_form.Name, _form.GcpProject, _form.Region, _form.GarRepository)); Snackbar.Add("Added.", Severity.Success); }
+            if (_editingId is { } id) { await Api.UpdateEnvironmentAsync(id, new UpdateEnvironmentRequest(_form.Name, _form.GcpProject, _form.Region, _form.GarRepository, _form.KubernetesContext, _form.KubernetesNamespace)); Snackbar.Add("Saved.", Severity.Success); }
+            else { await Api.CreateEnvironmentAsync(new CreateEnvironmentRequest(_form.Name, _form.GcpProject, _form.Region, _form.GarRepository, _form.KubernetesContext, _form.KubernetesNamespace)); Snackbar.Add("Added.", Severity.Success); }
             _show = false; await LoadAsync();
         }
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
@@ -88,5 +94,5 @@
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
     }
 
-    private sealed class Form { public string Name { get; set; } = ""; public string GcpProject { get; set; } = ""; public string Region { get; set; } = "us-central1"; public string GarRepository { get; set; } = ""; }
+    private sealed class Form { public string Name { get; set; } = ""; public string GcpProject { get; set; } = ""; public string Region { get; set; } = ""; public string GarRepository { get; set; } = ""; public string KubernetesContext { get; set; } = ""; public string KubernetesNamespace { get; set; } = ""; }
 }

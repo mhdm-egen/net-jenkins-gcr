@@ -7,18 +7,21 @@ namespace Deployment.Domain.AspireApps.Runs;
 /// <summary>
 /// One deployment of an <see cref="AspireApplication"/> via Aspir8. Created Pending (raises
 /// <see cref="AspireApplicationRunRequested"/> to drive the executor), then Running →
-/// Succeeded/Failed. Captures the aspirate CLI output as <see cref="Log"/>. Reuses
-/// <see cref="DeploymentRunStatus"/> for parity with the per-service run.
+/// Succeeded/Failed. Snapshots the target coordinates so the executor needs no catalog re-read, and
+/// captures the aspirate CLI output as <see cref="Log"/>. Reuses <see cref="DeploymentRunStatus"/>.
 /// </summary>
 public sealed class AspireApplicationRun : AggregateRoot<Guid>
 {
     public Guid ApplicationId { get; private set; }
     public string ApplicationName { get; private set; }
 
-    // Snapshot of what to deploy (so the executor needs no catalog re-read).
-    public string AppHostPath { get; private set; }
+    // Target snapshot.
+    public Guid EnvironmentId { get; private set; }
+    public string EnvironmentName { get; private set; }
     public string KubeContext { get; private set; }
     public string Namespace { get; private set; }
+    public string ManifestSource { get; private set; }
+    public string? Version { get; private set; }
 
     public DeploymentRunStatus Status { get; private set; }
     public string TriggeredBy { get; private set; }
@@ -30,24 +33,28 @@ public sealed class AspireApplicationRun : AggregateRoot<Guid>
     private AspireApplicationRun()
     {
         ApplicationName = string.Empty;
-        AppHostPath = string.Empty;
+        EnvironmentName = string.Empty;
         KubeContext = string.Empty;
         Namespace = string.Empty;
+        ManifestSource = string.Empty;
         TriggeredBy = string.Empty;
     }
 
     public AspireApplicationRun(
         Guid id, Guid applicationId, string applicationName,
-        string appHostPath, string kubeContext, string @namespace,
-        string triggeredBy, DateTimeOffset requestedAtUtc)
+        Guid environmentId, string environmentName, string kubeContext, string @namespace,
+        string manifestSource, string? version, string triggeredBy, DateTimeOffset requestedAtUtc)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
         Id = id;
         ApplicationId = applicationId;
         ApplicationName = applicationName?.Trim() ?? string.Empty;
-        AppHostPath = appHostPath?.Trim() ?? string.Empty;
+        EnvironmentId = environmentId;
+        EnvironmentName = environmentName?.Trim() ?? string.Empty;
         KubeContext = kubeContext?.Trim() ?? string.Empty;
         Namespace = @namespace?.Trim() ?? string.Empty;
+        ManifestSource = manifestSource?.Trim() ?? string.Empty;
+        Version = string.IsNullOrWhiteSpace(version) ? null : version.Trim();
         TriggeredBy = string.IsNullOrWhiteSpace(triggeredBy) ? "manual" : triggeredBy.Trim();
         Status = DeploymentRunStatus.Pending;
         RequestedAtUtc = requestedAtUtc;
@@ -75,7 +82,6 @@ public sealed class AspireApplicationRun : AggregateRoot<Guid>
         RaiseEvent(new AspireApplicationRunFailed(Id, ApplicationId, ApplicationName, FailureReason, completedAtUtc));
     }
 
-    // Keep the captured CLI log bounded so it fits the persisted column.
     private static string? Trim(string? log)
         => string.IsNullOrEmpty(log) ? log : (log.Length > 16000 ? log[^16000..] : log);
 }

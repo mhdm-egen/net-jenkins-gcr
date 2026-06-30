@@ -12,6 +12,12 @@ public sealed class AspireOptions
     /// <summary>The aspirate executable — a bare name resolved on PATH, or a full path.</summary>
     public string Executable { get; set; } = "aspirate";
 
+    /// <summary>Optional kubeconfig path passed to aspirate (KUBECONFIG); empty = the process default (~/.kube/config).</summary>
+    public string Kubeconfig { get; set; } = string.Empty;
+
+    /// <summary>Root dir for per-run working directories (fetched/extracted manifests); empty = system temp.</summary>
+    public string WorkingRoot { get; set; } = string.Empty;
+
     /// <summary>Image pull policy written into the generated manifests.</summary>
     public string ImagePullPolicy { get; set; } = "IfNotPresent";
 

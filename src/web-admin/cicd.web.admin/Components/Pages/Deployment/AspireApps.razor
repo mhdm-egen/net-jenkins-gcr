@@ -6,7 +6,7 @@
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
     <MudText Typo="Typo.h4">Aspire applications</MudText>
-    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">deploy a whole .NET Aspire app to Kubernetes via Aspir8 (pulls images from Nexus)</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">deploy a whole .NET Aspire app to Kubernetes via Aspir8 (images pulled from Nexus)</MudText>
     <MudSpacer />
     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
 </MudStack>
@@ -15,16 +15,28 @@
 
 <MudExpansionPanels Class="mb-4">
     <MudExpansionPanel Text="Register an Aspire application">
-        <MudGrid>
-            <MudItem xs="12" md="6"><MudTextField @bind-Value="_name" Label="Name" Required="true" /></MudItem>
-            <MudItem xs="12" md="6"><MudTextField @bind-Value="_description" Label="Description (optional)" /></MudItem>
-            <MudItem xs="12"><MudTextField @bind-Value="_appHostPath" Label="AppHost path (server-local dir with aspirate.json)" Required="true" /></MudItem>
-            <MudItem xs="12" md="6"><MudTextField @bind-Value="_kubeContext" Label="Kube context" Required="true" /></MudItem>
-            <MudItem xs="12" md="6"><MudTextField @bind-Value="_namespace" Label="Namespace" Required="true" /></MudItem>
-            <MudItem xs="12">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="RegisterAsync" Disabled="_busy">Register</MudButton>
-            </MudItem>
-        </MudGrid>
+        @if (_k8sEnvs is { Count: 0 })
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No Kubernetes environments yet — add one under Environments (set its Kube context + namespace) first.</MudAlert>
+        }
+        else
+        {
+            <MudGrid>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_name" Label="Name" Required="true" /></MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_description" Label="Description (optional)" /></MudItem>
+                <MudItem xs="12" md="6">
+                    <MudSelect T="Guid?" @bind-Value="_environmentId" Label="Environment (Kubernetes target)" Required="true">
+                        @foreach (var e in _k8sEnvs ?? new List<EnvironmentDto>())
+                        { <MudSelectItem T="Guid?" Value="@e.Id">@e.Name (@e.KubernetesContext/@e.KubernetesNamespace)</MudSelectItem> }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_version" Label="Version (optional)" /></MudItem>
+                <MudItem xs="12"><MudTextField @bind-Value="_manifestSource" Label="Manifest source (URL to the aspirate kustomize-output archive)" Required="true" HelperText="e.g. http://localhost:8081/repository/raw/myapp/1.0.0/aspirate-output.zip" /></MudItem>
+                <MudItem xs="12">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="RegisterAsync" Disabled="_busy">Register</MudButton>
+                </MudItem>
+            </MudGrid>
+        }
     </MudExpansionPanel>
 </MudExpansionPanels>
 
@@ -35,12 +47,12 @@
     else if (_apps is not null)
     {
         <MudTable Items="@_apps" Dense="true" Hover="true" Striped="true" T="AspireApplicationDto">
-            <HeaderContent><MudTh>Name</MudTh><MudTh>Context</MudTh><MudTh>Namespace</MudTh><MudTh>AppHost path</MudTh><MudTh Style="width:12rem;">Actions</MudTh></HeaderContent>
+            <HeaderContent><MudTh>Name</MudTh><MudTh>Environment</MudTh><MudTh>Version</MudTh><MudTh>Manifest source</MudTh><MudTh Style="width:12rem;">Actions</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd>@context.Name</MudTd>
-                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@context.KubeContext</MudTd>
-                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@context.Namespace</MudTd>
-                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@context.AppHostPath</MudTd>
+                <MudTd>@context.EnvironmentName</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@(context.Version ?? "—")</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.78em; max-width:24rem; overflow:hidden; text-overflow:ellipsis;">@context.ManifestSource</MudTd>
                 <MudTd>
                     <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RocketLaunch" OnClick="@(() => DeployAsync(context))" Disabled="_busy">Deploy</MudButton>
                     <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" />
@@ -56,7 +68,7 @@
     else if (_runs is not null)
     {
         <MudTable Items="@_runs" Dense="true" Hover="true" Striped="true" T="AspireApplicationRunDto">
-            <HeaderContent><MudTh Style="width:7rem;">Status</MudTh><MudTh>App</MudTh><MudTh>Namespace</MudTh><MudTh>By</MudTh><MudTh Style="width:11rem;">When</MudTh></HeaderContent>
+            <HeaderContent><MudTh Style="width:7rem;">Status</MudTh><MudTh>App</MudTh><MudTh>Environment</MudTh><MudTh>By</MudTh><MudTh Style="width:11rem;">When</MudTh><MudTh Style="width:5rem;"></MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd>
                     <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Status)" Variant="Variant.Filled">@context.Status</MudChip>
@@ -64,40 +76,73 @@
                     { <MudTooltip Text="@context.FailureReason"><MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Color="Color.Error" Size="Size.Small" /></MudTooltip> }
                 </MudTd>
                 <MudTd>@context.ApplicationName</MudTd>
-                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@context.Namespace</MudTd>
+                <MudTd>@context.EnvironmentName (@context.Namespace)</MudTd>
                 <MudTd>@context.TriggeredBy</MudTd>
                 <MudTd>@context.RequestedAtUtc.LocalDateTime.ToString("g")</MudTd>
+                <MudTd><MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ShowLog(context))">Log</MudButton></MudTd>
             </RowTemplate>
         </MudTable>
     }
 </MudPaper>
 
+<MudDialog @bind-Visible="_logShow" Options="_logDlg">
+    <TitleContent>@(_logRun is null ? "Run" : $"{_logRun.ApplicationName} — {_logRun.Status}")</TitleContent>
+    <DialogContent>
+        @if (_logRun is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mb-1">@_logRun.EnvironmentName · @_logRun.KubeContext/@_logRun.Namespace · @(_logRun.Version ?? "—")</MudText>
+            <MudText Typo="Typo.caption" Style="font-family: ui-monospace, monospace; word-break: break-all;">@_logRun.ManifestSource</MudText>
+            @if (!string.IsNullOrEmpty(_logRun.FailureReason))
+            { <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_logRun.FailureReason</MudAlert> }
+            <MudPaper Outlined="true" Class="pa-2 mt-2" Style="max-height:50vh; overflow:auto; background: var(--mud-palette-background-grey);">
+                <pre style="margin:0; white-space:pre-wrap; font-size:0.8em;">@(_logRun.Log ?? "(no log)")</pre>
+            </MudPaper>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _logShow = false)">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
 @code {
     private IReadOnlyList<AspireApplicationDto>? _apps;
     private IReadOnlyList<AspireApplicationRunDto>? _runs;
+    private List<EnvironmentDto>? _k8sEnvs;
     private bool _loading, _busy;
     private string? _error;
 
-    private string _name = "", _description = "", _appHostPath = "", _kubeContext = "docker-desktop", _namespace = "";
+    private string _name = "", _description = "", _manifestSource = "", _version = "";
+    private Guid? _environmentId;
+
+    private bool _logShow;
+    private AspireApplicationRunDto? _logRun;
+    private static readonly DialogOptions _logDlg = new() { MaxWidth = MaxWidth.Large, FullWidth = true };
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
     private async Task LoadAsync()
     {
         _loading = true; _error = null; StateHasChanged();
-        try { _apps = await Api.ListAspireAppsAsync(); _runs = await Api.ListAspireRunsAsync(); }
+        try
+        {
+            _apps = await Api.ListAspireAppsAsync();
+            _runs = await Api.ListAspireRunsAsync();
+            var envs = await Api.ListEnvironmentsAsync();
+            _k8sEnvs = envs.Where(e => !string.IsNullOrEmpty(e.KubernetesContext) && !string.IsNullOrEmpty(e.KubernetesNamespace)).ToList();
+        }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; StateHasChanged(); }
     }
 
     private async Task RegisterAsync()
     {
+        if (_environmentId is not { } envId) { Snackbar.Add("Pick an environment.", Severity.Warning); return; }
         _busy = true;
         try
         {
-            await Api.CreateAspireAppAsync(new CreateAspireApplicationRequest(_name, _description, _appHostPath, _kubeContext, _namespace));
+            await Api.CreateAspireAppAsync(new CreateAspireApplicationRequest(_name, _description, envId, _manifestSource, string.IsNullOrWhiteSpace(_version) ? null : _version));
             Snackbar.Add($"Registered '{_name}'.", Severity.Success);
-            _name = _description = _appHostPath = _namespace = "";
+            _name = _description = _manifestSource = _version = ""; _environmentId = null;
             await LoadAsync();
         }
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
@@ -123,6 +168,8 @@
         try { await Api.DeleteAspireAppAsync(app.Id); await LoadAsync(); }
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
     }
+
+    private void ShowLog(AspireApplicationRunDto run) { _logRun = run; _logShow = true; }
 
     private static Color StatusColor(AspireRunStatusDto s) => s switch
     {

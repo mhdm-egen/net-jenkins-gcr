@@ -38,7 +38,7 @@ public sealed class AspireApplicationRunExecutor
         try
         {
             result = await aspirate.DeployAsync(
-                new AspirateDeployRequest(run.AppHostPath, run.KubeContext, run.Namespace), ct).ConfigureAwait(false);
+                new AspirateDeployRequest(run.ManifestSource, run.KubeContext, run.Namespace), ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

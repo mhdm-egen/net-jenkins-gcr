@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Formats.Tar;
+using System.IO.Compression;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
@@ -9,19 +12,26 @@ using Deployment.Infrastructure.Nexus;
 namespace Deployment.Infrastructure.Aspirate;
 
 /// <summary>
-/// <see cref="IAspirateRunner"/> over the Aspir8 CLI: <c>aspirate generate --skip-build</c> (Kustomize
-/// manifests from the already-pushed Nexus images) then <c>aspirate apply -k &lt;context&gt;</c>. Process
-/// shell-out modelled on <c>CraneArtifactPromoter</c> — captures combined stdout+stderr as the run log.
+/// <see cref="IAspirateRunner"/> over the Aspir8 CLI. Fetches the CI-produced Kustomize output archive
+/// (the <c>aspirate generate</c> result), extracts it, repoints the image registry host + digest-pins
+/// from Nexus, then runs <c>aspirate apply -i &lt;dir&gt; -k &lt;context&gt;</c>. Captures combined
+/// stdout+stderr as the run log (ANSI-stripped). No source / no <c>generate</c> on the deploy host.
 /// </summary>
 internal sealed partial class AspirateRunner : IAspirateRunner
 {
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(2) };
+
     private readonly IOptionsMonitor<AspireOptions> _options;
+    private readonly IOptionsMonitor<NexusRegistryOptions> _nexus;
     private readonly INexusImageDigestResolver _digests;
     private readonly ILogger<AspirateRunner> _logger;
 
-    public AspirateRunner(IOptionsMonitor<AspireOptions> options, INexusImageDigestResolver digests, ILogger<AspirateRunner> logger)
+    public AspirateRunner(
+        IOptionsMonitor<AspireOptions> options, IOptionsMonitor<NexusRegistryOptions> nexus,
+        INexusImageDigestResolver digests, ILogger<AspirateRunner> logger)
     {
         _options = options;
+        _nexus = nexus;
         _digests = digests;
         _logger = logger;
     }
@@ -32,55 +42,120 @@ internal sealed partial class AspirateRunner : IAspirateRunner
         var exe = string.IsNullOrWhiteSpace(opts.Executable) ? "aspirate" : opts.Executable;
         var log = new StringBuilder();
 
-        if (!Directory.Exists(request.AppHostPath))
-            return new AspirateDeployResult(false, log.ToString(), $"AppHostPath '{request.AppHostPath}' does not exist.");
-        if (!File.Exists(Path.Combine(request.AppHostPath, "aspirate.json")))
-            return new AspirateDeployResult(false, log.ToString(), $"No aspirate.json in '{request.AppHostPath}' — run 'aspirate init' there first.");
-
-        var outputPath = Path.Combine(request.AppHostPath, "aspirate-output");
-
-        // 1) generate --skip-build → Kustomize manifests referencing the already-pushed Nexus images.
-        // Run with the AppHost as the working directory and the default project-path (".") — passing an
-        // explicit -p makes aspirate resolve the generated manifest.json against the parent dir.
-        var generate = await RunAsync(exe, new[]
+        var root = string.IsNullOrWhiteSpace(opts.WorkingRoot) ? Path.GetTempPath() : opts.WorkingRoot;
+        var workDir = Path.Combine(root, "aspire-deploy-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workDir);
+        try
         {
-            "generate",
-            "-o", outputPath,
-            "--skip-build",
-            "--namespace", request.Namespace,
-            "--image-pull-policy", opts.ImagePullPolicy,
-            "--output-format", "kustomize",
-            "--include-dashboard", "false",
-            "--non-interactive",
-            "--disable-secrets",
-        }, request.AppHostPath, opts.GenerateTimeoutSeconds, log, cancellationToken).ConfigureAwait(false);
+            // 1) Acquire the kustomize output into the work dir.
+            string outputDir;
+            try
+            {
+                outputDir = await AcquireOutputAsync(request.ManifestSource, workDir, log, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                log.AppendLine(ex.Message);
+                return new AspirateDeployResult(false, log.ToString(), $"could not fetch manifest source: {ex.Message}");
+            }
 
-        if (generate != 0)
-            return new AspirateDeployResult(false, log.ToString(), $"aspirate generate exited {generate}: {Summarize(log)}");
+            // 2) Repoint registry host + digest-pin the images.
+            if (!string.IsNullOrWhiteSpace(opts.PullRegistry))
+                await RewriteImageHostAsync(outputDir, opts.PullRegistry.Trim(), log, cancellationToken).ConfigureAwait(false);
 
-        // 1b) Rewrite the build registry host to a node-reachable pull registry, if configured. aspirate
-        // bakes the build/push registry (e.g. localhost:8082) into the manifests, which a cluster node
-        // can't resolve; a Kustomize images: override repoints them (e.g. host.docker.internal:8082).
-        if (!string.IsNullOrWhiteSpace(opts.PullRegistry))
-            await RewriteImageHostAsync(outputPath, opts.PullRegistry.Trim(), log, cancellationToken).ConfigureAwait(false);
+            // 3) Apply to the target context.
+            var env = string.IsNullOrWhiteSpace(opts.Kubeconfig) ? null
+                : new Dictionary<string, string> { ["KUBECONFIG"] = opts.Kubeconfig };
+            var apply = await RunAsync(exe, new[]
+            {
+                "apply",
+                "-i", outputDir,
+                "-k", request.KubeContext,
+                "--non-interactive",
+                "--disable-secrets",
+                "--disable-state",
+            }, workDir, env, opts.ApplyTimeoutSeconds, log, cancellationToken).ConfigureAwait(false);
 
-        // 2) apply → deploy the manifests to the target kube context.
-        var apply = await RunAsync(exe, new[]
+            return apply == 0
+                ? new AspirateDeployResult(true, log.ToString(), null)
+                : new AspirateDeployResult(false, log.ToString(), $"aspirate apply exited {apply}: {Summarize(log)}");
+        }
+        finally
         {
-            "apply",
-            "-i", outputPath,
-            "-k", request.KubeContext,
-            "--non-interactive",
-            "--disable-secrets",
-        }, request.AppHostPath, opts.ApplyTimeoutSeconds, log, cancellationToken).ConfigureAwait(false);
-
-        if (apply != 0)
-            return new AspirateDeployResult(false, log.ToString(), $"aspirate apply exited {apply}: {Summarize(log)}");
-
-        return new AspirateDeployResult(true, log.ToString(), null);
+            try { Directory.Delete(workDir, recursive: true); } catch { /* best effort */ }
+        }
     }
 
-    private async Task<int> RunAsync(string exe, string[] args, string workingDir, int timeoutSeconds, StringBuilder log, CancellationToken ct)
+    /// <summary>Downloads (URL) or copies (local archive/dir) the kustomize output into the work dir; returns the dir holding the root kustomization.yaml.</summary>
+    private async Task<string> AcquireOutputAsync(string source, string workDir, StringBuilder log, CancellationToken ct)
+    {
+        var dest = Path.Combine(workDir, "output");
+
+        if (source.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || source.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            log.AppendLine($"fetching manifest archive: {source}");
+            using var req = new HttpRequestMessage(HttpMethod.Get, source);
+            var n = _nexus.CurrentValue;
+            if (!string.IsNullOrEmpty(n.Username))
+                req.Headers.Authorization = new AuthenticationHeaderValue("Basic",
+                    Convert.ToBase64String(Encoding.ASCII.GetBytes($"{n.Username}:{n.Password}")));
+            using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+            resp.EnsureSuccessStatusCode();
+            var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+            ExtractArchive(bytes, dest);
+        }
+        else if (Directory.Exists(source))
+        {
+            CopyDirectory(source, dest);
+        }
+        else if (File.Exists(source))
+        {
+            ExtractArchive(await File.ReadAllBytesAsync(source, ct).ConfigureAwait(false), dest);
+        }
+        else
+        {
+            throw new InvalidOperationException($"manifest source '{source}' is not a URL, directory, or archive file.");
+        }
+
+        return FindKustomizationRoot(dest)
+            ?? throw new InvalidOperationException("no kustomization.yaml found in the manifest output.");
+    }
+
+    private static void ExtractArchive(byte[] bytes, string dest)
+    {
+        Directory.CreateDirectory(dest);
+        // Sniff magic bytes: PK = zip; 1F 8B = gzip (tar.gz).
+        if (bytes.Length >= 2 && bytes[0] == 0x1F && bytes[1] == 0x8B)
+        {
+            using var ms = new MemoryStream(bytes);
+            using var gz = new GZipStream(ms, CompressionMode.Decompress);
+            TarFile.ExtractToDirectory(gz, dest, overwriteFiles: true);
+        }
+        else
+        {
+            using var ms = new MemoryStream(bytes);
+            using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
+            zip.ExtractToDirectory(dest, overwriteFiles: true);
+        }
+    }
+
+    private static void CopyDirectory(string src, string dest)
+    {
+        Directory.CreateDirectory(dest);
+        foreach (var dir in Directory.GetDirectories(src, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(dest, Path.GetRelativePath(src, dir)));
+        foreach (var file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
+            File.Copy(file, Path.Combine(dest, Path.GetRelativePath(src, file)), overwrite: true);
+    }
+
+    /// <summary>The shallowest directory containing a kustomization.yaml — the apply input.</summary>
+    private static string? FindKustomizationRoot(string dir)
+        => Directory.EnumerateFiles(dir, "kustomization.yaml", SearchOption.AllDirectories)
+            .OrderBy(p => p.Count(c => c == Path.DirectorySeparatorChar))
+            .Select(Path.GetDirectoryName)
+            .FirstOrDefault();
+
+    private async Task<int> RunAsync(string exe, string[] args, string workingDir, IReadOnlyDictionary<string, string>? env, int timeoutSeconds, StringBuilder log, CancellationToken ct)
     {
         var psi = new ProcessStartInfo(exe)
         {
@@ -91,6 +166,7 @@ internal sealed partial class AspirateRunner : IAspirateRunner
             CreateNoWindow = true,
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
+        if (env is not null) foreach (var (k, v) in env) psi.Environment[k] = v;
 
         log.AppendLine($"$ {exe} {string.Join(' ', args)}");
         _logger.LogInformation("[aspire] {Exe} {Args}", exe, string.Join(' ', args));
@@ -127,10 +203,9 @@ internal sealed partial class AspirateRunner : IAspirateRunner
     }
 
     /// <summary>
-    /// Appends a Kustomize <c>images:</c> override to the generated root kustomization that repoints every
-    /// image's registry host to <paramref name="pullRegistry"/>, and — when the Nexus digest resolver is
-    /// configured — pins each to its immutable <c>@sha256</c> digest (preserving build provenance even
-    /// though aspirate emits a floating tag). No-op if the kustomization already declares overrides.
+    /// Appends a Kustomize <c>images:</c> override to the root kustomization that repoints every image's
+    /// registry host to <paramref name="pullRegistry"/>, and — when the Nexus digest resolver is configured —
+    /// pins each to its immutable <c>@sha256</c> digest. No-op if the kustomization already declares overrides.
     /// </summary>
     private async Task RewriteImageHostAsync(string outputPath, string pullRegistry, StringBuilder log, CancellationToken ct)
     {
@@ -139,7 +214,6 @@ internal sealed partial class AspirateRunner : IAspirateRunner
         var existing = File.ReadAllText(kustomization);
         if (existing.Contains("\nimages:", StringComparison.Ordinal)) return; // don't double-apply
 
-        // name (host/repo) -> (newName, repo, tag)
         var found = new Dictionary<string, (string NewName, string Repo, string Tag)>(StringComparer.Ordinal);
         foreach (var dep in Directory.GetFiles(outputPath, "deployment.yaml", SearchOption.AllDirectories))
         {
@@ -149,14 +223,12 @@ internal sealed partial class AspirateRunner : IAspirateRunner
                 var slash = refStr.IndexOf('/');
                 if (slash <= 0) continue;
                 var host = refStr[..slash];
-                if (!host.Contains(':') && !host.Contains('.')) continue;          // not a registry host (e.g. library/x)
-
+                if (!host.Contains(':') && !host.Contains('.')) continue;          // not a registry host
                 var rest = refStr[(slash + 1)..];
-                if (rest.Contains('@')) continue;                                  // already digest-pinned — leave it
+                if (rest.Contains('@')) continue;                                  // already digest-pinned
                 var colon = rest.IndexOf(':');
                 var repo = colon >= 0 ? rest[..colon] : rest;
                 var tag = colon >= 0 ? rest[(colon + 1)..] : "latest";
-                // Repoint the host (and, below, digest-pin) — also pins when host is already the pull registry.
                 found[$"{host}/{repo}"] = ($"{pullRegistry}/{repo}", repo, tag);
             }
         }
