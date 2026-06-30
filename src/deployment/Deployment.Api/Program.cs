@@ -64,6 +64,8 @@ builder.Host.UseWolverine(opts =>
     opts.AddCicdMessaging(builder.Configuration, topology => topology
         .Publish<Cicd.IntegrationEvents.Deployment.ServiceDeployed>("deployment.events")
         .Publish<Cicd.IntegrationEvents.Deployment.ServiceDeploymentFailed>("deployment.events")
+        .Publish<Cicd.IntegrationEvents.Deployment.AspireApplicationDeployed>("deployment.events")
+        .Publish<Cicd.IntegrationEvents.Deployment.AspireApplicationDeploymentFailed>("deployment.events")
         .Subscribe("ci.events", subscriber: "deployment"));
 });
 
