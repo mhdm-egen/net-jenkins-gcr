@@ -37,10 +37,11 @@ internal sealed partial class AspirateRunner : IAspirateRunner
         var outputPath = Path.Combine(request.AppHostPath, "aspirate-output");
 
         // 1) generate --skip-build → Kustomize manifests referencing the already-pushed Nexus images.
+        // Run with the AppHost as the working directory and the default project-path (".") — passing an
+        // explicit -p makes aspirate resolve the generated manifest.json against the parent dir.
         var generate = await RunAsync(exe, new[]
         {
             "generate",
-            "-p", request.AppHostPath,
             "-o", outputPath,
             "--skip-build",
             "--namespace", request.Namespace,
