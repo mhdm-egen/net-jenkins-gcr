@@ -82,6 +82,12 @@ var dockerConfigDir = NexusParam("DockerConfigDir", "");
 var aspirateExecutable = NexusParam("AspirateExecutable", "aspirate");
 var aspiratePullRegistry = NexusParam("AspiratePullRegistry", "");
 
+// Nexus docker-v2 endpoint the deployment SERVICE can reach (e.g. http://localhost:8082) to resolve
+// image digests for provenance-pinning Aspire deploys. Empty => digest-pinning disabled (floating tag).
+//   dotnet user-secrets set Parameters:NexusRegistryV2Url http://localhost:8082
+var nexusRegistryV2Url = NexusParam("NexusRegistryV2Url", "");
+var nexusUsername = NexusParam("NexusUsername", "admin");
+
 var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithReference(deploymentDb)
     .WaitFor(sql)
@@ -90,7 +96,10 @@ var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithEnvironment("Database__AutoMigrate", "true")
     .WithEnvironment("Deployment__GoogleCloudRun__CraneExecutable", craneExecutable)
     .WithEnvironment("Deployment__Aspirate__Executable", aspirateExecutable)
-    .WithEnvironment("Deployment__Aspirate__PullRegistry", aspiratePullRegistry);
+    .WithEnvironment("Deployment__Aspirate__PullRegistry", aspiratePullRegistry)
+    .WithEnvironment("Deployment__Nexus__RegistryV2Url", nexusRegistryV2Url)
+    .WithEnvironment("Deployment__Nexus__Username", nexusUsername)
+    .WithEnvironment("Deployment__Nexus__Password", nexusPassword);
 
 if (dockerConfigDir.Length > 0)
     deployment = deployment.WithEnvironment("DOCKER_CONFIG", dockerConfigDir);

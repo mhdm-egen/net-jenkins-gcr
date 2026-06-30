@@ -19,6 +19,7 @@ using Deployment.Domain.Runs;
 using Deployment.Domain.Services;
 using Deployment.Infrastructure.Aspirate;
 using Deployment.Infrastructure.Gcp;
+using Deployment.Infrastructure.Nexus;
 using Deployment.Infrastructure.Messaging;
 using Deployment.Infrastructure.Persistence;
 using Deployment.Infrastructure.Persistence.Readers;
@@ -73,6 +74,11 @@ public static class DependencyInjection
             .Bind(configuration.GetSection(AspireOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IAspirateRunner, AspirateRunner>();
+
+        // Nexus digest resolver — pins Aspire deploy images to their sha256 (provenance). Optional:
+        // disabled when Deployment:Nexus:RegistryV2Url is empty (the runner then keeps the floating tag).
+        services.AddOptions<NexusRegistryOptions>().Bind(configuration.GetSection(NexusRegistryOptions.SectionName));
+        services.AddSingleton<INexusImageDigestResolver, NexusImageDigestResolver>();
 
         // Pluggable step executors — one per DeploymentStepKind — fronted by a registry the run
         // handler resolves by kind (see IStepExecutorRegistry for why the handler can't inject the

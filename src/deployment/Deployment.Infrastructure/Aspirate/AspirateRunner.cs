@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Deployment.Application.Abstractions;
+using Deployment.Infrastructure.Nexus;
 
 namespace Deployment.Infrastructure.Aspirate;
 
@@ -15,11 +16,13 @@ namespace Deployment.Infrastructure.Aspirate;
 internal sealed partial class AspirateRunner : IAspirateRunner
 {
     private readonly IOptionsMonitor<AspireOptions> _options;
+    private readonly INexusImageDigestResolver _digests;
     private readonly ILogger<AspirateRunner> _logger;
 
-    public AspirateRunner(IOptionsMonitor<AspireOptions> options, ILogger<AspirateRunner> logger)
+    public AspirateRunner(IOptionsMonitor<AspireOptions> options, INexusImageDigestResolver digests, ILogger<AspirateRunner> logger)
     {
         _options = options;
+        _digests = digests;
         _logger = logger;
     }
 
@@ -59,7 +62,7 @@ internal sealed partial class AspirateRunner : IAspirateRunner
         // bakes the build/push registry (e.g. localhost:8082) into the manifests, which a cluster node
         // can't resolve; a Kustomize images: override repoints them (e.g. host.docker.internal:8082).
         if (!string.IsNullOrWhiteSpace(opts.PullRegistry))
-            RewriteImageHost(outputPath, opts.PullRegistry.Trim(), log);
+            await RewriteImageHostAsync(outputPath, opts.PullRegistry.Trim(), log, cancellationToken).ConfigureAwait(false);
 
         // 2) apply → deploy the manifests to the target kube context.
         var apply = await RunAsync(exe, new[]
@@ -125,18 +128,19 @@ internal sealed partial class AspirateRunner : IAspirateRunner
 
     /// <summary>
     /// Appends a Kustomize <c>images:</c> override to the generated root kustomization that repoints every
-    /// image's registry host to <paramref name="pullRegistry"/> (preserving repo + tag/digest). No-op if the
-    /// kustomization already declares overrides. This is the registry-host half of the provenance story;
-    /// digest-pinning from the container inventory is a further refinement.
+    /// image's registry host to <paramref name="pullRegistry"/>, and — when the Nexus digest resolver is
+    /// configured — pins each to its immutable <c>@sha256</c> digest (preserving build provenance even
+    /// though aspirate emits a floating tag). No-op if the kustomization already declares overrides.
     /// </summary>
-    private static void RewriteImageHost(string outputPath, string pullRegistry, StringBuilder log)
+    private async Task RewriteImageHostAsync(string outputPath, string pullRegistry, StringBuilder log, CancellationToken ct)
     {
         var kustomization = Path.Combine(outputPath, "kustomization.yaml");
         if (!File.Exists(kustomization)) return;
         var existing = File.ReadAllText(kustomization);
         if (existing.Contains("\nimages:", StringComparison.Ordinal)) return; // don't double-apply
 
-        var overrides = new Dictionary<string, string>(StringComparer.Ordinal); // name (host/repo) -> newName
+        // name (host/repo) -> (newName, repo, tag)
+        var found = new Dictionary<string, (string NewName, string Repo, string Tag)>(StringComparer.Ordinal);
         foreach (var dep in Directory.GetFiles(outputPath, "deployment.yaml", SearchOption.AllDirectories))
         {
             foreach (Match m in ImageLine().Matches(File.ReadAllText(dep)))
@@ -146,21 +150,29 @@ internal sealed partial class AspirateRunner : IAspirateRunner
                 if (slash <= 0) continue;
                 var host = refStr[..slash];
                 if (!host.Contains(':') && !host.Contains('.')) continue;          // not a registry host (e.g. library/x)
-                if (string.Equals(host, pullRegistry, StringComparison.OrdinalIgnoreCase)) continue;
 
-                var repo = refStr[(slash + 1)..];
-                var at = repo.IndexOf('@'); if (at >= 0) repo = repo[..at];        // strip @digest
-                var colon = repo.IndexOf(':'); if (colon >= 0) repo = repo[..colon]; // strip :tag
-                overrides[$"{host}/{repo}"] = $"{pullRegistry}/{repo}";
+                var rest = refStr[(slash + 1)..];
+                if (rest.Contains('@')) continue;                                  // already digest-pinned — leave it
+                var colon = rest.IndexOf(':');
+                var repo = colon >= 0 ? rest[..colon] : rest;
+                var tag = colon >= 0 ? rest[(colon + 1)..] : "latest";
+                // Repoint the host (and, below, digest-pin) — also pins when host is already the pull registry.
+                found[$"{host}/{repo}"] = ($"{pullRegistry}/{repo}", repo, tag);
             }
         }
-        if (overrides.Count == 0) return;
+        if (found.Count == 0) return;
 
         var sb = new StringBuilder(existing.TrimEnd()).AppendLine().AppendLine().AppendLine("images:");
-        foreach (var kv in overrides)
-            sb.AppendLine($"- name: {kv.Key}").AppendLine($"  newName: {kv.Value}");
+        int pinned = 0;
+        foreach (var (name, info) in found)
+        {
+            sb.AppendLine($"- name: {name}").AppendLine($"  newName: {info.NewName}");
+            var digest = await _digests.ResolveDigestAsync(info.Repo, info.Tag, ct).ConfigureAwait(false);
+            if (digest is { Length: > 0 }) { sb.AppendLine($"  digest: {digest}"); pinned++; }
+            else sb.AppendLine($"  newTag: {info.Tag}");
+        }
         File.WriteAllText(kustomization, sb.ToString());
-        log.AppendLine($"(rewrote image registry host -> {pullRegistry} for {overrides.Count} image(s))");
+        log.AppendLine($"(rewrote image registry host -> {pullRegistry} for {found.Count} image(s); {pinned} digest-pinned)");
     }
 
     [GeneratedRegex(@"^\s*image:\s*(\S+)\s*$", RegexOptions.Multiline)]
