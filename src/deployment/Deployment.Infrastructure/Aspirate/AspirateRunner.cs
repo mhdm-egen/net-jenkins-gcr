@@ -3,10 +3,15 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using k8s;
+using k8s.Autorest;
+using k8s.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Deployment.Application.Abstractions;
+using Deployment.Infrastructure.Kubernetes;
 using Deployment.Infrastructure.Nexus;
 
 namespace Deployment.Infrastructure.Aspirate;
@@ -19,20 +24,23 @@ namespace Deployment.Infrastructure.Aspirate;
 /// </summary>
 internal sealed partial class AspirateRunner : IAspirateRunner
 {
+    private const string FieldManager = "cicd-deployment";
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(2) };
 
     private readonly IOptionsMonitor<AspireOptions> _options;
     private readonly IOptionsMonitor<NexusRegistryOptions> _nexus;
     private readonly INexusImageDigestResolver _digests;
+    private readonly IKubeClientFactory _kube;
     private readonly ILogger<AspirateRunner> _logger;
 
     public AspirateRunner(
         IOptionsMonitor<AspireOptions> options, IOptionsMonitor<NexusRegistryOptions> nexus,
-        INexusImageDigestResolver digests, ILogger<AspirateRunner> logger)
+        INexusImageDigestResolver digests, IKubeClientFactory kube, ILogger<AspirateRunner> logger)
     {
         _options = options;
         _nexus = nexus;
         _digests = digests;
+        _kube = kube;
         _logger = logger;
     }
 
@@ -62,6 +70,20 @@ internal sealed partial class AspirateRunner : IAspirateRunner
             // 2) Repoint registry host + digest-pin the images.
             if (!string.IsNullOrWhiteSpace(opts.PullRegistry))
                 await RewriteImageHostAsync(outputDir, opts.PullRegistry.Trim(), log, cancellationToken).ConfigureAwait(false);
+
+            // 2b) Provision the Nexus image-pull secret so the aspirate pods can authenticate to the registry.
+            if (opts.EnsurePullSecret)
+            {
+                try
+                {
+                    await EnsurePullSecretAsync(request.KubeContext, request.Namespace, opts, log, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    log.AppendLine($"pull-secret provisioning failed: {ex.Message}");
+                    return new AspirateDeployResult(false, log.ToString(), $"could not provision image-pull secret: {ex.Message}");
+                }
+            }
 
             // 3) Apply to the target context.
             var env = string.IsNullOrWhiteSpace(opts.Kubeconfig) ? null
@@ -200,6 +222,72 @@ internal sealed partial class AspirateRunner : IAspirateRunner
         if (stdout.Length > 0) log.AppendLine(stdout.TrimEnd());
         if (stderr.Length > 0) log.AppendLine(stderr.TrimEnd());
         return process.ExitCode;
+    }
+
+    /// <summary>
+    /// Provisions a <c>kubernetes.io/dockerconfigjson</c> pull secret for the <see cref="AspireOptions.PullRegistry"/>
+    /// host (Nexus creds) in the target namespace and adds it to the namespace's <c>default</c> ServiceAccount, so
+    /// aspirate-deployed pods can pull the auth-required Nexus images. Ensures the namespace first (aspirate would
+    /// otherwise create it during apply). Server-side apply, so it's idempotent across redeploys.
+    /// </summary>
+    private async Task EnsurePullSecretAsync(string context, string ns, AspireOptions opts, StringBuilder log, CancellationToken ct)
+    {
+        var n = _nexus.CurrentValue;
+        var host = opts.PullRegistry.Trim();
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            log.AppendLine("EnsurePullSecret is on but Deployment:Aspirate:PullRegistry is empty — skipping (can't tell which registry host to authenticate).");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(n.Username) || string.IsNullOrWhiteSpace(n.Password))
+        {
+            log.AppendLine("EnsurePullSecret is on but Deployment:Nexus:Username/Password are not set — skipping.");
+            return;
+        }
+
+        var name = string.IsNullOrWhiteSpace(opts.PullSecretName) ? "nexus-pull" : opts.PullSecretName.Trim();
+        var auth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{n.Username}:{n.Password}"));
+        var dockerConfig = JsonSerializer.Serialize(new
+        {
+            auths = new Dictionary<string, object>
+            {
+                [host] = new { username = n.Username, password = n.Password, auth },
+            },
+        });
+
+        using var client = _kube.Create(context);
+
+        // Namespace (may already exist / be owned by another manager).
+        await ApplyIgnoringConflictAsync(() => client.CoreV1.PatchNamespaceAsync(
+            Apply(new V1Namespace { ApiVersion = "v1", Kind = "Namespace", Metadata = new V1ObjectMeta { Name = ns } }),
+            ns, fieldManager: FieldManager, force: true, cancellationToken: ct)).ConfigureAwait(false);
+
+        // dockerconfigjson secret.
+        await client.CoreV1.PatchNamespacedSecretAsync(Apply(new V1Secret
+        {
+            ApiVersion = "v1", Kind = "Secret",
+            Metadata = new V1ObjectMeta { Name = name, NamespaceProperty = ns },
+            Type = "kubernetes.io/dockerconfigjson",
+            StringData = new Dictionary<string, string> { [".dockerconfigjson"] = dockerConfig },
+        }), name, ns, fieldManager: FieldManager, force: true, cancellationToken: ct).ConfigureAwait(false);
+
+        // Add it to the namespace's default ServiceAccount so every pod pulls with it.
+        await client.CoreV1.PatchNamespacedServiceAccountAsync(Apply(new V1ServiceAccount
+        {
+            ApiVersion = "v1", Kind = "ServiceAccount",
+            Metadata = new V1ObjectMeta { Name = "default", NamespaceProperty = ns },
+            ImagePullSecrets = new List<V1LocalObjectReference> { new() { Name = name } },
+        }), "default", ns, fieldManager: FieldManager, force: true, cancellationToken: ct).ConfigureAwait(false);
+
+        log.AppendLine($"ensured image-pull secret '{name}' for {host} in namespace '{ns}' (added to default ServiceAccount).");
+    }
+
+    private static V1Patch Apply(object body) => new(body, V1Patch.PatchType.ApplyPatch);
+
+    private static async Task ApplyIgnoringConflictAsync(Func<Task> apply)
+    {
+        try { await apply().ConfigureAwait(false); }
+        catch (HttpOperationException e) when ((int)e.Response.StatusCode is 409) { /* already exists / owned elsewhere */ }
     }
 
     /// <summary>
