@@ -81,7 +81,7 @@ pipeline {
                         APPHOST_DIR = hit.substring(0, hit.lastIndexOf('/'))
                     }
                     APP_HOST_NAME = sh(script: "basename \$(ls ${APPHOST_DIR}/*.AppHost.csproj) .csproj", returnStdout: true).trim()
-                    APP_NAME = (params.APP_NAME?.trim() ?: APP_HOST_NAME.replaceFirst(/(?i)\\.AppHost\$/, '')).toLowerCase()
+                    APP_NAME = (params.APP_NAME?.trim() ?: APP_HOST_NAME.replaceFirst('(?i)\\.AppHost$', '')).toLowerCase()
                     println "AppHost: ${APPHOST_DIR} (${APP_HOST_NAME}) | app name: ${APP_NAME}"
                 }
             }
@@ -241,10 +241,10 @@ pipeline {
                             fi
                         """).trim()
                         def gate = [high: 'HIGH,CRITICAL', critical: 'CRITICAL'][params.FAIL_ON_SEVERITY]
-                        def base = params.SBOM_NEXUS_REPO_URL.trim().replaceFirst(/\\/\$/, '')
+                        def base = params.SBOM_NEXUS_REPO_URL.trim().replaceFirst('/$', '')
 
                         IMAGE_REFS.each { ref ->
-                            def name = ref.replaceFirst(/:[^\\/:]+\$/, '').tokenize('/').last()  // resource name
+                            def name = ref.replaceFirst(':[^/:]+$', '').tokenize('/').last()  // resource name
                             sh """
                                 set -e
                                 mkdir -p _meta
@@ -269,7 +269,7 @@ pipeline {
                         // Package with tar+gzip (always present in the build image; `zip` is not). The deployment
                         // service sniffs magic bytes and extracts .tar.gz (gzip) as well as .zip, so a tarball is a
                         // drop-in for the manifest source.
-                        def base = params.NEXUS_RAW_REPO_URL.trim().replaceFirst(/\\/\$/, '')
+                        def base = params.NEXUS_RAW_REPO_URL.trim().replaceFirst('/$', '')
                         MANIFEST_URL = "${base}/${APP_NAME}/${PACKAGE_VERSION}/aspirate-output.tar.gz"
                         sh """
                             set -e
