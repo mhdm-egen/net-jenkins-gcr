@@ -17,7 +17,7 @@
                Style="min-width: 16rem;" Disabled="@(_state == RunUi.Running)">
         @foreach (var r in _repositories)
         {
-            <MudSelectItem T="Guid?" Value="@((Guid?)r.Id)">@r.Name (@r.DefaultBranch)</MudSelectItem>
+            <MudSelectItem T="Guid?" Value="@((Guid?)r.Id)">@r.Name (@r.DefaultBranch)@(r.BuildKind == BuildKindDto.Aspire ? " · Aspire" : "")</MudSelectItem>
         }
     </MudSelect>
     <MudSelect T="Guid?" Value="_selectedId" ValueChanged="OnPipelineSelectedAsync"
@@ -25,7 +25,7 @@
                Style="min-width: 16rem;" Disabled="@(_state == RunUi.Running)">
         @foreach (var p in _pipelines)
         {
-            <MudSelectItem T="Guid?" Value="@((Guid?)p.Id)">@p.Name (@p.StageCount)</MudSelectItem>
+            <MudSelectItem T="Guid?" Value="@((Guid?)p.Id)">@p.Name (@p.StageCount)@(p.Id == _recommendedPipelineId ? " · recommended" : "")</MudSelectItem>
         }
     </MudSelect>
     <MudTooltip Text="Manage pipelines">
@@ -137,6 +137,11 @@
     private Guid? _selectedId;
     private IReadOnlyList<string> _plannedJobs = Array.Empty<string>();
 
+    // Stage jobs per pipeline (fetched once) → lets us default to the pipeline that runs the
+    // selected repo's CI job. _recommendedPipelineId marks that pick in the dropdown.
+    private IReadOnlyDictionary<Guid, HashSet<string>> _pipelineJobs = new Dictionary<Guid, HashSet<string>>();
+    private Guid? _recommendedPipelineId;
+
     private IReadOnlyList<RepositoryDto> _repositories = Array.Empty<RepositoryDto>();
     private Guid? _selectedRepoId;
     private RepositoryDto? SelectedRepo => _repositories.FirstOrDefault(r => r.Id == _selectedRepoId);
@@ -157,6 +162,7 @@
     {
         await LoadRepositoriesAsync();
         await LoadPipelinesAsync();
+        await AutoSelectPipelineForRepoAsync(SelectedRepo);
     }
 
     private async Task LoadRepositoriesAsync()
@@ -166,14 +172,56 @@
         _selectedRepoId = _repositories.FirstOrDefault()?.Id;
     }
 
-    private void OnRepoSelected(Guid? id) { _selectedRepoId = id; StateHasChanged(); }
+    private async Task OnRepoSelected(Guid? id)
+    {
+        _selectedRepoId = id;
+        await AutoSelectPipelineForRepoAsync(SelectedRepo);   // re-default the pipeline to match the repo
+        StateHasChanged();
+    }
 
     private async Task LoadPipelinesAsync()
     {
         try { _pipelines = await Api.ListPipelinesAsync(); }
         catch { _pipelines = Array.Empty<PipelineSummaryDto>(); }
-        var initial = _pipelines.FirstOrDefault(p => p.IsActive) ?? _pipelines.FirstOrDefault();
-        if (initial is not null) await OnPipelineSelectedAsync(initial.Id);
+
+        // Fetch each pipeline's stage jobs so the repo→pipeline default can match on repo.CiJobName
+        // (robust to pipeline renames). There are only a handful of pipelines.
+        var jobs = new Dictionary<Guid, HashSet<string>>();
+        foreach (var p in _pipelines)
+        {
+            try
+            {
+                var dto = await Api.GetPipelineAsync(p.Id);
+                jobs[p.Id] = dto?.Stages.Select(s => s.JobName).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+            catch { jobs[p.Id] = new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
+        }
+        _pipelineJobs = jobs;
+    }
+
+    // Pick the pipeline that fits the repo: (1) one whose stages include the repo's CI job,
+    // (2) by build kind → seeded pipeline name, (3) first active, else first.
+    private PipelineSummaryDto? ChoosePipeline(RepositoryDto? repo)
+    {
+        if (_pipelines.Count == 0) return null;
+        if (repo is not null)
+        {
+            var byJob = _pipelines.FirstOrDefault(p => _pipelineJobs.TryGetValue(p.Id, out var j) && j.Contains(repo.CiJobName));
+            if (byJob is not null) return byJob;
+            var wantName = repo.BuildKind == BuildKindDto.Aspire ? "Aspire build" : "CICD Main";
+            var byName = _pipelines.FirstOrDefault(p => string.Equals(p.Name, wantName, StringComparison.OrdinalIgnoreCase));
+            if (byName is not null) return byName;
+        }
+        return _pipelines.FirstOrDefault(p => p.IsActive) ?? _pipelines.FirstOrDefault();
+    }
+
+    private async Task AutoSelectPipelineForRepoAsync(RepositoryDto? repo)
+    {
+        var pick = ChoosePipeline(repo);
+        _recommendedPipelineId = pick?.Id;
+        if (pick is not null) await OnPipelineSelectedAsync(pick.Id);
+        else { _selectedId = null; _plannedJobs = Array.Empty<string>(); }
     }
 
     private async Task OnPipelineSelectedAsync(Guid? id)
