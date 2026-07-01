@@ -66,6 +66,10 @@ var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
 // Override via the AppHost's user-secrets:
 //   dotnet user-secrets set Parameters:CraneExecutable <path-to-go-containerregistry-crane.exe>
 var craneExecutable = NexusParam("CraneExecutable", "crane");
+// Make Cloud Run services publicly reachable (allUsers run.invoker) on deploy. Default true for local
+// dev; set Parameters:CloudRunAllowUnauthenticated=false to keep them private. Org policy that forbids
+// allUsers is handled gracefully (the service stays private, the deploy still succeeds).
+var cloudRunAllowUnauthenticated = NexusParam("CloudRunAllowUnauthenticated", "true");
 
 // crane reads registry auth from $DOCKER_CONFIG/config.json. The host's default ~/.docker config
 // uses Docker Desktop's locked "desktop" credsStore (crane can't write it), so we hand crane an
@@ -97,6 +101,7 @@ var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WaitFor(rabbit)
     .WithEnvironment("Database__AutoMigrate", "true")
     .WithEnvironment("Deployment__GoogleCloudRun__CraneExecutable", craneExecutable)
+    .WithEnvironment("Deployment__GoogleCloudRun__AllowUnauthenticated", cloudRunAllowUnauthenticated)
     .WithEnvironment("Deployment__Aspirate__Executable", aspirateExecutable)
     .WithEnvironment("Deployment__Aspirate__PullRegistry", aspiratePullRegistry)
     .WithEnvironment("Deployment__Aspirate__Kubeconfig", aspirateKubeconfig)

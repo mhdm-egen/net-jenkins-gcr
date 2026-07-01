@@ -14,6 +14,13 @@ public sealed class GoogleCloudRunOptions
     /// <summary>Create the Cloud Run service if it doesn't exist (bare defaults) instead of failing.</summary>
     public bool CreateServiceIfMissing { get; set; } = true;
 
+    /// <summary>
+    /// Grant <c>allUsers</c> the <c>run.invoker</c> role on deploy so the service is publicly reachable
+    /// (unauthenticated). Default false (private — Cloud Run's default). Skipped gracefully, without
+    /// failing the deploy, when an org policy (e.g. domain-restricted sharing) forbids <c>allUsers</c>.
+    /// </summary>
+    public bool AllowUnauthenticated { get; set; } = false;
+
     /// <summary>How long to wait for the new revision to become Ready.</summary>
     public int ReadinessTimeoutSeconds { get; set; } = 300;
 

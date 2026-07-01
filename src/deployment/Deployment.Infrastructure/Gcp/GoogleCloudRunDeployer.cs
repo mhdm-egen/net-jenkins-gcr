@@ -1,5 +1,6 @@
 using Google.Api.Gax;
 using Google.Api.Gax.Grpc;
+using Google.Cloud.Iam.V1;
 using Google.Cloud.Run.V2;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
@@ -75,6 +76,10 @@ internal sealed class GoogleCloudRunDeployer : ICloudRunDeployer
             var revision = completed.Result.LatestReadyRevision ?? string.Empty;
             _logger.LogInformation("[cloudrun] Service '{Service}' {Action}. Ready revision: {Revision}.",
                 serviceName.ServiceId, creating ? "created" : "updated", revision);
+
+            if (opts.AllowUnauthenticated)
+                await EnsureAllUsersInvokerAsync(client, serviceName, cancellationToken).ConfigureAwait(false);
+
             return revision;
         }
         catch (RpcException rpc)
@@ -93,6 +98,38 @@ internal sealed class GoogleCloudRunDeployer : ICloudRunDeployer
         {
             throw new DeploymentStepException(StepFailureKind.Timeout,
                 $"Cloud Run revision did not become ready within {opts.ReadinessTimeoutSeconds}s.", tex);
+        }
+    }
+
+    /// <summary>
+    /// Grants <c>allUsers</c> the <c>roles/run.invoker</c> role on the service so it's publicly reachable.
+    /// Idempotent (no-op if already granted). A failure here (commonly an org policy forbidding allUsers)
+    /// is logged and swallowed — the deploy already succeeded; the service just stays private.
+    /// </summary>
+    private async System.Threading.Tasks.Task EnsureAllUsersInvokerAsync(ServicesClient client, ServiceName serviceName, CancellationToken ct)
+    {
+        const string role = "roles/run.invoker";
+        const string member = "allUsers";
+        var resource = serviceName.ToString();
+        try
+        {
+            var policy = await client.GetIamPolicyAsync(
+                new GetIamPolicyRequest { Resource = resource }, CallSettings.FromCancellationToken(ct)).ConfigureAwait(false);
+
+            var binding = policy.Bindings.FirstOrDefault(b => b.Role == role);
+            if (binding is not null && binding.Members.Contains(member)) return; // already public
+            if (binding is null) { binding = new Binding { Role = role }; policy.Bindings.Add(binding); }
+            if (!binding.Members.Contains(member)) binding.Members.Add(member);
+
+            await client.SetIamPolicyAsync(
+                new SetIamPolicyRequest { Resource = resource, Policy = policy }, CallSettings.FromCancellationToken(ct)).ConfigureAwait(false);
+            _logger.LogInformation("[cloudrun] Granted {Member} {Role} on '{Service}' (public/unauthenticated).", member, role, serviceName.ServiceId);
+        }
+        catch (RpcException ex)
+        {
+            _logger.LogWarning(ex,
+                "[cloudrun] Could not make '{Service}' public ({Status}); it remains private. An org policy may forbid '{Member}'.",
+                serviceName.ServiceId, ex.StatusCode, member);
         }
     }
 
