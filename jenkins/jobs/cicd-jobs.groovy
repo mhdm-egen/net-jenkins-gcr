@@ -142,3 +142,36 @@ makePipeline('cicd-publish-nexus-docker',
     stringParam('SOURCE_BUILD_JOB', 'cicd-scan', 'Upstream job whose build-info.json is pulled in (cicd-scan)')
     stringParam('SOURCE_BUILD_NUMBER', '', 'Specific upstream build number to publish. Blank = last successful build.')
 }
+
+// ---------------------------------------------------------------------------
+// cicd-aspire-publish — build a .NET Aspire app with Aspir8 and publish its
+// images + Kustomize-output archive to Nexus. Repo-agnostic source job (like
+// cicd-build): the platform injects GIT_URL/GIT_BRANCH/BASE_VER (+ APPHOST_PROJECT
+// for typed Aspire repositories); the Jenkinsfile clones the app repo itself.
+// Aspir8 owns the multi-container build/push, so there is no separate cicd-build
+// or copy-only-Dockerfile step upstream.
+// ---------------------------------------------------------------------------
+makePipeline('cicd-aspire-publish',
+    'Build a .NET Aspire app (aspirate) and publish its images (build#+commit tagged) + Kustomize-output manifest archive to Nexus, with per-image Trivy scan + SBOM. Repo-agnostic: clones GIT_URL@GIT_BRANCH itself.',
+    'jenkins/publish/aspire/Jenkinsfile',
+    true) {
+    stringParam('GIT_URL', '', 'Git repository of the Aspire app to build (required; injected from the repository).')
+    stringParam('GIT_BRANCH', 'main', 'Branch, tag, or ref to build')
+    stringParam('GIT_CREDENTIALS_ID', '', 'Jenkins credentials id for cloning a private repo (blank = public/anonymous)')
+    stringParam('APPHOST_PROJECT', '', 'Path (within the repo) to the Aspire AppHost dir or .csproj. Blank = auto-discover the single *.AppHost.csproj.')
+    stringParam('BASE_VER', '1.0.0', 'Base version (Major.Minor.Patch); build# + commit hash are appended')
+    stringParam('APP_NAME', '', 'Artifact name segment for the manifest archive. Blank = the AppHost project name, lowercased.')
+    stringParam('NAMESPACE', 'default', 'Kubernetes namespace baked into the generated manifests')
+    stringParam('BUILD_CONTAINER_IMAGE', BUILD_IMAGE, 'Image for the build container')
+    stringParam('BUILD_CONTAINER_ARGS', BUILD_ARGS_PUBLISH, 'Arguments for the build container (docker socket for image build/push + Trivy DB cache)')
+    stringParam('ASPIRATE_PACKAGE_VERSION', '', 'Pin the Aspirate global tool version (blank = latest)')
+    stringParam('NEXUS_DOCKER_HOST', 'nexus:8082', 'Nexus docker registry host:port images are pushed to')
+    stringParam('NEXUS_DOCKER_PROTOCOL', 'http://', 'Nexus docker registry protocol')
+    stringParam('NEXUS_DOCKER_CREDENTIAL_ID', 'rhythm-docker', 'Jenkins username/password credential id for the Nexus docker registry')
+    stringParam('NEXUS_RAW_REPO_URL', 'http://nexus:8081/repository/raw-hosted/', 'Nexus raw (hosted) repo base URL for the Kustomize-output archive')
+    stringParam('NEXUS_RAW_CREDENTIAL_ID', 'nexus-sbom', 'Jenkins username/password credential id for the Nexus REST API (raw upload)')
+    stringParam('TRIVY_VERSION', 'v0.55.0', 'Trivy release tag used to scan the built images')
+    choiceParam('FAIL_ON_SEVERITY', ['none', 'high', 'critical'], 'Fail the publish when a built image has OS/library vulnerabilities at this severity (or worse). Default: report only')
+    stringParam('SBOM_NEXUS_REPO_URL', 'http://nexus:8081/repository/sboms/', 'Nexus raw (hosted) repo URL where per-image scan reports are uploaded')
+    stringParam('SBOM_NEXUS_CREDENTIAL_ID', 'nexus-sbom', 'Jenkins username/password credential id for the Nexus REST API (SBOM upload)')
+}

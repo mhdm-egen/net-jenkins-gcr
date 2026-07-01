@@ -1,14 +1,16 @@
 # cicd-* jobs as code (Job DSL seed)
 
-[`cicd-jobs.groovy`](cicd-jobs.groovy) defines the three orchestrator jobs as a
+[`cicd-jobs.groovy`](cicd-jobs.groovy) defines the orchestrator jobs as a
 [Job DSL](https://plugins.jenkins.io/job-dsl/) script so the controller can
 (re)create them reproducibly instead of hand-clicking in the UI:
 
 | Job | Type | Jenkinsfile | Repo it builds |
 | --- | --- | --- | --- |
 | `cicd-build` | parameterized Pipeline | `jenkins/build/Jenkinsfile` | **caller-supplied `GIT_URL`** (lightweight Jenkinsfile fetch) |
-| `cicd-publish-nexus-nuget` | parameterized Pipeline | `jenkins/publish/nexus/nuget/Jenkinsfile` | this repo (full checkout — packs `BUILD_FILE`) |
-| `cicd-publish-nexus-docker` | parameterized Pipeline | `jenkins/publish/nexus/docker/Jenkinsfile` | this repo (full checkout) |
+| `cicd-scan` | parameterized Pipeline | `jenkins/scan/Jenkinsfile` | the exact commit from the upstream `cicd-build`'s `build-info.json` |
+| `cicd-publish-nexus-nuget` | parameterized Pipeline | `jenkins/publish/nexus/nuget/Jenkinsfile` | the commit from the upstream `build-info.json` (`gitUrl`@`gitCommitHash`) |
+| `cicd-publish-nexus-docker` | parameterized Pipeline | `jenkins/publish/nexus/docker/Jenkinsfile` | the commit from the upstream `build-info.json` (`gitUrl`@`gitCommitHash`) |
+| `cicd-aspire-publish` | parameterized Pipeline | `jenkins/publish/aspire/Jenkinsfile` | **caller-supplied `GIT_URL`** — a .NET Aspire app (aspirate build/push + manifest archive) |
 
 The DSL **declares each job's parameters** so the orchestrator's first
 `POST /job/<name>/buildWithParameters?GIT_URL=…` succeeds before any run has
@@ -36,7 +38,7 @@ stays the source of truth for parameters after the first run.
    - `PIPELINE_REPO_URL` (default `https://github.com/mhdm-egen/net-jenkins-gcr.git`)
    - `PIPELINE_REPO_BRANCH` (default `main`)
    - `PIPELINE_REPO_CREDENTIAL_ID` (default empty)
-5. **Save → Build**. The three `cicd-*` jobs are created. Re-run after editing the
+5. **Save → Build**. The `cicd-*` jobs are created. Re-run after editing the
    DSL to apply changes.
 
 > First run may need DSL **script approval** (Manage Jenkins → In-process Script
