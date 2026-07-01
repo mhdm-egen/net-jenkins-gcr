@@ -30,6 +30,19 @@ public sealed class AspireOptions
     /// </summary>
     public string PullRegistry { get; set; } = string.Empty;
 
+    /// <summary>
+    /// When true, before <c>aspirate apply</c> the runner provisions a <c>kubernetes.io/dockerconfigjson</c>
+    /// image-pull secret (named <see cref="PullSecretName"/>) in the target namespace from the
+    /// <c>Deployment:Nexus</c> credentials for the <see cref="PullRegistry"/> host, and adds it to the
+    /// namespace's <c>default</c> ServiceAccount — so aspirate-deployed pods can pull the (auth-required)
+    /// Nexus images. Requires <see cref="PullRegistry"/> + Nexus Username/Password. Off by default.
+    /// (Insecure/HTTP registries still need the node's container runtime configured; this only handles auth.)
+    /// </summary>
+    public bool EnsurePullSecret { get; set; }
+
+    /// <summary>Name of the image-pull secret provisioned when <see cref="EnsurePullSecret"/> is set.</summary>
+    public string PullSecretName { get; set; } = "nexus-pull";
+
     /// <summary>How long <c>aspirate generate</c> may run (builds the Aspire manifest).</summary>
     public int GenerateTimeoutSeconds { get; set; } = 600;
 
