@@ -178,7 +178,11 @@ pipeline {
                             export PATH="\$PATH:\$HOME/.dotnet/tools"
                             export DOTNET_CONTAINER_INSECURE_REGISTRIES=${SDK_REGISTRY}
                             cd ${APPHOST_DIR}
-                            rm -rf aspirate.json aspirate-output manifest.json
+                            # Wipe ALL stale aspirate artifacts left in the reused Jenkins workspace. Crucially
+                            # aspirate-state.json caches the resolved container registry/tag from a previous build and
+                            # `generate` loads it ("State loaded successfully from aspirate-state.json"), overriding the
+                            # fresh aspirate.json — which is why the SDK kept seeing 'nexus:8082' and 'latest'.
+                            rm -rf aspirate.json aspirate-state.json aspirate-output manifest.json .aspirate
                             aspirate init -cr ${SDK_REGISTRY} -ct ${IMAGE_TAG} --disable-secrets --non-interactive
                             printf '%s' '{"ContainerSettings":{"Registry":"${SDK_REGISTRY}","RepositoryPrefix":null,"Tags":["${IMAGE_TAG}"],"Builder":"docker","BuildArgs":null,"Context":null}}' > aspirate.json
                             aspirate generate --non-interactive --disable-secrets --include-dashboard false \\
