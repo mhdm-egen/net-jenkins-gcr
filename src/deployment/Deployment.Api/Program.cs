@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Cicd.Messaging;
+using Cicd.Notifications;
 using Deployment.Api.Endpoints;
 using Deployment.Api.Hubs;
 using Deployment.Application;
@@ -23,6 +24,11 @@ builder.Services.AddDeploymentInfrastructure(builder.Configuration);
 // SignalR: broadcasts deployment-run completion to the web-admin for app-wide toasts.
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IDeploymentRunNotifier, DeploymentRunNotifier>();
+
+// Deploy notifications (Slack / email) — opt-in via Deployment:Notifications. The in-process
+// notification handlers fan out through INotificationDispatcher on the deploy domain events.
+builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Deployment:Notifications"));
+builder.Services.AddCicdNotifications();
 
 // Wolverine: CQRS dispatcher + in-process bus + durable cross-service messaging.
 // Handlers (the ContainerPublished consumer, the run executor, the success translator) are
@@ -58,6 +64,8 @@ builder.Host.UseWolverine(opts =>
     // the handler compiles (same constraint as the ContainerPublished consumer above).
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.AspireApps.IAspireApplicationRepository>();
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.AspireApps.RequestAspireDeploymentHandler>();
+    // Deploy-notification handlers inject the dispatcher (with internal senders behind it) — service-locate it.
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<INotificationDispatcher>();
 
     opts.UseEntityFrameworkCoreTransactions();
 

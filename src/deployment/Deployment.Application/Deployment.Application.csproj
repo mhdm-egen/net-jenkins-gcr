@@ -11,6 +11,7 @@
     <ProjectReference Include="..\Deployment.Domain\Deployment.Domain.csproj" />
     <ProjectReference Include="..\Deployment.Contracts\Deployment.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Cicd.IntegrationEvents\Cicd.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\shared\Cicd.Notifications\Cicd.Notifications.csproj" />
   </ItemGroup>
 
   <ItemGroup>

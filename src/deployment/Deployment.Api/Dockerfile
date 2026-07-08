@@ -21,6 +21,7 @@ COPY deployment/Deployment.Infrastructure/*.csproj deployment/Deployment.Infrast
 COPY deployment/Deployment.Api/*.csproj            deployment/Deployment.Api/
 COPY shared/Cicd.IntegrationEvents/*.csproj        shared/Cicd.IntegrationEvents/
 COPY shared/Cicd.Messaging/*.csproj                shared/Cicd.Messaging/
+COPY shared/Cicd.Notifications/*.csproj            shared/Cicd.Notifications/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/*.csproj   Aspire/Cicd.Aspire.ServiceDefaults/
 RUN dotnet restore deployment/Deployment.Api/Deployment.Api.csproj
 
@@ -28,6 +29,7 @@ RUN dotnet restore deployment/Deployment.Api/Deployment.Api.csproj
 COPY deployment/ deployment/
 COPY shared/Cicd.IntegrationEvents/ shared/Cicd.IntegrationEvents/
 COPY shared/Cicd.Messaging/ shared/Cicd.Messaging/
+COPY shared/Cicd.Notifications/ shared/Cicd.Notifications/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/ Aspire/Cicd.Aspire.ServiceDefaults/
 RUN dotnet publish deployment/Deployment.Api/Deployment.Api.csproj \
     -c Release -o /app/publish --no-restore
