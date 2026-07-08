@@ -51,3 +51,39 @@ public sealed record AspireApplicationRunDto(
 /// <summary>Approve / reject a run that's awaiting approval (protected environment).</summary>
 public sealed record ApproveAspireRunRequest(string? ApprovedBy);
 public sealed record RejectAspireRunRequest(string? RejectedBy, string? Reason);
+
+/// <summary>Health of a single workload / the app overall. Ordered so the numerically-largest value is the worst.</summary>
+public enum WorkloadHealthDto { Unknown = 0, Healthy = 1, Degraded = 2, Down = 3 }
+
+/// <summary>Live workloads read from a namespace + a reachability flag (an unreachable cluster is data, not an error).</summary>
+public sealed record ClusterWorkloadsDto(
+    bool Reachable, string? Error, WorkloadHealthDto OverallHealth, IReadOnlyList<WorkloadStatusDto> Workloads);
+
+/// <summary>Live + drift status of an Aspire app: cluster health for its target namespace plus whether the
+/// app's current manifest/version has been deployed yet.</summary>
+public sealed record AspireAppStatusDto(
+    Guid ApplicationId,
+    string ApplicationName,
+    string EnvironmentName,
+    string? KubeContext,
+    string? Namespace,
+    bool Reachable,
+    string? Error,
+    WorkloadHealthDto OverallHealth,
+    bool HasUndeployedChanges,
+    string? CurrentVersion,
+    string? LastDeployedVersion,
+    DateTimeOffset? LastDeployedAtUtc,
+    IReadOnlyList<WorkloadStatusDto> Workloads);
+
+/// <summary>A live Kubernetes Deployment for the app: the image it runs, desired vs. ready replicas, and its pods.</summary>
+public sealed record WorkloadStatusDto(
+    string Name,
+    string? Image,
+    int DesiredReplicas,
+    int ReadyReplicas,
+    int UpdatedReplicas,
+    WorkloadHealthDto Health,
+    IReadOnlyList<PodStatusDto> Pods);
+
+public sealed record PodStatusDto(string Name, string Phase, int Restarts, bool Ready);
