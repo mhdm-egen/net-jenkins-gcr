@@ -6,6 +6,10 @@ public enum DeploymentRunStatus
     Running = 1,
     Succeeded = 2,
     Failed = 3,
+    /// <summary>Targets a protected environment; parked until a human approves (then → Pending).</summary>
+    AwaitingApproval = 4,
+    /// <summary>An approval request that was rejected — terminal, nothing applied.</summary>
+    Rejected = 5,
 }
 
 public enum DeploymentTrigger

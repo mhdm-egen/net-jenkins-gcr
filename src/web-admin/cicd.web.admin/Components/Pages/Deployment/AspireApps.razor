@@ -85,7 +85,7 @@
             <RowTemplate>
                 <MudTd>
                     <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Status)" Variant="Variant.Filled">@context.Status</MudChip>
-                    @if (context.Status == AspireRunStatusDto.Failed && !string.IsNullOrEmpty(context.FailureReason))
+                    @if ((context.Status == AspireRunStatusDto.Failed || context.Status == AspireRunStatusDto.Rejected) && !string.IsNullOrEmpty(context.FailureReason))
                     { <MudTooltip Text="@context.FailureReason"><MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Color="Color.Error" Size="Size.Small" /></MudTooltip> }
                 </MudTd>
                 <MudTd>@context.ApplicationName</MudTd>
@@ -94,6 +94,15 @@
                 <MudTd>@context.RequestedAtUtc.LocalDateTime.ToString("g")</MudTd>
                 <MudTd>
                     <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ShowLog(context))">Log</MudButton>
+                    @if (context.Status == AspireRunStatusDto.AwaitingApproval)
+                    {
+                        <MudTooltip Text="Approve — deploy to this protected environment now">
+                            <MudIconButton Icon="@Icons.Material.Filled.Check" Color="Color.Success" Size="Size.Small" Disabled="_busy" OnClick="@(() => ApproveRunAsync(context))" />
+                        </MudTooltip>
+                        <MudTooltip Text="Reject — cancel this deploy">
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" Size="Size.Small" Disabled="_busy" OnClick="@(() => RejectRunAsync(context))" />
+                        </MudTooltip>
+                    }
                     @if (context.Status == AspireRunStatusDto.Succeeded)
                     {
                         <MudTooltip Text="Roll the app back to this deploy's manifest">
@@ -334,11 +343,39 @@
         finally { _busy = false; }
     }
 
+    private async Task ApproveRunAsync(AspireApplicationRunDto run)
+    {
+        _busy = true;
+        try
+        {
+            await Api.ApproveAspireRunAsync(run.Id);
+            Snackbar.Add($"Approved — deploying '{run.ApplicationName}' to {run.EnvironmentName}.", Severity.Info);
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private async Task RejectRunAsync(AspireApplicationRunDto run)
+    {
+        _busy = true;
+        try
+        {
+            await Api.RejectAspireRunAsync(run.Id);
+            Snackbar.Add($"Rejected deploy of '{run.ApplicationName}' to {run.EnvironmentName}.", Severity.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
     private static Color StatusColor(AspireRunStatusDto s) => s switch
     {
         AspireRunStatusDto.Succeeded => Color.Success,
         AspireRunStatusDto.Failed => Color.Error,
+        AspireRunStatusDto.Rejected => Color.Error,
         AspireRunStatusDto.Running => Color.Info,
+        AspireRunStatusDto.AwaitingApproval => Color.Warning,
         _ => Color.Default,
     };
 }

@@ -66,7 +66,8 @@ public sealed class RollbackAspireDeploymentHandler
             manifestSource: target.ManifestSource,
             version: target.Version,
             triggeredBy: cmd.TriggeredBy ?? $"rollback:{target.Id.ToString("N")[..8]}",
-            requestedAtUtc: now);
+            requestedAtUtc: now,
+            requiresApproval: env.IsProtected);
 
         await _runs.AddAsync(run, ct).ConfigureAwait(false);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);

@@ -27,6 +27,8 @@ public sealed class AspireApplicationRun : AggregateRoot<Guid>
     public string TriggeredBy { get; private set; }
     public string? Log { get; private set; }
     public string? FailureReason { get; private set; }
+    /// <summary>Who approved or rejected the run (when it targeted a protected environment).</summary>
+    public string? DecisionBy { get; private set; }
     public DateTimeOffset RequestedAtUtc { get; private set; }
     public DateTimeOffset? CompletedAtUtc { get; private set; }
 
@@ -43,7 +45,8 @@ public sealed class AspireApplicationRun : AggregateRoot<Guid>
     public AspireApplicationRun(
         Guid id, Guid applicationId, string applicationName,
         Guid environmentId, string environmentName, string kubeContext, string @namespace,
-        string manifestSource, string? version, string triggeredBy, DateTimeOffset requestedAtUtc)
+        string manifestSource, string? version, string triggeredBy, DateTimeOffset requestedAtUtc,
+        bool requiresApproval = false)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
         Id = id;
@@ -56,9 +59,38 @@ public sealed class AspireApplicationRun : AggregateRoot<Guid>
         ManifestSource = manifestSource?.Trim() ?? string.Empty;
         Version = string.IsNullOrWhiteSpace(version) ? null : version.Trim();
         TriggeredBy = string.IsNullOrWhiteSpace(triggeredBy) ? "manual" : triggeredBy.Trim();
-        Status = DeploymentRunStatus.Pending;
         RequestedAtUtc = requestedAtUtc;
-        RaiseEvent(new AspireApplicationRunRequested(Id, ApplicationId, requestedAtUtc));
+
+        // A run targeting a protected environment parks for approval and does NOT raise the requested
+        // event, so the executor won't apply it until Approve() transitions it to Pending.
+        if (requiresApproval)
+        {
+            Status = DeploymentRunStatus.AwaitingApproval;
+        }
+        else
+        {
+            Status = DeploymentRunStatus.Pending;
+            RaiseEvent(new AspireApplicationRunRequested(Id, ApplicationId, requestedAtUtc));
+        }
+    }
+
+    /// <summary>Approve a parked run → Pending, and raise the request that drives the executor.</summary>
+    public void Approve(string approvedBy, DateTimeOffset occurredAtUtc)
+    {
+        if (Status != DeploymentRunStatus.AwaitingApproval) return;
+        Status = DeploymentRunStatus.Pending;
+        DecisionBy = string.IsNullOrWhiteSpace(approvedBy) ? "unknown" : approvedBy.Trim();
+        RaiseEvent(new AspireApplicationRunRequested(Id, ApplicationId, occurredAtUtc));
+    }
+
+    /// <summary>Reject a parked run — terminal, nothing is applied. Not a deploy failure, so no failure event.</summary>
+    public void Reject(string rejectedBy, string? reason, DateTimeOffset occurredAtUtc)
+    {
+        if (Status != DeploymentRunStatus.AwaitingApproval) return;
+        Status = DeploymentRunStatus.Rejected;
+        DecisionBy = string.IsNullOrWhiteSpace(rejectedBy) ? "unknown" : rejectedBy.Trim();
+        FailureReason = string.IsNullOrWhiteSpace(reason) ? "Rejected." : reason.Trim();
+        CompletedAtUtc = occurredAtUtc;
     }
 
     public void Start() { if (Status == DeploymentRunStatus.Pending) Status = DeploymentRunStatus.Running; }

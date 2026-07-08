@@ -29,7 +29,7 @@ public sealed record PromoteAspireDeploymentRequest(Guid TargetEnvironmentId, st
 /// <summary>Toggle whether a CI publish of this app auto-triggers a deployment.</summary>
 public sealed record SetAspireAutoDeployRequest(bool AutoDeploy);
 
-public enum AspireRunStatusDto { Pending = 0, Running = 1, Succeeded = 2, Failed = 3 }
+public enum AspireRunStatusDto { Pending = 0, Running = 1, Succeeded = 2, Failed = 3, AwaitingApproval = 4, Rejected = 5 }
 
 public sealed record AspireApplicationRunDto(
     Guid Id,
@@ -45,4 +45,9 @@ public sealed record AspireApplicationRunDto(
     string? Log,
     string? FailureReason,
     DateTimeOffset RequestedAtUtc,
-    DateTimeOffset? CompletedAtUtc);
+    DateTimeOffset? CompletedAtUtc,
+    string? DecisionBy = null);
+
+/// <summary>Approve / reject a run that's awaiting approval (protected environment).</summary>
+public sealed record ApproveAspireRunRequest(string? ApprovedBy);
+public sealed record RejectAspireRunRequest(string? RejectedBy, string? Reason);

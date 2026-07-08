@@ -59,7 +59,8 @@ public sealed class RequestAspireDeploymentHandler
             manifestSource: app.ManifestSource,
             version: app.Version,
             triggeredBy: cmd.TriggeredBy ?? "manual",
-            requestedAtUtc: _clock.GetUtcNow());
+            requestedAtUtc: _clock.GetUtcNow(),
+            requiresApproval: env.IsProtected);
 
         await _runs.AddAsync(run, ct).ConfigureAwait(false);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
