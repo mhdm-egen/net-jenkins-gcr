@@ -68,6 +68,8 @@ builder.Host.UseWolverine(opts =>
     // the handler compiles (same constraint as the ContainerPublished consumer above).
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.AspireApps.IAspireApplicationRepository>();
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.AspireApps.RequestAspireDeploymentHandler>();
+    // The consumer also routes non-main-branch publishes into preview environments via this handler.
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.Previews.CreatePreviewEnvironmentHandler>();
     // Deploy-notification handlers inject the dispatcher (with internal senders behind it) — service-locate it.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<INotificationDispatcher>();
 

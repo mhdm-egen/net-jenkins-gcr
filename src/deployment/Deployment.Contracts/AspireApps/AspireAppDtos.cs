@@ -12,10 +12,11 @@ public sealed record AspireApplicationDto(
     bool IsActive,
     bool AutoDeploy,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string MainBranch = "main");
 
-public sealed record CreateAspireApplicationRequest(string Name, string? Description, Guid EnvironmentId, string ManifestSource, string? Version, string? SourceKey = null);
-public sealed record UpdateAspireApplicationRequest(string Name, string? Description, Guid EnvironmentId, string ManifestSource, string? Version, string? SourceKey = null);
+public sealed record CreateAspireApplicationRequest(string Name, string? Description, Guid EnvironmentId, string ManifestSource, string? Version, string? SourceKey = null, string? MainBranch = null);
+public sealed record UpdateAspireApplicationRequest(string Name, string? Description, Guid EnvironmentId, string ManifestSource, string? Version, string? SourceKey = null, string? MainBranch = null);
 
 /// <summary>Trigger an Aspire-app deployment.</summary>
 public sealed record TriggerAspireDeploymentRequest(string? TriggeredBy);

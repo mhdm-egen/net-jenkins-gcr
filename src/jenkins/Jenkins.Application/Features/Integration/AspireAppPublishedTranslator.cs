@@ -24,5 +24,6 @@ public sealed class AspireAppPublishedTranslator
             AppName: evt.AppName,
             ManifestUrl: evt.ManifestUrl,
             Version: evt.Version,
-            CommitSha: evt.CommitSha);
+            CommitSha: evt.CommitSha,
+            Branch: evt.Branch);
 }

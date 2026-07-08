@@ -29,3 +29,12 @@ public sealed record CreatePreviewEnvironmentRequest(
     string? Version = null,
     int? TtlHours = null,
     string? TriggeredBy = null);
+
+/// <summary>Normalized preview-lifecycle webhook a git provider (or Jenkins) posts on PR events. A close/merge
+/// action tears down the preview matching the app + key (branch / PR). Identify the app by <see cref="AppName"/>
+/// (its CI source key or name) or <see cref="ApplicationId"/>.</summary>
+public sealed record PreviewWebhookRequest(
+    string? AppName,
+    Guid? ApplicationId,
+    string Key,
+    string? Action = null);

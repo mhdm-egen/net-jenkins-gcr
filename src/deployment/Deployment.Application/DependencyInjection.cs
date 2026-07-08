@@ -69,6 +69,7 @@ public static class DependencyInjection
         // Preview environments (ephemeral per-PR Aspire deploys)
         services.AddScoped<CreatePreviewEnvironmentHandler>();
         services.AddScoped<TeardownPreviewEnvironmentHandler>();
+        services.AddScoped<HandlePreviewWebhookHandler>();
         services.AddScoped<ListPreviewEnvironmentsHandler>();
         services.AddScoped<GetPreviewEnvironmentByIdHandler>();
 

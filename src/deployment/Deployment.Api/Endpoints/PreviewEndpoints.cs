@@ -32,6 +32,15 @@ public static class PreviewEndpoints
             return r.Applied ? Results.Ok(r) : Results.Problem(title: "Cannot tear down", detail: r.Outcome, statusCode: 404);
         });
 
+        // PR-lifecycle webhook: a git provider / Jenkins posts here on PR close/merge to tear down the matching
+        // preview. Always 200 (webhooks expect it); the result body says what happened. The TTL sweeper is the
+        // fallback if this never fires.
+        g.MapPost("webhook", async (PreviewWebhookRequest body, HandlePreviewWebhookHandler h, CancellationToken ct) =>
+        {
+            var r = await h.HandleAsync(new PreviewWebhookCommand(body.AppName, body.ApplicationId, body.Key, body.Action), ct);
+            return Results.Ok(r);
+        });
+
         return app;
     }
 }

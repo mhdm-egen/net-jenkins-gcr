@@ -190,7 +190,7 @@ public sealed class Build : AggregateRoot<Guid>
         AspireManifestUrl = url;
         RaiseEvent(new AspireManifestPublished(
             Id, RepositoryId, appName.Trim(), url,
-            version?.Trim() ?? string.Empty, SourceRevision.CommitSha, occurredAtUtc));
+            version?.Trim() ?? string.Empty, SourceRevision.CommitSha, SourceRevision.Branch, occurredAtUtc));
         return true;
     }
 
