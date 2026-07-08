@@ -91,6 +91,10 @@ public sealed class DeploymentApiClient
         => PostJsonAsync<RollbackAspireDeploymentRequest, DeployResponse>($"api/deployment/aspire-apps/{id}/rollback", new RollbackAspireDeploymentRequest(targetRunId, "ui"), ct);
     public Task<DeployResponse> PromoteAspireAppAsync(Guid id, Guid targetEnvironmentId, CancellationToken ct = default)
         => PostJsonAsync<PromoteAspireDeploymentRequest, DeployResponse>($"api/deployment/aspire-apps/{id}/promote", new PromoteAspireDeploymentRequest(targetEnvironmentId, "ui"), ct);
+    public Task ApproveAspireRunAsync(Guid runId, CancellationToken ct = default)
+        => PostJsonNoBodyAsync($"api/deployment/aspire-runs/{runId}/approve", new ApproveAspireRunRequest("ui"), ct);
+    public Task RejectAspireRunAsync(Guid runId, string? reason = null, CancellationToken ct = default)
+        => PostJsonNoBodyAsync($"api/deployment/aspire-runs/{runId}/reject", new RejectAspireRunRequest("ui", reason), ct);
     public async Task<IReadOnlyList<AspireApplicationRunDto>> ListAspireRunsAsync(Guid? applicationId = null, CancellationToken ct = default)
     {
         var url = applicationId is { } a ? $"api/deployment/aspire-runs?applicationId={a}" : "api/deployment/aspire-runs";

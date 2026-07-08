@@ -67,6 +67,7 @@ public sealed class EnvironmentConfiguration : IEntityTypeConfiguration<Deployme
         b.Property(e => e.KubernetesContext).HasMaxLength(200);
         b.Property(e => e.KubernetesNamespace).HasMaxLength(200);
         b.Property(e => e.IsActive).IsRequired();
+        b.Property(e => e.IsProtected).IsRequired().HasDefaultValue(false);
         b.Property(e => e.CreatedAtUtc).IsRequired();
         b.Property(e => e.UpdatedAtUtc).IsRequired();
         b.HasIndex(e => e.Name).IsUnique();
@@ -200,6 +201,7 @@ public sealed class AspireApplicationRunConfiguration : IEntityTypeConfiguration
         b.Property(r => r.TriggeredBy).HasMaxLength(200).IsRequired();
         b.Property(r => r.Log).HasColumnType("nvarchar(max)");
         b.Property(r => r.FailureReason).HasMaxLength(2000);
+        b.Property(r => r.DecisionBy).HasMaxLength(200);
         b.Property(r => r.RequestedAtUtc).IsRequired();
         b.Property(r => r.CompletedAtUtc);
         b.HasIndex(r => r.ApplicationId);

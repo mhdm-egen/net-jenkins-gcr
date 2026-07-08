@@ -28,6 +28,10 @@ public sealed class DeploymentEnvironment : AggregateRoot<Guid>
     public string? KubernetesNamespace { get; private set; }
 
     public bool IsActive { get; private set; }
+
+    /// <summary>When true, deploys targeting this environment park as AwaitingApproval until a human approves.</summary>
+    public bool IsProtected { get; private set; }
+
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset UpdatedAtUtc { get; private set; }
 
@@ -42,7 +46,7 @@ public sealed class DeploymentEnvironment : AggregateRoot<Guid>
     // GCP coordinates are optional now: an environment may instead (or also) target a Kubernetes cluster.
     // The "at least one target" rule lives in the create/update validators, not the aggregate.
     public DeploymentEnvironment(Guid id, string name, string? gcpProject, string? region, string? garRepository,
-        string? kubernetesContext, string? kubernetesNamespace, DateTimeOffset createdAtUtc)
+        string? kubernetesContext, string? kubernetesNamespace, DateTimeOffset createdAtUtc, bool isProtected = false)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Name cannot be empty.", nameof(name));
@@ -55,6 +59,7 @@ public sealed class DeploymentEnvironment : AggregateRoot<Guid>
         KubernetesContext = Clean(kubernetesContext);
         KubernetesNamespace = Clean(kubernetesNamespace);
         IsActive = true;
+        IsProtected = isProtected;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = createdAtUtc;
 
@@ -62,7 +67,7 @@ public sealed class DeploymentEnvironment : AggregateRoot<Guid>
     }
 
     public void Update(string name, string? gcpProject, string? region, string? garRepository,
-        string? kubernetesContext, string? kubernetesNamespace, DateTimeOffset occurredAtUtc)
+        string? kubernetesContext, string? kubernetesNamespace, DateTimeOffset occurredAtUtc, bool isProtected = false)
     {
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Name cannot be empty.", nameof(name));
         Name = name.Trim();
@@ -71,6 +76,7 @@ public sealed class DeploymentEnvironment : AggregateRoot<Guid>
         GarRepository = garRepository?.Trim() ?? string.Empty;
         KubernetesContext = Clean(kubernetesContext);
         KubernetesNamespace = Clean(kubernetesNamespace);
+        IsProtected = isProtected;
         UpdatedAtUtc = occurredAtUtc;
         RaiseEvent(new EnvironmentUpdated(Id, Name, GcpProject, Region, occurredAtUtc));
     }

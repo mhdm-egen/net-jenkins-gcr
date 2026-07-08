@@ -72,6 +72,18 @@ public static class AspireAppsEndpoints
         g.MapGet("{id:guid}", async (Guid id, GetAspireRunByIdHandler h, CancellationToken ct) =>
             await h.HandleAsync(new GetAspireRunByIdQuery(id), ct) is { } d ? Results.Ok(d) : Results.NotFound());
 
+        g.MapPost("{id:guid}/approve", async (Guid id, ApproveAspireRunRequest body, ApproveAspireRunHandler h, CancellationToken ct) =>
+        {
+            var r = await h.HandleAsync(new ApproveAspireRunCommand(id, body.ApprovedBy), ct);
+            return r.Applied ? Results.Ok(r) : Results.Problem(title: "Cannot approve", detail: r.Outcome, statusCode: 409);
+        });
+
+        g.MapPost("{id:guid}/reject", async (Guid id, RejectAspireRunRequest body, RejectAspireRunHandler h, CancellationToken ct) =>
+        {
+            var r = await h.HandleAsync(new RejectAspireRunCommand(id, body.RejectedBy, body.Reason), ct);
+            return r.Applied ? Results.Ok(r) : Results.Problem(title: "Cannot reject", detail: r.Outcome, statusCode: 409);
+        });
+
         return app;
     }
 }

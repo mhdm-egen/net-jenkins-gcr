@@ -19,13 +19,18 @@
     else if (_items is not null)
     {
         <MudTable Items="@_items" Dense="true" Hover="true" Striped="true" T="EnvironmentDto">
-            <HeaderContent><MudTh>Name</MudTh><MudTh>GCP project</MudTh><MudTh>Region</MudTh><MudTh>GAR repo</MudTh><MudTh>Kubernetes</MudTh><MudTh Style="width:9rem; text-align:right;"></MudTh></HeaderContent>
+            <HeaderContent><MudTh>Name</MudTh><MudTh>GCP project</MudTh><MudTh>Region</MudTh><MudTh>GAR repo</MudTh><MudTh>Kubernetes</MudTh><MudTh>Protected</MudTh><MudTh Style="width:9rem; text-align:right;"></MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd>@context.Name</MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@context.GcpProject</MudTd>
                 <MudTd>@context.Region</MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@context.GarRepository</MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@(string.IsNullOrEmpty(context.KubernetesContext) ? "—" : $"{context.KubernetesContext} / {context.KubernetesNamespace}")</MudTd>
+                <MudTd>
+                    @if (context.IsProtected)
+                    { <MudTooltip Text="Deploys to this environment require approval"><MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled" Icon="@Icons.Material.Filled.Shield">Approval</MudChip></MudTooltip> }
+                    else { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">—</MudText> }
+                </MudTd>
                 <MudTd Style="text-align:right;">
                     <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="@(() => OpenEdit(context))" />
                     <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" />
@@ -47,6 +52,9 @@
         <MudTextField @bind-Value="_form.KubernetesContext" Label="Kube context" HelperText="e.g. docker-desktop" />
         <MudTextField @bind-Value="_form.KubernetesNamespace" Label="Namespace" />
         <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">Provide a Cloud Run target and/or a Kubernetes target.</MudText>
+        <MudDivider Class="my-3" />
+        <MudSwitch @bind-Value="_form.IsProtected" Color="Color.Warning" Label="Protected — require approval before any deploy" />
+        <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">When on, every deploy targeting this environment (manual, promotion, rollback, or auto-deploy) parks as Awaiting approval until someone approves it.</MudText>
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="@(() => _show = false)">Cancel</MudButton>
@@ -73,15 +81,15 @@
     }
 
     private void OpenCreate() { _editingId = null; _form = new Form(); _show = true; }
-    private void OpenEdit(EnvironmentDto e) { _editingId = e.Id; _form = new Form { Name = e.Name, GcpProject = e.GcpProject, Region = e.Region, GarRepository = e.GarRepository, KubernetesContext = e.KubernetesContext ?? "", KubernetesNamespace = e.KubernetesNamespace ?? "" }; _show = true; }
+    private void OpenEdit(EnvironmentDto e) { _editingId = e.Id; _form = new Form { Name = e.Name, GcpProject = e.GcpProject, Region = e.Region, GarRepository = e.GarRepository, KubernetesContext = e.KubernetesContext ?? "", KubernetesNamespace = e.KubernetesNamespace ?? "", IsProtected = e.IsProtected }; _show = true; }
 
     private async Task SaveAsync()
     {
         _busy = true;
         try
         {
-            if (_editingId is { } id) { await Api.UpdateEnvironmentAsync(id, new UpdateEnvironmentRequest(_form.Name, _form.GcpProject, _form.Region, _form.GarRepository, _form.KubernetesContext, _form.KubernetesNamespace)); Snackbar.Add("Saved.", Severity.Success); }
-            else { await Api.CreateEnvironmentAsync(new CreateEnvironmentRequest(_form.Name, _form.GcpProject, _form.Region, _form.GarRepository, _form.KubernetesContext, _form.KubernetesNamespace)); Snackbar.Add("Added.", Severity.Success); }
+            if (_editingId is { } id) { await Api.UpdateEnvironmentAsync(id, new UpdateEnvironmentRequest(_form.Name, _form.GcpProject, _form.Region, _form.GarRepository, _form.KubernetesContext, _form.KubernetesNamespace, _form.IsProtected)); Snackbar.Add("Saved.", Severity.Success); }
+            else { await Api.CreateEnvironmentAsync(new CreateEnvironmentRequest(_form.Name, _form.GcpProject, _form.Region, _form.GarRepository, _form.KubernetesContext, _form.KubernetesNamespace, _form.IsProtected)); Snackbar.Add("Added.", Severity.Success); }
             _show = false; await LoadAsync();
         }
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
@@ -94,5 +102,5 @@
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
     }
 
-    private sealed class Form { public string Name { get; set; } = ""; public string GcpProject { get; set; } = ""; public string Region { get; set; } = ""; public string GarRepository { get; set; } = ""; public string KubernetesContext { get; set; } = ""; public string KubernetesNamespace { get; set; } = ""; }
+    private sealed class Form { public string Name { get; set; } = ""; public string GcpProject { get; set; } = ""; public string Region { get; set; } = ""; public string GarRepository { get; set; } = ""; public string KubernetesContext { get; set; } = ""; public string KubernetesNamespace { get; set; } = ""; public bool IsProtected { get; set; } }
 }
