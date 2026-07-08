@@ -1,0 +1,149 @@
+@page "/deployment/previews"
+@inject DeploymentApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>Deployment — Preview environments</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Preview environments</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">ephemeral per-PR deploys of an Aspire app into its own namespace; auto-expire on TTL</MudText>
+    <MudSpacer />
+    <MudSwitch T="bool" Value="_includeTornDown" Color="Color.Default" Label="Show torn down" ValueChanged="OnIncludeTornDownChanged" />
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
+</MudStack>
+
+@if (_error is { Length: > 0 }) { <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert> }
+
+<MudExpansionPanels Class="mb-4">
+    <MudExpansionPanel Text="Create a preview environment">
+        @if (_apps is { Count: 0 })
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No Aspire apps registered — add one under Aspire apps first.</MudAlert>
+        }
+        else
+        {
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudSelect T="Guid?" @bind-Value="_appId" Label="Aspire application" Required="true">
+                        @foreach (var a in _apps ?? new List<AspireApplicationDto>())
+                        { <MudSelectItem T="Guid?" Value="@a.Id">@a.Name (@a.EnvironmentName)</MudSelectItem> }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="3"><MudTextField @bind-Value="_key" Label="PR # / branch" Required="true" HelperText="e.g. 42 or feat-login" /></MudItem>
+                <MudItem xs="12" md="3"><MudNumericField T="int?" @bind-Value="_ttlHours" Label="TTL (hours)" Min="1" HelperText="default 24" /></MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_manifestOverride" Label="Manifest source override (optional)" HelperText="defaults to the app's current; paste a branch build's manifest URL to preview that build" /></MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_versionOverride" Label="Version label (optional)" /></MudItem>
+                <MudItem xs="12">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Bolt" OnClick="CreateAsync" Disabled="_busy">Create preview</MudButton>
+                </MudItem>
+            </MudGrid>
+        }
+    </MudExpansionPanel>
+</MudExpansionPanels>
+
+<MudPaper Elevation="1" Class="pa-4">
+    @if (_loading && _previews is null) { <MudProgressLinear Indeterminate="true" /> }
+    else if (_previews is { Count: 0 }) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No preview environments.</MudText> }
+    else if (_previews is not null)
+    {
+        <MudTable Items="@_previews" Dense="true" Hover="true" Striped="true" T="PreviewEnvironmentDto">
+            <HeaderContent>
+                <MudTh Style="width:7rem;">Status</MudTh><MudTh>App</MudTh><MudTh>Key</MudTh><MudTh>Namespace</MudTh>
+                <MudTh Style="width:11rem;">Created</MudTh><MudTh Style="width:11rem;">Expires</MudTh><MudTh Style="width:6rem;"></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Status)" Variant="Variant.Filled">@context.Status</MudChip>
+                    @if (context.Status == PreviewStatusDto.Failed && !string.IsNullOrEmpty(context.FailureReason))
+                    { <MudTooltip Text="@context.FailureReason"><MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Color="Color.Error" Size="Size.Small" /></MudTooltip> }
+                </MudTd>
+                <MudTd>@context.ApplicationName</MudTd>
+                <MudTd>@context.Key</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@context.KubeContext/@context.Namespace</MudTd>
+                <MudTd>@context.CreatedAtUtc.LocalDateTime.ToString("g")</MudTd>
+                <MudTd>
+                    @if (context.Status == PreviewStatusDto.TornDown)
+                    { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">torn down @(context.TornDownAtUtc?.LocalDateTime.ToString("g"))</MudText> }
+                    else
+                    { @(context.ExpiresAtUtc is { } e ? e.LocalDateTime.ToString("g") : "—") }
+                </MudTd>
+                <MudTd>
+                    @if (context.Status != PreviewStatusDto.TornDown)
+                    {
+                        <MudTooltip Text="Tear down — delete the namespace">
+                            <MudIconButton Icon="@Icons.Material.Filled.DeleteSweep" Color="Color.Error" Size="Size.Small" Disabled="_busy" OnClick="@(() => TeardownAsync(context))" />
+                        </MudTooltip>
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+@code {
+    private IReadOnlyList<AspireApplicationDto>? _apps;
+    private IReadOnlyList<PreviewEnvironmentDto>? _previews;
+    private bool _loading, _busy, _includeTornDown;
+    private string? _error;
+
+    private Guid? _appId;
+    private string _key = "", _manifestOverride = "", _versionOverride = "";
+    private int? _ttlHours;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private Task OnIncludeTornDownChanged(bool value) { _includeTornDown = value; return LoadAsync(); }
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            _apps = await Api.ListAspireAppsAsync();
+            _previews = await Api.ListPreviewsAsync(_includeTornDown);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private async Task CreateAsync()
+    {
+        if (_appId is not { } appId) { Snackbar.Add("Select an application.", Severity.Warning); return; }
+        if (string.IsNullOrWhiteSpace(_key)) { Snackbar.Add("A PR # / branch key is required.", Severity.Warning); return; }
+        _busy = true;
+        try
+        {
+            await Api.CreatePreviewAsync(new CreatePreviewEnvironmentRequest(
+                appId, _key.Trim(),
+                string.IsNullOrWhiteSpace(_manifestOverride) ? null : _manifestOverride.Trim(),
+                string.IsNullOrWhiteSpace(_versionOverride) ? null : _versionOverride.Trim(),
+                _ttlHours, "ui"));
+            Snackbar.Add($"Preview '{_key.Trim()}' requested — deploying.", Severity.Info);
+            _key = ""; _manifestOverride = ""; _versionOverride = ""; _ttlHours = null;
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private async Task TeardownAsync(PreviewEnvironmentDto p)
+    {
+        _busy = true;
+        try
+        {
+            await Api.TeardownPreviewAsync(p.Id);
+            Snackbar.Add($"Tearing down preview '{p.Key}' (namespace {p.Namespace}).", Severity.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private static Color StatusColor(PreviewStatusDto s) => s switch
+    {
+        PreviewStatusDto.Active => Color.Success,
+        PreviewStatusDto.Failed => Color.Error,
+        PreviewStatusDto.Creating => Color.Info,
+        _ => Color.Default,
+    };
+}

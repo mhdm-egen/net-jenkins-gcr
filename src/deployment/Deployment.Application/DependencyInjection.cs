@@ -4,6 +4,7 @@ using Deployment.Application.Features.AspireApps;
 using Deployment.Application.Features.Containers;
 using Deployment.Application.Features.Environments;
 using Deployment.Application.Features.Mappings;
+using Deployment.Application.Features.Previews;
 using Deployment.Application.Features.Runs;
 using Deployment.Application.Features.Services;
 
@@ -64,6 +65,12 @@ public static class DependencyInjection
         services.AddScoped<ListAspireRunsHandler>();
         services.AddScoped<GetAspireRunByIdHandler>();
         services.AddScoped<GetAspireAppStatusHandler>();
+
+        // Preview environments (ephemeral per-PR Aspire deploys)
+        services.AddScoped<CreatePreviewEnvironmentHandler>();
+        services.AddScoped<TeardownPreviewEnvironmentHandler>();
+        services.AddScoped<ListPreviewEnvironmentsHandler>();
+        services.AddScoped<GetPreviewEnvironmentByIdHandler>();
 
         return services;
     }

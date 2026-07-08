@@ -61,6 +61,8 @@ builder.Host.UseWolverine(opts =>
     opts.CodeGeneration.AlwaysUseServiceLocationFor<IAspirateRunner>();
     // The executor also snapshots deployed images via this reader (internal Infrastructure impl) — service-locate it.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.AspireApps.IAspireClusterStatusReader>();
+    // Preview-environment executor resolves the internal preview repository — service-locate it (same constraint).
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.Previews.IPreviewEnvironmentRepository>();
     // AspireAppPublished consumer (CI→deploy handoff): the repository is an internal Infrastructure type
     // and the directly-invoked deploy handler transitively news up more of them — service-locate both so
     // the handler compiles (same constraint as the ContainerPublished consumer above).
@@ -113,6 +115,7 @@ app.MapMappingEndpoints();
 app.MapRunEndpoints();
 app.MapAspireAppEndpoints();
 app.MapAspireRunEndpoints();
+app.MapPreviewEndpoints();
 app.MapHub<DeploymentRunHub>("/hubs/deployment-runs");
 
 app.Run();
