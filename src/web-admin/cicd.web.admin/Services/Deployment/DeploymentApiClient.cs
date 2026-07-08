@@ -4,6 +4,7 @@ using System.Text.Json;
 using Deployment.Contracts.AspireApps;
 using Deployment.Contracts.Catalog;
 using Deployment.Contracts.Mappings;
+using Deployment.Contracts.Previews;
 using Deployment.Contracts.Runs;
 
 namespace Cicd.Web.Admin.Services.Deployment;
@@ -97,6 +98,14 @@ public sealed class DeploymentApiClient
         => PostJsonNoBodyAsync($"api/deployment/aspire-runs/{runId}/reject", new RejectAspireRunRequest("ui", reason), ct);
     public Task<AspireAppStatusDto?> GetAspireAppStatusAsync(Guid id, CancellationToken ct = default)
         => _http.GetFromJsonAsync<AspireAppStatusDto>($"api/deployment/aspire-apps/{id}/status", Json, ct);
+
+    // ---- Preview environments ----
+    public async Task<IReadOnlyList<PreviewEnvironmentDto>> ListPreviewsAsync(bool includeTornDown = false, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<List<PreviewEnvironmentDto>>($"api/deployment/previews?includeTornDown={includeTornDown.ToString().ToLowerInvariant()}", Json, ct).ConfigureAwait(false) ?? new();
+    public Task CreatePreviewAsync(CreatePreviewEnvironmentRequest body, CancellationToken ct = default)
+        => PostJsonNoBodyAsync("api/deployment/previews", body, ct);
+    public Task TeardownPreviewAsync(Guid id, CancellationToken ct = default)
+        => PostJsonNoBodyAsync($"api/deployment/previews/{id}/teardown", new { }, ct);
     public async Task<IReadOnlyList<AspireApplicationRunDto>> ListAspireRunsAsync(Guid? applicationId = null, CancellationToken ct = default)
     {
         var url = applicationId is { } a ? $"api/deployment/aspire-runs?applicationId={a}" : "api/deployment/aspire-runs";

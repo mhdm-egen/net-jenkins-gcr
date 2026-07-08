@@ -3,11 +3,13 @@ using Deployment.Application.Features.AspireApps;
 using Deployment.Application.Features.Containers;
 using Deployment.Application.Features.Environments;
 using Deployment.Application.Features.Mappings;
+using Deployment.Application.Features.Previews;
 using Deployment.Application.Features.Runs;
 using Deployment.Application.Features.Services;
 using Deployment.Contracts.AspireApps;
 using Deployment.Contracts.Catalog;
 using Deployment.Contracts.Mappings;
+using Deployment.Contracts.Previews;
 using Deployment.Contracts.Runs;
 
 namespace Deployment.Infrastructure.Persistence.Readers;
@@ -169,5 +171,32 @@ internal sealed class EfAspireApplicationRunReader : IAspireApplicationRunReader
     {
         var r = await _db.AspireApplicationRuns.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
         return r is null ? null : ToDto(r);
+    }
+}
+
+internal sealed class EfPreviewEnvironmentReader : IPreviewEnvironmentReader
+{
+    private readonly DeploymentDbContext _db;
+    public EfPreviewEnvironmentReader(DeploymentDbContext db) => _db = db;
+
+    private static PreviewEnvironmentDto ToDto(Domain.Previews.PreviewEnvironment p) => new(
+        p.Id, p.ApplicationId, p.ApplicationName, p.Key, p.KubeContext, p.Namespace, p.ManifestSource, p.Version,
+        (PreviewStatusDto)(int)p.Status, p.TriggeredBy, p.Log, p.FailureReason,
+        p.CreatedAtUtc, p.ExpiresAtUtc, p.ActivatedAtUtc, p.TornDownAtUtc);
+
+    public async Task<IReadOnlyList<PreviewEnvironmentDto>> ListAsync(Guid? applicationId = null, bool includeTornDown = false, CancellationToken ct = default)
+    {
+        var previews = await _db.PreviewEnvironments.AsNoTracking()
+            .Where(p => (!applicationId.HasValue || p.ApplicationId == applicationId.Value)
+                && (includeTornDown || p.Status != Domain.Previews.PreviewStatus.TornDown))
+            .OrderByDescending(p => p.CreatedAtUtc)
+            .ToListAsync(ct).ConfigureAwait(false);
+        return previews.Select(ToDto).ToList();
+    }
+
+    public async Task<PreviewEnvironmentDto?> GetByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        var p = await _db.PreviewEnvironments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct).ConfigureAwait(false);
+        return p is null ? null : ToDto(p);
     }
 }

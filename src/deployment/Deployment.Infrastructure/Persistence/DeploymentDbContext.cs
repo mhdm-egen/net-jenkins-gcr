@@ -4,6 +4,7 @@ using Deployment.Domain.AspireApps.Runs;
 using Deployment.Domain.Containers;
 using Deployment.Domain.Environments;
 using Deployment.Domain.Mappings;
+using Deployment.Domain.Previews;
 using Deployment.Domain.Runs;
 using Deployment.Domain.Services;
 
@@ -20,6 +21,7 @@ public sealed class DeploymentDbContext : DbContext
     public DbSet<DeploymentRun> Runs => Set<DeploymentRun>();
     public DbSet<AspireApplication> AspireApplications => Set<AspireApplication>();
     public DbSet<AspireApplicationRun> AspireApplicationRuns => Set<AspireApplicationRun>();
+    public DbSet<PreviewEnvironment> PreviewEnvironments => Set<PreviewEnvironment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -7,6 +7,7 @@ using Deployment.Application.Features.AspireApps;
 using Deployment.Application.Features.Containers;
 using Deployment.Application.Features.Environments;
 using Deployment.Application.Features.Mappings;
+using Deployment.Application.Features.Previews;
 using Deployment.Application.Features.Runs;
 using Deployment.Application.Features.Services;
 using Deployment.Domain.Abstractions;
@@ -15,6 +16,7 @@ using Deployment.Domain.AspireApps.Runs;
 using Deployment.Domain.Containers;
 using Deployment.Domain.Environments;
 using Deployment.Domain.Mappings;
+using Deployment.Domain.Previews;
 using Deployment.Domain.Runs;
 using Deployment.Domain.Services;
 using Deployment.Infrastructure.Aspirate;
@@ -25,6 +27,7 @@ using Deployment.Infrastructure.Messaging;
 using Deployment.Infrastructure.Persistence;
 using Deployment.Infrastructure.Persistence.Readers;
 using Deployment.Infrastructure.Persistence.Repositories;
+using Deployment.Infrastructure.Previews;
 using Deployment.Infrastructure.Steps;
 
 namespace Deployment.Infrastructure;
@@ -49,6 +52,7 @@ public static class DependencyInjection
         services.AddScoped<IDeploymentRunRepository, DeploymentRunRepository>();
         services.AddScoped<IAspireApplicationRepository, AspireApplicationRepository>();
         services.AddScoped<IAspireApplicationRunRepository, AspireApplicationRunRepository>();
+        services.AddScoped<IPreviewEnvironmentRepository, PreviewEnvironmentRepository>();
 
         // Readers
         services.AddScoped<IServiceReader, EfServiceReader>();
@@ -58,6 +62,7 @@ public static class DependencyInjection
         services.AddScoped<IKnownContainerReader, EfKnownContainerReader>();
         services.AddScoped<IAspireApplicationReader, EfAspireApplicationReader>();
         services.AddScoped<IAspireApplicationRunReader, EfAspireApplicationRunReader>();
+        services.AddScoped<IPreviewEnvironmentReader, EfPreviewEnvironmentReader>();
 
         // GCP adapters (ADC). Crane for Nexus→GAR, Cloud Run admin client for deploy.
         // ValidateOnStart fails the host immediately on a missing crane / bad timeouts, instead of
@@ -94,6 +99,11 @@ public static class DependencyInjection
         services.AddSingleton<IKubeClientFactory, KubeClientFactory>();
         services.AddSingleton<IKubernetesDeployer, KubernetesDeployer>();
         services.AddScoped<Application.Features.AspireApps.IAspireClusterStatusReader, AspireClusterStatusReader>();
+        services.AddScoped<INamespaceManager, KubernetesNamespaceManager>();
+
+        // Preview environments: TTL sweeper (background) tears down expired previews.
+        services.AddOptions<PreviewOptions>().Bind(configuration.GetSection(PreviewOptions.SectionName));
+        services.AddHostedService<PreviewEnvironmentSweeper>();
 
         return services;
     }

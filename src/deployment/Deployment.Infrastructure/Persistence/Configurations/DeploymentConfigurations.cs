@@ -8,6 +8,7 @@ using Deployment.Domain.AspireApps.Runs;
 using Deployment.Domain.Containers;
 using Deployment.Domain.Environments;
 using Deployment.Domain.Mappings;
+using Deployment.Domain.Previews;
 using Deployment.Domain.Runs;
 using Deployment.Domain.Services;
 
@@ -210,5 +211,32 @@ public sealed class AspireApplicationRunConfiguration : IEntityTypeConfiguration
         b.Property(r => r.CompletedAtUtc);
         b.HasIndex(r => r.ApplicationId);
         b.HasIndex(r => r.Status);
+    }
+}
+
+public sealed class PreviewEnvironmentConfiguration : IEntityTypeConfiguration<PreviewEnvironment>
+{
+    public void Configure(EntityTypeBuilder<PreviewEnvironment> b)
+    {
+        b.ToTable("PreviewEnvironment");
+        b.HasKey(p => p.Id);
+        b.Property(p => p.Id).ValueGeneratedNever();
+        b.Property(p => p.ApplicationId).IsRequired();
+        b.Property(p => p.ApplicationName).HasMaxLength(200).IsRequired();
+        b.Property(p => p.Key).HasMaxLength(100).IsRequired();
+        b.Property(p => p.KubeContext).HasMaxLength(200).IsRequired();
+        b.Property(p => p.Namespace).HasMaxLength(200).IsRequired();
+        b.Property(p => p.ManifestSource).HasMaxLength(2000).IsRequired();
+        b.Property(p => p.Version).HasMaxLength(200);
+        b.Property(p => p.Status).HasConversion<int>().IsRequired();
+        b.Property(p => p.TriggeredBy).HasMaxLength(200).IsRequired();
+        b.Property(p => p.Log).HasColumnType("nvarchar(max)");
+        b.Property(p => p.FailureReason).HasMaxLength(2000);
+        b.Property(p => p.CreatedAtUtc).IsRequired();
+        b.Property(p => p.ExpiresAtUtc);
+        b.Property(p => p.ActivatedAtUtc);
+        b.Property(p => p.TornDownAtUtc);
+        b.HasIndex(p => p.ApplicationId);
+        b.HasIndex(p => p.Status);
     }
 }

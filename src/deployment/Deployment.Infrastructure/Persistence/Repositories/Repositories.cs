@@ -6,6 +6,7 @@ using Deployment.Domain.Common;
 using Deployment.Domain.Containers;
 using Deployment.Domain.Environments;
 using Deployment.Domain.Mappings;
+using Deployment.Domain.Previews;
 using Deployment.Domain.Runs;
 using Deployment.Domain.Services;
 
@@ -89,4 +90,21 @@ internal sealed class AspireApplicationRepository : EfRepository<AspireApplicati
 internal sealed class AspireApplicationRunRepository : EfRepository<AspireApplicationRun, Guid>, IAspireApplicationRunRepository
 {
     public AspireApplicationRunRepository(DeploymentDbContext db) : base(db) { }
+}
+
+internal sealed class PreviewEnvironmentRepository : EfRepository<PreviewEnvironment, Guid>, IPreviewEnvironmentRepository
+{
+    public PreviewEnvironmentRepository(DeploymentDbContext db) : base(db) { }
+
+    public Task<PreviewEnvironment?> FindLiveByAppAndKeyAsync(Guid applicationId, string key, CancellationToken ct = default)
+    {
+        var k = key.Trim();
+        return Set.Where(p => p.ApplicationId == applicationId && p.Key == k && p.Status != PreviewStatus.TornDown)
+            .OrderByDescending(p => p.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<PreviewEnvironment>> ListExpiredActiveAsync(DateTimeOffset now, CancellationToken ct = default)
+        => await Set.Where(p => p.Status == PreviewStatus.Active && p.ExpiresAtUtc != null && p.ExpiresAtUtc <= now)
+            .ToListAsync(ct).ConfigureAwait(false);
 }
