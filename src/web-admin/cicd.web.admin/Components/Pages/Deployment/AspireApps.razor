@@ -198,6 +198,13 @@
                 </MudAlert>
             }
 
+            @if (_status.HasImageDrift)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Icon="@Icons.Material.Filled.Warning" Class="my-2">
+                    Image drift — a live workload is running a different image than this app last deployed (see the flagged rows below). The cluster was changed out of band; redeploy to reconcile.
+                </MudAlert>
+            }
+
             <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">
                 Last deployed: @(_status.LastDeployedAtUtc is { } t ? t.LocalDateTime.ToString("g") : "never")
                 @(_status.LastDeployedVersion is { Length: > 0 } v ? $" · {v}" : "")
@@ -210,7 +217,15 @@
                     <RowTemplate>
                         <MudTd><MudChip T="string" Size="Size.Small" Color="@HealthColor(context.Health)" Variant="Variant.Filled">@context.Health</MudChip></MudTd>
                         <MudTd>@context.Name</MudTd>
-                        <MudTd Style="font-family: ui-monospace, monospace; font-size:0.75em; max-width:22rem; overflow:hidden; text-overflow:ellipsis;">@(context.Image ?? "—")</MudTd>
+                        <MudTd Style="font-family: ui-monospace, monospace; font-size:0.75em; max-width:22rem;">
+                            <div style="overflow:hidden; text-overflow:ellipsis;">@(context.Image ?? "—")</div>
+                            @if (context.Drifted)
+                            {
+                                <MudTooltip Text="@($"Expected (last deployed): {context.ExpectedImage}")">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text" Icon="@Icons.Material.Filled.Warning">drift</MudChip>
+                                </MudTooltip>
+                            }
+                        </MudTd>
                         <MudTd>@context.ReadyReplicas / @context.DesiredReplicas</MudTd>
                         <MudTd>@context.Pods.Sum(p => p.Restarts)</MudTd>
                     </RowTemplate>

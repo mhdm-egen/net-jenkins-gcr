@@ -46,7 +46,11 @@ public sealed record AspireApplicationRunDto(
     string? FailureReason,
     DateTimeOffset RequestedAtUtc,
     DateTimeOffset? CompletedAtUtc,
-    string? DecisionBy = null);
+    string? DecisionBy = null,
+    IReadOnlyList<DeployedImageDto>? DeployedImages = null);
+
+/// <summary>An image a successful run put on the cluster (workload → image ref, digest-pinned when pinned).</summary>
+public sealed record DeployedImageDto(string Workload, string Image);
 
 /// <summary>Approve / reject a run that's awaiting approval (protected environment).</summary>
 public sealed record ApproveAspireRunRequest(string? ApprovedBy);
@@ -71,6 +75,7 @@ public sealed record AspireAppStatusDto(
     string? Error,
     WorkloadHealthDto OverallHealth,
     bool HasUndeployedChanges,
+    bool HasImageDrift,
     string? CurrentVersion,
     string? LastDeployedVersion,
     DateTimeOffset? LastDeployedAtUtc,
@@ -84,6 +89,8 @@ public sealed record WorkloadStatusDto(
     int ReadyReplicas,
     int UpdatedReplicas,
     WorkloadHealthDto Health,
-    IReadOnlyList<PodStatusDto> Pods);
+    IReadOnlyList<PodStatusDto> Pods,
+    bool Drifted = false,
+    string? ExpectedImage = null);
 
 public sealed record PodStatusDto(string Name, string Phase, int Restarts, bool Ready);

@@ -59,10 +59,46 @@ public sealed class GetAspireAppStatusHandler
                 WorkloadHealthDto.Unknown, Array.Empty<WorkloadStatusDto>())
             : await _cluster.GetAsync(context, ns!, ct).ConfigureAwait(false);
 
+        // Image drift: what each workload runs now vs. the image the last successful run recorded deploying.
+        var (workloads, hasImageDrift) = ApplyImageDrift(cluster.Workloads, lastDeploy?.DeployedImages);
+
         return new AspireAppStatusDto(
             app.Id, app.Name, app.EnvironmentName, context, ns,
             cluster.Reachable, cluster.Error, cluster.OverallHealth,
-            hasUndeployed, app.Version, lastDeploy?.Version, lastDeploy?.CompletedAtUtc,
-            cluster.Workloads);
+            hasUndeployed, hasImageDrift, app.Version, lastDeploy?.Version, lastDeploy?.CompletedAtUtc,
+            workloads);
+    }
+
+    private static (IReadOnlyList<WorkloadStatusDto> Workloads, bool HasDrift) ApplyImageDrift(
+        IReadOnlyList<WorkloadStatusDto> live, IReadOnlyList<DeployedImageDto>? deployed)
+    {
+        if (deployed is not { Count: > 0 }) return (live, false);
+
+        var expected = deployed
+            .GroupBy(i => i.Workload, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Image, StringComparer.Ordinal);
+
+        var hasDrift = false;
+        var result = new List<WorkloadStatusDto>(live.Count);
+        foreach (var w in live)
+        {
+            if (expected.TryGetValue(w.Name, out var exp)
+                && !string.IsNullOrEmpty(w.Image)
+                && !string.Equals(exp, w.Image, StringComparison.Ordinal))
+            {
+                hasDrift = true;
+                result.Add(w with { Drifted = true, ExpectedImage = exp });
+            }
+            else
+            {
+                result.Add(w);
+            }
+        }
+
+        // An expected workload that's no longer live is also drift (surfaced via the app-level flag).
+        var liveNames = live.Select(w => w.Name).ToHashSet(StringComparer.Ordinal);
+        if (expected.Keys.Any(name => !liveNames.Contains(name))) hasDrift = true;
+
+        return (result, hasDrift);
     }
 }
