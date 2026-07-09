@@ -66,6 +66,20 @@ public sealed class PreviewEnvironment : AggregateRoot<Guid>
         RaiseEvent(new PreviewEnvironmentRequested(Id, createdAtUtc));
     }
 
+    /// <summary>Re-request the deploy with a new manifest/version (e.g. a fresh CI publish on the PR branch),
+    /// optionally extending the TTL. Back to <see cref="PreviewStatus.Creating"/> so the executor re-applies.
+    /// No-op once torn down (create a fresh preview instead).</summary>
+    public void Redeploy(string manifestSource, string? version, DateTimeOffset? expiresAtUtc, DateTimeOffset occurredAtUtc)
+    {
+        if (Status == PreviewStatus.TornDown) return;
+        ManifestSource = Require(manifestSource, nameof(manifestSource));
+        Version = Clean(version);
+        if (expiresAtUtc is not null) ExpiresAtUtc = expiresAtUtc;
+        Status = PreviewStatus.Creating;
+        FailureReason = null;
+        RaiseEvent(new PreviewEnvironmentRequested(Id, occurredAtUtc));
+    }
+
     public void MarkActive(string? log, DateTimeOffset occurredAtUtc)
     {
         if (Status == PreviewStatus.TornDown) return;

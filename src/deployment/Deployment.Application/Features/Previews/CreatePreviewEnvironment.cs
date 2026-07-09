@@ -45,21 +45,33 @@ public sealed class CreatePreviewEnvironmentHandler
         var key = PreviewNaming.SlugKey(cmd.Key);
         if (key.Length == 0) throw new InvalidOperationException("A preview key (PR number or branch) is required.");
 
-        // Idempotent: reuse a still-live preview for the same app + key.
-        var existing = await _previews.FindLiveByAppAndKeyAsync(app.Id, key, ct).ConfigureAwait(false);
-        if (existing is not null)
-            return new CreatePreviewEnvironmentResult(existing.Id, existing.Namespace, "already-exists");
-
-        var ns = PreviewNaming.Namespace(app.Name, key);
         var manifest = string.IsNullOrWhiteSpace(cmd.ManifestSource) ? app.ManifestSource : cmd.ManifestSource!.Trim();
         var version = string.IsNullOrWhiteSpace(cmd.Version) ? app.Version : cmd.Version!.Trim();
         var now = _clock.GetUtcNow();
         var ttlHours = cmd.TtlHours is > 0 ? cmd.TtlHours.Value : DefaultTtlHours;
+        var expires = now.AddHours(ttlHours);
 
+        // A still-live preview for this app + key is reused. A new manifest/version (e.g. a fresh CI publish on
+        // the PR branch) redeploys it in place and extends the TTL; an unchanged one is a no-op.
+        var existing = await _previews.FindLiveByAppAndKeyAsync(app.Id, key, ct).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            var changed = !string.Equals(existing.ManifestSource, manifest, StringComparison.Ordinal)
+                || !string.Equals(existing.Version, version, StringComparison.Ordinal);
+            if (changed)
+            {
+                existing.Redeploy(manifest, version, expires, now);
+                await _uow.SaveChangesAsync(ct).ConfigureAwait(false); // raises PreviewEnvironmentRequested → re-deploys
+                return new CreatePreviewEnvironmentResult(existing.Id, existing.Namespace, "refreshed");
+            }
+            return new CreatePreviewEnvironmentResult(existing.Id, existing.Namespace, "already-exists");
+        }
+
+        var ns = PreviewNaming.Namespace(app.Name, key);
         var preview = new PreviewEnvironment(
             Guid.NewGuid(), app.Id, app.Name, key,
             env.KubernetesContext!, ns, manifest, version,
-            cmd.TriggeredBy ?? "manual", now, now.AddHours(ttlHours));
+            cmd.TriggeredBy ?? "manual", now, expires);
 
         await _previews.AddAsync(preview, ct).ConfigureAwait(false);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false); // raises PreviewEnvironmentRequested → executor deploys

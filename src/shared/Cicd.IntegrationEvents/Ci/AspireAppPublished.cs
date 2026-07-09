@@ -14,4 +14,5 @@ public sealed record AspireAppPublished(
     string AppName,
     string ManifestUrl,
     string Version,
-    string CommitSha) : IIntegrationEvent;
+    string CommitSha,
+    string Branch = "") : IIntegrationEvent;

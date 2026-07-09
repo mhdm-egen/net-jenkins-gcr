@@ -32,6 +32,7 @@
                 </MudItem>
                 <MudItem xs="12" md="6"><MudTextField @bind-Value="_version" Label="Version (optional)" /></MudItem>
                 <MudItem xs="12" md="6"><MudTextField @bind-Value="_sourceKey" Label="CI source key (optional)" HelperText="the AspireAppPublished app name that feeds this app; defaults to Name" /></MudItem>
+                <MudItem xs="12" md="6"><MudTextField @bind-Value="_mainBranch" Label="Main branch" HelperText="CI publishes on this branch deploy here; other branches become previews" /></MudItem>
                 <MudItem xs="12"><MudTextField @bind-Value="_manifestSource" Label="Manifest source (URL to the aspirate kustomize-output archive)" Required="true" HelperText="e.g. http://localhost:8081/repository/raw/myapp/1.0.0/aspirate-output.zip" /></MudItem>
                 <MudItem xs="12">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="RegisterAsync" Disabled="_busy">Register</MudButton>
@@ -155,6 +156,7 @@
             </MudItem>
             <MudItem xs="12" md="6"><MudTextField @bind-Value="_editVersion" Label="Version (optional)" /></MudItem>
             <MudItem xs="12" md="6"><MudTextField @bind-Value="_editSourceKey" Label="CI source key (optional)" HelperText="AspireAppPublished app name that feeds this app; defaults to Name" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField @bind-Value="_editMainBranch" Label="Main branch" HelperText="publishes on this branch deploy here; others become previews" /></MudItem>
             <MudItem xs="12"><MudTextField @bind-Value="_editManifestSource" Label="Manifest source (URL to the aspirate kustomize-output archive)" Required="true" /></MudItem>
         </MudGrid>
     </DialogContent>
@@ -269,7 +271,7 @@
     private bool _loading, _busy;
     private string? _error;
 
-    private string _name = "", _description = "", _manifestSource = "", _version = "", _sourceKey = "";
+    private string _name = "", _description = "", _manifestSource = "", _version = "", _sourceKey = "", _mainBranch = "main";
     private Guid? _environmentId;
 
     private bool _logShow;
@@ -289,7 +291,7 @@
     private bool _editShow;
     private static readonly DialogOptions _editDlg = new() { MaxWidth = MaxWidth.Medium, FullWidth = true };
     private Guid _editId;
-    private string _editName = "", _editDescription = "", _editManifestSource = "", _editVersion = "", _editSourceKey = "";
+    private string _editName = "", _editDescription = "", _editManifestSource = "", _editVersion = "", _editSourceKey = "", _editMainBranch = "main";
     private Guid? _editEnvironmentId;
 
     protected override Task OnInitializedAsync() => LoadAsync();
@@ -314,9 +316,9 @@
         _busy = true;
         try
         {
-            await Api.CreateAspireAppAsync(new CreateAspireApplicationRequest(_name, _description, envId, _manifestSource, string.IsNullOrWhiteSpace(_version) ? null : _version, string.IsNullOrWhiteSpace(_sourceKey) ? null : _sourceKey));
+            await Api.CreateAspireAppAsync(new CreateAspireApplicationRequest(_name, _description, envId, _manifestSource, string.IsNullOrWhiteSpace(_version) ? null : _version, string.IsNullOrWhiteSpace(_sourceKey) ? null : _sourceKey, string.IsNullOrWhiteSpace(_mainBranch) ? null : _mainBranch));
             Snackbar.Add($"Registered '{_name}'.", Severity.Success);
-            _name = _description = _manifestSource = _version = _sourceKey = ""; _environmentId = null;
+            _name = _description = _manifestSource = _version = _sourceKey = ""; _mainBranch = "main"; _environmentId = null;
             await LoadAsync();
         }
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
@@ -377,6 +379,7 @@
         _editManifestSource = app.ManifestSource;
         _editVersion = app.Version ?? "";
         _editSourceKey = app.SourceKey ?? "";
+        _editMainBranch = string.IsNullOrWhiteSpace(app.MainBranch) ? "main" : app.MainBranch;
         _editShow = true;
     }
 
@@ -389,7 +392,8 @@
             await Api.UpdateAspireAppAsync(_editId, new UpdateAspireApplicationRequest(
                 _editName, string.IsNullOrWhiteSpace(_editDescription) ? null : _editDescription, envId, _editManifestSource,
                 string.IsNullOrWhiteSpace(_editVersion) ? null : _editVersion,
-                string.IsNullOrWhiteSpace(_editSourceKey) ? null : _editSourceKey));
+                string.IsNullOrWhiteSpace(_editSourceKey) ? null : _editSourceKey,
+                string.IsNullOrWhiteSpace(_editMainBranch) ? null : _editMainBranch));
             Snackbar.Add($"Updated '{_editName}'.", Severity.Success);
             _editShow = false;
             await LoadAsync();

@@ -75,4 +75,5 @@ public sealed record AspireManifestPublished(
     string ManifestUrl,
     string Version,
     string CommitSha,
+    string Branch,
     DateTimeOffset OccurredAtUtc) : IDomainEvent;

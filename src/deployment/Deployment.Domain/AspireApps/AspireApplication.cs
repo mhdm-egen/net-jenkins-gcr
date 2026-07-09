@@ -37,6 +37,13 @@ public sealed class AspireApplication : AggregateRoot<Guid>
     /// <summary>When true, a CI <c>AspireAppPublished</c> event matching this app auto-triggers a deployment.</summary>
     public bool AutoDeploy { get; private set; }
 
+    /// <summary>
+    /// The branch whose CI publishes deploy to this app's environment. A publish on any OTHER branch is
+    /// routed to an ephemeral preview environment keyed by that branch instead of the main deploy.
+    /// Defaults to <c>main</c>.
+    /// </summary>
+    public string MainBranch { get; private set; }
+
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset UpdatedAtUtc { get; private set; }
 
@@ -44,9 +51,10 @@ public sealed class AspireApplication : AggregateRoot<Guid>
     {
         Name = string.Empty;
         ManifestSource = string.Empty;
+        MainBranch = "main";
     }
 
-    public AspireApplication(Guid id, string name, string? description, Guid environmentId, string manifestSource, string? version, string? sourceKey, DateTimeOffset createdAtUtc)
+    public AspireApplication(Guid id, string name, string? description, Guid environmentId, string manifestSource, string? version, string? sourceKey, DateTimeOffset createdAtUtc, string? mainBranch = null)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
         if (environmentId == Guid.Empty) throw new ArgumentException("EnvironmentId cannot be empty.", nameof(environmentId));
@@ -57,13 +65,14 @@ public sealed class AspireApplication : AggregateRoot<Guid>
         ManifestSource = Require(manifestSource, nameof(manifestSource));
         Version = Clean(version);
         SourceKey = Clean(sourceKey);
+        MainBranch = NormalizeBranch(mainBranch);
         IsActive = true;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = createdAtUtc;
         RaiseEvent(new AspireApplicationRegistered(Id, Name, createdAtUtc));
     }
 
-    public void Update(string name, string? description, Guid environmentId, string manifestSource, string? version, string? sourceKey, DateTimeOffset occurredAtUtc)
+    public void Update(string name, string? description, Guid environmentId, string manifestSource, string? version, string? sourceKey, DateTimeOffset occurredAtUtc, string? mainBranch = null)
     {
         if (environmentId == Guid.Empty) throw new ArgumentException("EnvironmentId cannot be empty.", nameof(environmentId));
         Name = Require(name, nameof(name));
@@ -72,9 +81,15 @@ public sealed class AspireApplication : AggregateRoot<Guid>
         ManifestSource = Require(manifestSource, nameof(manifestSource));
         Version = Clean(version);
         SourceKey = Clean(sourceKey);
+        MainBranch = NormalizeBranch(mainBranch);
         UpdatedAtUtc = occurredAtUtc;
         RaiseEvent(new AspireApplicationUpdated(Id, Name, occurredAtUtc));
     }
+
+    /// <summary>True when a CI publish on <paramref name="branch"/> targets the main deploy (vs. a preview).
+    /// An empty/unknown branch is treated as the main branch for backward compatibility.</summary>
+    public bool IsMainBranch(string? branch)
+        => string.IsNullOrWhiteSpace(branch) || string.Equals(branch.Trim(), MainBranch, StringComparison.OrdinalIgnoreCase);
 
     public void ChangeActivation(bool active, DateTimeOffset occurredAtUtc)
     {
@@ -125,4 +140,5 @@ public sealed class AspireApplication : AggregateRoot<Guid>
     private static string Require(string value, string name)
         => string.IsNullOrWhiteSpace(value) ? throw new ArgumentException($"{name} cannot be empty.", name) : value.Trim();
     private static string? Clean(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+    private static string NormalizeBranch(string? v) => string.IsNullOrWhiteSpace(v) ? "main" : v.Trim();
 }
