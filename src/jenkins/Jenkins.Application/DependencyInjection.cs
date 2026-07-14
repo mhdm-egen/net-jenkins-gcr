@@ -63,6 +63,9 @@ public static class DependencyInjection
         services.AddScoped<ListPipelineRunsHandler>();
         services.AddScoped<GetPipelineRunByIdHandler>();
 
+        // Git PR-lifecycle webhook (preview build/teardown ingress).
+        services.AddScoped<Features.Webhooks.HandleGitWebhookHandler>();
+
         return services;
     }
 }

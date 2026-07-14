@@ -11,7 +11,7 @@ namespace Jenkins.Application.Features.PipelineRuns;
 /// Running <see cref="PipelineRun"/>, persists it (raising PipelineRunStarted), and enqueues it
 /// for the background executor. Returns the new run id.
 /// </summary>
-public sealed record StartPipelineRunCommand(Guid PipelineId, Guid? RepositoryId, string? TriggeredBy);
+public sealed record StartPipelineRunCommand(Guid PipelineId, Guid? RepositoryId, string? TriggeredBy, string? Branch = null);
 
 public sealed class StartPipelineRunValidator : AbstractValidator<StartPipelineRunCommand>
 {
@@ -56,7 +56,8 @@ public sealed class StartPipelineRunHandler
             pipelineName: pipeline.Name,
             repositoryId: cmd.RepositoryId,
             triggeredBy: cmd.TriggeredBy ?? "unknown",
-            startedAtUtc: _clock.GetUtcNow());
+            startedAtUtc: _clock.GetUtcNow(),
+            branch: cmd.Branch);
 
         await _runs.AddAsync(run, cancellationToken).ConfigureAwait(false);
         await _uow.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

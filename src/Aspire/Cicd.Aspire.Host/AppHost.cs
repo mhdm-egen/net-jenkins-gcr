@@ -112,6 +112,10 @@ var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
 if (dockerConfigDir.Length > 0)
     deployment = deployment.WithEnvironment("DOCKER_CONFIG", dockerConfigDir);
 
+// Give the CI service the deployment API's URL so its git-webhook handler can call the preview
+// teardown endpoint on PR close (jenkins-api → POST /api/deployment/previews/webhook).
+jenkins.WithEnvironment("Deployment__ApiBaseUrl", deployment.GetEndpoint("http"));
+
 builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WithReference(jenkins)
     .WaitFor(jenkins)

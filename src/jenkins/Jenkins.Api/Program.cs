@@ -126,6 +126,7 @@ app.MapBuildEndpoints();
 app.MapHandoffEndpoints();
 app.MapPipelineEndpoints();
 app.MapPipelineRunEndpoints();
+app.MapWebhookEndpoints();
 
 // Live pipeline-run stream (server-to-server SignalR from web-admin; no CORS needed).
 app.MapHub<PipelineRunHub>("/hubs/pipeline-runs");

@@ -21,6 +21,7 @@ public sealed class PipelineRunConfiguration : IEntityTypeConfiguration<Pipeline
         b.Property(r => r.PipelineId).IsRequired();
         b.Property(r => r.PipelineName).HasMaxLength(200).IsRequired();
         b.Property(r => r.RepositoryId);
+        b.Property(r => r.Branch).HasMaxLength(300);
         b.Property(r => r.TriggeredBy).HasMaxLength(200).IsRequired();
         b.Property(r => r.Status).HasConversion<int>().IsRequired();
         b.Property(r => r.StartedAtUtc).IsRequired();

@@ -20,7 +20,7 @@ public static class PipelineRunsEndpoints
             IValidator<StartPipelineRunCommand> validator,
             CancellationToken ct) =>
         {
-            var cmd = new StartPipelineRunCommand(id, body.RepositoryId, body.TriggeredBy);
+            var cmd = new StartPipelineRunCommand(id, body.RepositoryId, body.TriggeredBy, body.Branch);
             return await RepositoriesEndpoints.ValidateAndRun(validator, cmd, ct, async () =>
             {
                 var runId = await handler.HandleAsync(cmd, ct);
