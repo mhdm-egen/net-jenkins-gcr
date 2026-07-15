@@ -17,12 +17,13 @@ public sealed class PromoteDeploymentRunHandler
 {
     private readonly IDeploymentRunRepository _runs;
     private readonly IRolloutDeployer _rollout;
+    private readonly Observability.DeploymentTelemetry _telemetry;
     private readonly IUnitOfWork _uow;
     private readonly TimeProvider _clock;
     private readonly ILogger<PromoteDeploymentRunHandler> _logger;
 
-    public PromoteDeploymentRunHandler(IDeploymentRunRepository runs, IRolloutDeployer rollout, IUnitOfWork uow, TimeProvider clock, ILogger<PromoteDeploymentRunHandler> logger)
-    { _runs = runs; _rollout = rollout; _uow = uow; _clock = clock; _logger = logger; }
+    public PromoteDeploymentRunHandler(IDeploymentRunRepository runs, IRolloutDeployer rollout, Observability.DeploymentTelemetry telemetry, IUnitOfWork uow, TimeProvider clock, ILogger<PromoteDeploymentRunHandler> logger)
+    { _runs = runs; _rollout = rollout; _telemetry = telemetry; _uow = uow; _clock = clock; _logger = logger; }
 
     public async Task<DeploymentRunDecisionResult> HandleAsync(PromoteDeploymentRunCommand cmd, CancellationToken ct = default)
     {
@@ -36,8 +37,10 @@ public sealed class PromoteDeploymentRunHandler
         else
             await _rollout.PromoteBlueGreenAsync(t.Context, t.Namespace, t.Name, t.GreenSlot, t.ActiveSlot, ct).ConfigureAwait(false);
         run.SetKubernetesResource($"service/{t.Name} -> deployment/{t.Name}-{t.GreenSlot}");
-        run.PromoteRollout(cmd.PromotedBy ?? "unknown", _clock.GetUtcNow());
+        var now = _clock.GetUtcNow();
+        run.PromoteRollout(cmd.PromotedBy ?? "unknown", now);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
+        _telemetry.RecordRun("kubernetes", run.Status.ToString(), t.Strategy.ToString(), (now - run.RequestedAtUtc).TotalSeconds);
         _logger.LogInformation("[deploy] Run {Run} promoted to '{Slot}' by {By}.", run.Id, t.GreenSlot, run.DecisionBy);
         return new DeploymentRunDecisionResult(true, "promoted");
     }
@@ -47,12 +50,13 @@ public sealed class RollbackDeploymentRunHandler
 {
     private readonly IDeploymentRunRepository _runs;
     private readonly IRolloutDeployer _rollout;
+    private readonly Observability.DeploymentTelemetry _telemetry;
     private readonly IUnitOfWork _uow;
     private readonly TimeProvider _clock;
     private readonly ILogger<RollbackDeploymentRunHandler> _logger;
 
-    public RollbackDeploymentRunHandler(IDeploymentRunRepository runs, IRolloutDeployer rollout, IUnitOfWork uow, TimeProvider clock, ILogger<RollbackDeploymentRunHandler> logger)
-    { _runs = runs; _rollout = rollout; _uow = uow; _clock = clock; _logger = logger; }
+    public RollbackDeploymentRunHandler(IDeploymentRunRepository runs, IRolloutDeployer rollout, Observability.DeploymentTelemetry telemetry, IUnitOfWork uow, TimeProvider clock, ILogger<RollbackDeploymentRunHandler> logger)
+    { _runs = runs; _rollout = rollout; _telemetry = telemetry; _uow = uow; _clock = clock; _logger = logger; }
 
     public async Task<DeploymentRunDecisionResult> HandleAsync(RollbackDeploymentRunCommand cmd, CancellationToken ct = default)
     {
@@ -62,8 +66,10 @@ public sealed class RollbackDeploymentRunHandler
         if (!RolloutTarget.TryResolve(run, out var t)) return new DeploymentRunDecisionResult(false, "run-missing-rollout-context");
 
         await _rollout.RollbackAsync(t.Context, t.Namespace, t.Name, t.GreenSlot, ct).ConfigureAwait(false);
-        run.RollbackRollout(cmd.RolledBackBy ?? "unknown", cmd.Reason, _clock.GetUtcNow());
+        var now = _clock.GetUtcNow();
+        run.RollbackRollout(cmd.RolledBackBy ?? "unknown", cmd.Reason, now);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
+        _telemetry.RecordRun("kubernetes", run.Status.ToString(), t.Strategy.ToString(), (now - run.RequestedAtUtc).TotalSeconds);
         _logger.LogInformation("[deploy] Run {Run} rolled back (green '{Slot}' deleted) by {By}.", run.Id, t.GreenSlot, run.DecisionBy);
         return new DeploymentRunDecisionResult(true, "rolled-back");
     }
