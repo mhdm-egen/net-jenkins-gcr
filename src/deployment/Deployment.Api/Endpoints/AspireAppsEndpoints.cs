@@ -16,7 +16,7 @@ public static class AspireAppsEndpoints
 
         g.MapPost("", async (CreateAspireApplicationRequest body, CreateAspireApplicationHandler h, IValidator<CreateAspireApplicationCommand> v, CancellationToken ct) =>
         {
-            var cmd = new CreateAspireApplicationCommand(body.Name, body.Description, body.EnvironmentId, body.ManifestSource, body.Version, body.SourceKey, body.MainBranch);
+            var cmd = new CreateAspireApplicationCommand(body.Name, body.Description, body.EnvironmentId, body.ManifestSource, body.Version, body.SourceKey, body.MainBranch, (Deployment.Domain.Mappings.RolloutStrategy)(int)body.Strategy, (Deployment.Domain.Mappings.PromotionMode)(int)body.PromotionMode);
             return await EndpointHelpers.ValidateAndRun(v, cmd, ct, async () =>
             {
                 var dto = await h.HandleAsync(cmd, ct);
@@ -26,7 +26,7 @@ public static class AspireAppsEndpoints
 
         g.MapPut("{id:guid}", async (Guid id, UpdateAspireApplicationRequest body, UpdateAspireApplicationHandler h, IValidator<UpdateAspireApplicationCommand> v, CancellationToken ct) =>
         {
-            var cmd = new UpdateAspireApplicationCommand(id, body.Name, body.Description, body.EnvironmentId, body.ManifestSource, body.Version, body.SourceKey, body.MainBranch);
+            var cmd = new UpdateAspireApplicationCommand(id, body.Name, body.Description, body.EnvironmentId, body.ManifestSource, body.Version, body.SourceKey, body.MainBranch, (Deployment.Domain.Mappings.RolloutStrategy)(int)body.Strategy, (Deployment.Domain.Mappings.PromotionMode)(int)body.PromotionMode);
             return await EndpointHelpers.ValidateAndRun(v, cmd, ct, async () => { await h.HandleAsync(cmd, ct); return Results.NoContent(); });
         });
 
@@ -85,6 +85,19 @@ public static class AspireAppsEndpoints
         {
             var r = await h.HandleAsync(new RejectAspireRunCommand(id, body.RejectedBy, body.Reason), ct);
             return r.Applied ? Results.Ok(r) : Results.Problem(title: "Cannot reject", detail: r.Outcome, statusCode: 409);
+        });
+
+        // Blue-green manual promotion: promote (cut over to green, delete old namespace) or roll back (delete
+        // green) a run parked in AwaitingPromotion.
+        g.MapPost("{id:guid}/promote", async (Guid id, PromoteAspireRunRequest? body, PromoteAspireRunHandler h, CancellationToken ct) =>
+        {
+            var r = await h.HandleAsync(new PromoteAspireRunCommand(id, body?.PromotedBy), ct);
+            return r.Applied ? Results.Ok(r) : Results.Problem(title: "Cannot promote", detail: r.Outcome, statusCode: 409);
+        });
+        g.MapPost("{id:guid}/rollback", async (Guid id, RollbackAspireRunRequest? body, RollbackAspireRunHandler h, CancellationToken ct) =>
+        {
+            var r = await h.HandleAsync(new RollbackAspireRunCommand(id, body?.RolledBackBy, body?.Reason), ct);
+            return r.Applied ? Results.Ok(r) : Results.Problem(title: "Cannot roll back", detail: r.Outcome, statusCode: 409);
         });
 
         return app;
