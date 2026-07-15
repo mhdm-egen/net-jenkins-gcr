@@ -72,6 +72,10 @@ builder.Host.UseWolverine(opts =>
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Observability.DeploymentTelemetry>();
     // The executor also snapshots deployed images via this reader (internal Infrastructure impl) — service-locate it.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.AspireApps.IAspireClusterStatusReader>();
+    // The Aspire executor deletes namespaces for blue-green promote/rollback via this (internal impl).
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Abstractions.INamespaceManager>();
+    // The preview executor stamps a browsable Ingress via this (internal impl).
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Abstractions.IIngressManager>();
     // Preview-environment executor resolves the internal preview repository — service-locate it (same constraint).
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.Previews.IPreviewEnvironmentRepository>();
     // AspireAppPublished consumer (CI→deploy handoff): the repository is an internal Infrastructure type
@@ -83,6 +87,12 @@ builder.Host.UseWolverine(opts =>
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.Previews.CreatePreviewEnvironmentHandler>();
     // Deploy-notification handlers inject the dispatcher (with internal senders behind it) — service-locate it.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<INotificationDispatcher>();
+
+    // Blue-green Aspire deploys block their handler on a health-gate poll (up to ~2 min) before settling.
+    // Wolverine's default 60s execution timeout would cancel the handler's token mid-gate, leaving the run
+    // stuck Pending with the green namespace leaked. Give handlers ample headroom (deploys are otherwise
+    // seconds); the gate self-bounds its own wall-clock.
+    opts.DefaultExecutionTimeout = TimeSpan.FromMinutes(10);
 
     opts.UseEntityFrameworkCoreTransactions();
 

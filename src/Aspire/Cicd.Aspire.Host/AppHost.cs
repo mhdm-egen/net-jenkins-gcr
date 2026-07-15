@@ -45,6 +45,10 @@ var deploymentDb = sql.AddDatabase("Deployment");
 var rabbit = builder.AddRabbitMQ("messaging").WithManagementPlugin();
 
 var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
+    // Pin the http endpoint's (proxy) port so the inbound git-webhook URL is stable across restarts —
+    // otherwise Aspire assigns a fresh port each run and any ngrok tunnel / provider config drifts.
+    // See docs/demos/build-pipeline-demo.md → "Webhooks locally".
+    .WithEndpoint("http", e => e.Port = 7229, createIfNotExists: false)
     .WithReference(jenkinsDb)
     .WaitFor(sql)
     .WithReference(rabbit)

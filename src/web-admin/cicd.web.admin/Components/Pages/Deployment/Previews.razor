@@ -48,7 +48,7 @@
     {
         <MudTable Items="@_previews" Dense="true" Hover="true" Striped="true" T="PreviewEnvironmentDto">
             <HeaderContent>
-                <MudTh Style="width:7rem;">Status</MudTh><MudTh>App</MudTh><MudTh>Key</MudTh><MudTh>Namespace</MudTh>
+                <MudTh Style="width:7rem;">Status</MudTh><MudTh>App</MudTh><MudTh>Key</MudTh><MudTh>URL</MudTh><MudTh>Namespace</MudTh>
                 <MudTh Style="width:11rem;">Created</MudTh><MudTh Style="width:11rem;">Expires</MudTh><MudTh Style="width:6rem;"></MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -59,6 +59,24 @@
                 </MudTd>
                 <MudTd>@context.ApplicationName</MudTd>
                 <MudTd>@context.Key</MudTd>
+                <MudTd>
+                    @if (context.Status == PreviewStatusDto.Active && !string.IsNullOrEmpty(context.Url))
+                    {
+                        <MudLink Href="@context.Url" Target="_blank" Underline="Underline.Hover">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                <MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" />
+                                <span style="font-family: ui-monospace, monospace; font-size:0.8em;">@DisplayHost(context.Url)</span>
+                            </MudStack>
+                        </MudLink>
+                    }
+                    else if (context.Status == PreviewStatusDto.Active)
+                    {
+                        <MudTooltip Text="@($"No ingress — reach it via: kubectl port-forward -n {context.Namespace} svc/<frontend> 18080:8080")">
+                            <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">port-forward</MudText>
+                        </MudTooltip>
+                    }
+                    else { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">—</MudText> }
+                </MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@context.KubeContext/@context.Namespace</MudTd>
                 <MudTd>@context.CreatedAtUtc.LocalDateTime.ToString("g")</MudTd>
                 <MudTd>
@@ -146,4 +164,7 @@
         PreviewStatusDto.Creating => Color.Info,
         _ => Color.Default,
     };
+
+    private static string DisplayHost(string url)
+        => Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host : url;
 }

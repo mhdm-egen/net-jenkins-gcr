@@ -35,6 +35,12 @@
                 <MudTd>@context.PipelineName</MudTd>
                 <MudTd>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@StatusColor(context.Status)">@context.Status</MudChip>
+                    @if (context.Status is PipelineRunStatusDto.Failed && !string.IsNullOrEmpty(context.FailureReason))
+                    {
+                        <MudTooltip Text="@context.FailureReason">
+                            <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Color="Color.Error" Size="Size.Small" />
+                        </MudTooltip>
+                    }
                 </MudTd>
                 <MudTd>@context.StepCount</MudTd>
                 <MudTd>@context.StartedAtUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>

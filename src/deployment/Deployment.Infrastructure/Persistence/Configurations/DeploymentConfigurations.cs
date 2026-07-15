@@ -180,6 +180,9 @@ public sealed class AspireApplicationConfiguration : IEntityTypeConfiguration<As
         b.Property(a => a.IsActive).IsRequired();
         b.Property(a => a.AutoDeploy).IsRequired().HasDefaultValue(false);
         b.Property(a => a.MainBranch).HasMaxLength(200).IsRequired().HasDefaultValue("main");
+        b.Property(a => a.Strategy).HasConversion<int>().IsRequired().HasDefaultValue(Deployment.Domain.Mappings.RolloutStrategy.Direct);
+        b.Property(a => a.PromotionMode).HasConversion<int>().IsRequired().HasDefaultValue(Deployment.Domain.Mappings.PromotionMode.Automatic);
+        b.Property(a => a.ActiveSlot).HasMaxLength(50);
         b.Property(a => a.CreatedAtUtc).IsRequired();
         b.Property(a => a.UpdatedAtUtc).IsRequired();
         b.HasIndex(a => a.Name).IsUnique();
@@ -207,6 +210,8 @@ public sealed class AspireApplicationRunConfiguration : IEntityTypeConfiguration
         b.Property(r => r.Log).HasColumnType("nvarchar(max)");
         b.Property(r => r.FailureReason).HasMaxLength(2000);
         b.Property(r => r.DecisionBy).HasMaxLength(200);
+        b.Property(r => r.RolloutGreenSlot).HasMaxLength(50);
+        b.Property(r => r.RolloutActiveSlot).HasMaxLength(50);
         b.Property(r => r.DeployedImages)
             .HasConversion(Json.Converter<DeployedImage>(), Json.Comparer<DeployedImage>())
             .HasColumnType("nvarchar(max)")
@@ -240,6 +245,7 @@ public sealed class PreviewEnvironmentConfiguration : IEntityTypeConfiguration<P
         b.Property(p => p.ExpiresAtUtc);
         b.Property(p => p.ActivatedAtUtc);
         b.Property(p => p.TornDownAtUtc);
+        b.Property(p => p.Url).HasMaxLength(500);
         b.HasIndex(p => p.ApplicationId);
         b.HasIndex(p => p.Status);
     }

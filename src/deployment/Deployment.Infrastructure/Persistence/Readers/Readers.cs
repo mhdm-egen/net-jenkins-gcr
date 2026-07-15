@@ -139,7 +139,8 @@ internal sealed class EfAspireApplicationReader : IAspireApplicationReader
         from e in ej.DefaultIfEmpty()
         select new AspireApplicationDto(
             a.Id, a.Name, a.Description, a.EnvironmentId, e != null ? e.Name : "", a.ManifestSource, a.Version,
-            a.SourceKey, a.IsActive, a.AutoDeploy, a.CreatedAtUtc, a.UpdatedAtUtc, a.MainBranch);
+            a.SourceKey, a.IsActive, a.AutoDeploy, a.CreatedAtUtc, a.UpdatedAtUtc, a.MainBranch,
+            (Deployment.Contracts.Mappings.RolloutStrategyDto)(int)a.Strategy, (Deployment.Contracts.Mappings.PromotionModeDto)(int)a.PromotionMode, a.ActiveSlot);
 
     public async Task<IReadOnlyList<AspireApplicationDto>> ListAsync(CancellationToken ct = default)
         => await Project(_db.AspireApplications.AsNoTracking().OrderBy(a => a.Name))
@@ -157,7 +158,8 @@ internal sealed class EfAspireApplicationRunReader : IAspireApplicationRunReader
     private static AspireApplicationRunDto ToDto(Domain.AspireApps.Runs.AspireApplicationRun r) => new(
         r.Id, r.ApplicationId, r.ApplicationName, r.EnvironmentName, r.KubeContext, r.Namespace, r.ManifestSource, r.Version,
         (AspireRunStatusDto)(int)r.Status, r.TriggeredBy, r.Log, r.FailureReason, r.RequestedAtUtc, r.CompletedAtUtc, r.DecisionBy,
-        r.DeployedImages.Select(i => new DeployedImageDto(i.Workload, i.Image)).ToList());
+        r.DeployedImages.Select(i => new DeployedImageDto(i.Workload, i.Image)).ToList(),
+        r.RolloutGreenSlot, r.RolloutActiveSlot);
 
     public async Task<IReadOnlyList<AspireApplicationRunDto>> ListAsync(Guid? applicationId = null, CancellationToken ct = default)
     {
@@ -182,7 +184,7 @@ internal sealed class EfPreviewEnvironmentReader : IPreviewEnvironmentReader
     private static PreviewEnvironmentDto ToDto(Domain.Previews.PreviewEnvironment p) => new(
         p.Id, p.ApplicationId, p.ApplicationName, p.Key, p.KubeContext, p.Namespace, p.ManifestSource, p.Version,
         (PreviewStatusDto)(int)p.Status, p.TriggeredBy, p.Log, p.FailureReason,
-        p.CreatedAtUtc, p.ExpiresAtUtc, p.ActivatedAtUtc, p.TornDownAtUtc);
+        p.CreatedAtUtc, p.ExpiresAtUtc, p.ActivatedAtUtc, p.TornDownAtUtc, p.Url);
 
     public async Task<IReadOnlyList<PreviewEnvironmentDto>> ListAsync(Guid? applicationId = null, bool includeTornDown = false, CancellationToken ct = default)
     {

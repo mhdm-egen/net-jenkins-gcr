@@ -27,8 +27,15 @@ public sealed class AspireApplicationRun : AggregateRoot<Guid>
     public string TriggeredBy { get; private set; }
     public string? Log { get; private set; }
     public string? FailureReason { get; private set; }
-    /// <summary>Who approved or rejected the run (when it targeted a protected environment).</summary>
+    /// <summary>Who approved/rejected (protected env) or promoted/rolled-back (blue-green) the run.</summary>
     public string? DecisionBy { get; private set; }
+
+    // Blue-green rollout context (set for a blue-green deploy). The green namespace the executor deploys to
+    // is <c>{Namespace}-{RolloutGreenSlot}</c>; the old namespace to retire on promotion is
+    // <c>{Namespace}-{RolloutActiveSlot}</c> (null on the first bootstrap deploy).
+    public string? RolloutGreenSlot { get; private set; }
+    public string? RolloutActiveSlot { get; private set; }
+
     public DateTimeOffset RequestedAtUtc { get; private set; }
     public DateTimeOffset? CompletedAtUtc { get; private set; }
 
@@ -50,7 +57,7 @@ public sealed class AspireApplicationRun : AggregateRoot<Guid>
         Guid id, Guid applicationId, string applicationName,
         Guid environmentId, string environmentName, string kubeContext, string @namespace,
         string manifestSource, string? version, string triggeredBy, DateTimeOffset requestedAtUtc,
-        bool requiresApproval = false)
+        bool requiresApproval = false, string? rolloutGreenSlot = null, string? rolloutActiveSlot = null)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
         Id = id;
@@ -63,6 +70,8 @@ public sealed class AspireApplicationRun : AggregateRoot<Guid>
         ManifestSource = manifestSource?.Trim() ?? string.Empty;
         Version = string.IsNullOrWhiteSpace(version) ? null : version.Trim();
         TriggeredBy = string.IsNullOrWhiteSpace(triggeredBy) ? "manual" : triggeredBy.Trim();
+        RolloutGreenSlot = string.IsNullOrWhiteSpace(rolloutGreenSlot) ? null : rolloutGreenSlot.Trim();
+        RolloutActiveSlot = string.IsNullOrWhiteSpace(rolloutActiveSlot) ? null : rolloutActiveSlot.Trim();
         RequestedAtUtc = requestedAtUtc;
         DeployedImages = Array.Empty<DeployedImage>();
 
@@ -119,6 +128,39 @@ public sealed class AspireApplicationRun : AggregateRoot<Guid>
         Log = Trim(log);
         CompletedAtUtc = completedAtUtc;
         RaiseEvent(new AspireApplicationRunFailed(Id, ApplicationId, ApplicationName, FailureReason, completedAtUtc));
+    }
+
+    /// <summary>Blue-green (manual promotion): green is deployed + healthy in its namespace, parked until a
+    /// human promotes or rolls back. Snapshots the deployed images now (the deploy is done).</summary>
+    public void AwaitPromotion(string? log, IReadOnlyList<DeployedImage>? deployedImages, DateTimeOffset occurredAtUtc)
+    {
+        if (Status is DeploymentRunStatus.Succeeded or DeploymentRunStatus.Failed or DeploymentRunStatus.RolledBack) return;
+        Status = DeploymentRunStatus.AwaitingPromotion;
+        Log = Trim(log);
+        if (deployedImages is { Count: > 0 })
+            DeployedImages = deployedImages.Where(i => !string.IsNullOrWhiteSpace(i.Image)).ToArray();
+    }
+
+    /// <summary>Promote a parked blue-green run — the caller has made green the app's active namespace and
+    /// retired the old one. Terminal Succeeded.</summary>
+    public void PromoteRollout(string promotedBy, DateTimeOffset completedAtUtc)
+    {
+        if (Status != DeploymentRunStatus.AwaitingPromotion) return;
+        DecisionBy = string.IsNullOrWhiteSpace(promotedBy) ? "unknown" : promotedBy.Trim();
+        Status = DeploymentRunStatus.Succeeded;
+        CompletedAtUtc = completedAtUtc;
+        RaiseEvent(new AspireApplicationRunSucceeded(Id, ApplicationId, ApplicationName, Namespace, completedAtUtc));
+    }
+
+    /// <summary>Roll a parked blue-green run back — the caller has deleted the green namespace; the active
+    /// deploy stayed live. Terminal, not a deploy failure (no failure event).</summary>
+    public void RollbackRollout(string rolledBackBy, string? reason, DateTimeOffset completedAtUtc)
+    {
+        if (Status != DeploymentRunStatus.AwaitingPromotion) return;
+        DecisionBy = string.IsNullOrWhiteSpace(rolledBackBy) ? "unknown" : rolledBackBy.Trim();
+        Status = DeploymentRunStatus.RolledBack;
+        FailureReason = string.IsNullOrWhiteSpace(reason) ? "Rolled back." : reason.Trim();
+        CompletedAtUtc = completedAtUtc;
     }
 
     private static string? Trim(string? log)

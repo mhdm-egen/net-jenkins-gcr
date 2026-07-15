@@ -3,6 +3,7 @@ using Deployment.Domain.Abstractions;
 using Deployment.Domain.AspireApps;
 using Deployment.Domain.AspireApps.Runs;
 using Deployment.Domain.Environments;
+using Deployment.Domain.Mappings;
 
 namespace Deployment.Application.Features.AspireApps;
 
@@ -48,6 +49,15 @@ public sealed class RequestAspireDeploymentHandler
         if (string.IsNullOrWhiteSpace(env.KubernetesContext) || string.IsNullOrWhiteSpace(env.KubernetesNamespace))
             return new RequestAspireDeploymentResult(null, "environment-not-kubernetes");
 
+        // Blue-green: deploy to the inactive slot's namespace ({base}-{green}); the executor health-gates it
+        // and (auto or manual) promotes by making it the app's active slot + retiring the old namespace.
+        string? greenSlot = null, activeSlot = null;
+        if (app.Strategy == RolloutStrategy.BlueGreen)
+        {
+            activeSlot = app.ActiveSlot; // null on the first (bootstrap) deploy
+            greenSlot = string.Equals(activeSlot, "blue", StringComparison.OrdinalIgnoreCase) ? "green" : "blue";
+        }
+
         var run = new AspireApplicationRun(
             id: Guid.NewGuid(),
             applicationId: app.Id,
@@ -60,7 +70,9 @@ public sealed class RequestAspireDeploymentHandler
             version: app.Version,
             triggeredBy: cmd.TriggeredBy ?? "manual",
             requestedAtUtc: _clock.GetUtcNow(),
-            requiresApproval: env.IsProtected);
+            requiresApproval: env.IsProtected,
+            rolloutGreenSlot: greenSlot,
+            rolloutActiveSlot: activeSlot);
 
         await _runs.AddAsync(run, ct).ConfigureAwait(false);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);

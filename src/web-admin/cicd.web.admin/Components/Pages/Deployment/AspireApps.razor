@@ -33,6 +33,18 @@
                 <MudItem xs="12" md="6"><MudTextField @bind-Value="_version" Label="Version (optional)" /></MudItem>
                 <MudItem xs="12" md="6"><MudTextField @bind-Value="_sourceKey" Label="CI source key (optional)" HelperText="the AspireAppPublished app name that feeds this app; defaults to Name" /></MudItem>
                 <MudItem xs="12" md="6"><MudTextField @bind-Value="_mainBranch" Label="Main branch" HelperText="CI publishes on this branch deploy here; other branches become previews" /></MudItem>
+                <MudItem xs="12" md="6">
+                    <MudSelect T="RolloutStrategyDto" @bind-Value="_strategy" Label="Rollout strategy" HelperText="Blue-green deploys to a parallel namespace, health-gates it, then cuts over">
+                        <MudSelectItem T="RolloutStrategyDto" Value="RolloutStrategyDto.Direct">Direct (in-place)</MudSelectItem>
+                        <MudSelectItem T="RolloutStrategyDto" Value="RolloutStrategyDto.BlueGreen">Blue-green (namespace-isolated)</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudSelect T="PromotionModeDto" @bind-Value="_promotionMode" Label="Promotion mode" Disabled="_strategy != RolloutStrategyDto.BlueGreen" HelperText="Manual parks the deploy after the health-gate for a human to promote or roll back">
+                        <MudSelectItem T="PromotionModeDto" Value="PromotionModeDto.Automatic">Automatic (promote when healthy)</MudSelectItem>
+                        <MudSelectItem T="PromotionModeDto" Value="PromotionModeDto.Manual">Manual (approve promotion)</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
                 <MudItem xs="12"><MudTextField @bind-Value="_manifestSource" Label="Manifest source (URL to the aspirate kustomize-output archive)" Required="true" HelperText="e.g. http://localhost:8081/repository/raw/myapp/1.0.0/aspirate-output.zip" /></MudItem>
                 <MudItem xs="12">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="RegisterAsync" Disabled="_busy">Register</MudButton>
@@ -87,7 +99,7 @@
             <RowTemplate>
                 <MudTd>
                     <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Status)" Variant="Variant.Filled">@context.Status</MudChip>
-                    @if ((context.Status == AspireRunStatusDto.Failed || context.Status == AspireRunStatusDto.Rejected) && !string.IsNullOrEmpty(context.FailureReason))
+                    @if ((context.Status is AspireRunStatusDto.Failed or AspireRunStatusDto.Rejected or AspireRunStatusDto.RolledBack) && !string.IsNullOrEmpty(context.FailureReason))
                     { <MudTooltip Text="@context.FailureReason"><MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Color="Color.Error" Size="Size.Small" /></MudTooltip> }
                 </MudTd>
                 <MudTd>@context.ApplicationName</MudTd>
@@ -103,6 +115,15 @@
                         </MudTooltip>
                         <MudTooltip Text="Reject — cancel this deploy">
                             <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" Size="Size.Small" Disabled="_busy" OnClick="@(() => RejectRunAsync(context))" />
+                        </MudTooltip>
+                    }
+                    @if (context.Status == AspireRunStatusDto.AwaitingPromotion)
+                    {
+                        <MudTooltip Text="@($"Promote — cut over to the green slot ('{context.RolloutGreenSlot}') and retire the old namespace")">
+                            <MudIconButton Icon="@Icons.Material.Filled.MoveUp" Color="Color.Success" Size="Size.Small" Disabled="_busy" OnClick="@(() => PromoteRunAsync(context))" />
+                        </MudTooltip>
+                        <MudTooltip Text="Roll back — delete the green slot; the current deploy stays live">
+                            <MudIconButton Icon="@Icons.Material.Filled.Undo" Color="Color.Error" Size="Size.Small" Disabled="_busy" OnClick="@(() => RollbackRunAsync(context))" />
                         </MudTooltip>
                     }
                     @if (context.Status == AspireRunStatusDto.Succeeded)
@@ -157,6 +178,18 @@
             <MudItem xs="12" md="6"><MudTextField @bind-Value="_editVersion" Label="Version (optional)" /></MudItem>
             <MudItem xs="12" md="6"><MudTextField @bind-Value="_editSourceKey" Label="CI source key (optional)" HelperText="AspireAppPublished app name that feeds this app; defaults to Name" /></MudItem>
             <MudItem xs="12" md="6"><MudTextField @bind-Value="_editMainBranch" Label="Main branch" HelperText="publishes on this branch deploy here; others become previews" /></MudItem>
+            <MudItem xs="12" md="6">
+                <MudSelect T="RolloutStrategyDto" @bind-Value="_editStrategy" Label="Rollout strategy" HelperText="Blue-green deploys to a parallel namespace, health-gates it, then cuts over">
+                    <MudSelectItem T="RolloutStrategyDto" Value="RolloutStrategyDto.Direct">Direct (in-place)</MudSelectItem>
+                    <MudSelectItem T="RolloutStrategyDto" Value="RolloutStrategyDto.BlueGreen">Blue-green (namespace-isolated)</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudSelect T="PromotionModeDto" @bind-Value="_editPromotionMode" Label="Promotion mode" Disabled="_editStrategy != RolloutStrategyDto.BlueGreen" HelperText="Manual parks the deploy after the health-gate for a human to promote or roll back">
+                    <MudSelectItem T="PromotionModeDto" Value="PromotionModeDto.Automatic">Automatic (promote when healthy)</MudSelectItem>
+                    <MudSelectItem T="PromotionModeDto" Value="PromotionModeDto.Manual">Manual (approve promotion)</MudSelectItem>
+                </MudSelect>
+            </MudItem>
             <MudItem xs="12"><MudTextField @bind-Value="_editManifestSource" Label="Manifest source (URL to the aspirate kustomize-output archive)" Required="true" /></MudItem>
         </MudGrid>
     </DialogContent>
@@ -273,6 +306,8 @@
 
     private string _name = "", _description = "", _manifestSource = "", _version = "", _sourceKey = "", _mainBranch = "main";
     private Guid? _environmentId;
+    private RolloutStrategyDto _strategy = RolloutStrategyDto.Direct;
+    private PromotionModeDto _promotionMode = PromotionModeDto.Automatic;
 
     private bool _logShow;
     private AspireApplicationRunDto? _logRun;
@@ -293,6 +328,8 @@
     private Guid _editId;
     private string _editName = "", _editDescription = "", _editManifestSource = "", _editVersion = "", _editSourceKey = "", _editMainBranch = "main";
     private Guid? _editEnvironmentId;
+    private RolloutStrategyDto _editStrategy = RolloutStrategyDto.Direct;
+    private PromotionModeDto _editPromotionMode = PromotionModeDto.Automatic;
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -316,9 +353,10 @@
         _busy = true;
         try
         {
-            await Api.CreateAspireAppAsync(new CreateAspireApplicationRequest(_name, _description, envId, _manifestSource, string.IsNullOrWhiteSpace(_version) ? null : _version, string.IsNullOrWhiteSpace(_sourceKey) ? null : _sourceKey, string.IsNullOrWhiteSpace(_mainBranch) ? null : _mainBranch));
+            await Api.CreateAspireAppAsync(new CreateAspireApplicationRequest(_name, _description, envId, _manifestSource, string.IsNullOrWhiteSpace(_version) ? null : _version, string.IsNullOrWhiteSpace(_sourceKey) ? null : _sourceKey, string.IsNullOrWhiteSpace(_mainBranch) ? null : _mainBranch, _strategy, _strategy == RolloutStrategyDto.BlueGreen ? _promotionMode : PromotionModeDto.Automatic));
             Snackbar.Add($"Registered '{_name}'.", Severity.Success);
             _name = _description = _manifestSource = _version = _sourceKey = ""; _mainBranch = "main"; _environmentId = null;
+            _strategy = RolloutStrategyDto.Direct; _promotionMode = PromotionModeDto.Automatic;
             await LoadAsync();
         }
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
@@ -380,6 +418,8 @@
         _editVersion = app.Version ?? "";
         _editSourceKey = app.SourceKey ?? "";
         _editMainBranch = string.IsNullOrWhiteSpace(app.MainBranch) ? "main" : app.MainBranch;
+        _editStrategy = app.Strategy;
+        _editPromotionMode = app.PromotionMode;
         _editShow = true;
     }
 
@@ -393,7 +433,8 @@
                 _editName, string.IsNullOrWhiteSpace(_editDescription) ? null : _editDescription, envId, _editManifestSource,
                 string.IsNullOrWhiteSpace(_editVersion) ? null : _editVersion,
                 string.IsNullOrWhiteSpace(_editSourceKey) ? null : _editSourceKey,
-                string.IsNullOrWhiteSpace(_editMainBranch) ? null : _editMainBranch));
+                string.IsNullOrWhiteSpace(_editMainBranch) ? null : _editMainBranch,
+                _editStrategy, _editStrategy == RolloutStrategyDto.BlueGreen ? _editPromotionMode : PromotionModeDto.Automatic));
             Snackbar.Add($"Updated '{_editName}'.", Severity.Success);
             _editShow = false;
             await LoadAsync();
@@ -482,13 +523,41 @@
         finally { _busy = false; }
     }
 
+    private async Task PromoteRunAsync(AspireApplicationRunDto run)
+    {
+        _busy = true;
+        try
+        {
+            await Api.PromoteAspireRunAsync(run.Id);
+            Snackbar.Add($"Promoted '{run.ApplicationName}' — cut over to slot '{run.RolloutGreenSlot}'.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private async Task RollbackRunAsync(AspireApplicationRunDto run)
+    {
+        _busy = true;
+        try
+        {
+            await Api.RollbackAspireRunAsync(run.Id);
+            Snackbar.Add($"Rolled back '{run.ApplicationName}' — green slot deleted; current deploy stays live.", Severity.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
     private static Color StatusColor(AspireRunStatusDto s) => s switch
     {
         AspireRunStatusDto.Succeeded => Color.Success,
         AspireRunStatusDto.Failed => Color.Error,
         AspireRunStatusDto.Rejected => Color.Error,
+        AspireRunStatusDto.RolledBack => Color.Error,
         AspireRunStatusDto.Running => Color.Info,
         AspireRunStatusDto.AwaitingApproval => Color.Warning,
+        AspireRunStatusDto.AwaitingPromotion => Color.Warning,
         _ => Color.Default,
     };
 }

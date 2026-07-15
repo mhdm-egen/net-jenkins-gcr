@@ -30,6 +30,7 @@ public sealed record PipelineRunSummaryDto(
     PipelineRunStatusDto Status,
     DateTimeOffset StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
-    int StepCount);
+    int StepCount,
+    string? FailureReason = null);
 
 public sealed record StartPipelineRunRequest(Guid? RepositoryId, string? TriggeredBy, string? Branch = null);

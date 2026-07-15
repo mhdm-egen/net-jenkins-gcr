@@ -44,6 +44,16 @@ public sealed class AspireApplication : AggregateRoot<Guid>
     /// </summary>
     public string MainBranch { get; private set; }
 
+    /// <summary>How a deploy rolls out. <see cref="Mappings.RolloutStrategy.BlueGreen"/> deploys the new
+    /// version to a parallel <c>{namespace}-green</c> namespace, health-gates it, then makes it active and
+    /// retires the old namespace. Only Direct/BlueGreen apply to whole-app Aspire deploys.</summary>
+    public Mappings.RolloutStrategy Strategy { get; private set; }
+    public Mappings.PromotionMode PromotionMode { get; private set; }
+
+    /// <summary>For blue-green, the slot (<c>blue</c>/<c>green</c>) whose namespace is currently live. Null
+    /// until the first deploy. The live namespace is <c>{environment namespace}-{ActiveSlot}</c>.</summary>
+    public string? ActiveSlot { get; private set; }
+
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public DateTimeOffset UpdatedAtUtc { get; private set; }
 
@@ -54,7 +64,7 @@ public sealed class AspireApplication : AggregateRoot<Guid>
         MainBranch = "main";
     }
 
-    public AspireApplication(Guid id, string name, string? description, Guid environmentId, string manifestSource, string? version, string? sourceKey, DateTimeOffset createdAtUtc, string? mainBranch = null)
+    public AspireApplication(Guid id, string name, string? description, Guid environmentId, string manifestSource, string? version, string? sourceKey, DateTimeOffset createdAtUtc, string? mainBranch = null, Mappings.RolloutStrategy strategy = Mappings.RolloutStrategy.Direct, Mappings.PromotionMode promotionMode = Mappings.PromotionMode.Automatic)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
         if (environmentId == Guid.Empty) throw new ArgumentException("EnvironmentId cannot be empty.", nameof(environmentId));
@@ -66,13 +76,15 @@ public sealed class AspireApplication : AggregateRoot<Guid>
         Version = Clean(version);
         SourceKey = Clean(sourceKey);
         MainBranch = NormalizeBranch(mainBranch);
+        Strategy = strategy;
+        PromotionMode = promotionMode;
         IsActive = true;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = createdAtUtc;
         RaiseEvent(new AspireApplicationRegistered(Id, Name, createdAtUtc));
     }
 
-    public void Update(string name, string? description, Guid environmentId, string manifestSource, string? version, string? sourceKey, DateTimeOffset occurredAtUtc, string? mainBranch = null)
+    public void Update(string name, string? description, Guid environmentId, string manifestSource, string? version, string? sourceKey, DateTimeOffset occurredAtUtc, string? mainBranch = null, Mappings.RolloutStrategy strategy = Mappings.RolloutStrategy.Direct, Mappings.PromotionMode promotionMode = Mappings.PromotionMode.Automatic)
     {
         if (environmentId == Guid.Empty) throw new ArgumentException("EnvironmentId cannot be empty.", nameof(environmentId));
         Name = Require(name, nameof(name));
@@ -82,8 +94,18 @@ public sealed class AspireApplication : AggregateRoot<Guid>
         Version = Clean(version);
         SourceKey = Clean(sourceKey);
         MainBranch = NormalizeBranch(mainBranch);
+        Strategy = strategy;
+        PromotionMode = promotionMode;
         UpdatedAtUtc = occurredAtUtc;
         RaiseEvent(new AspireApplicationUpdated(Id, Name, occurredAtUtc));
+    }
+
+    /// <summary>Record which slot's namespace is now live (set on a successful blue-green promotion or a
+    /// bootstrap deploy).</summary>
+    public void SetActiveSlot(string slot, DateTimeOffset occurredAtUtc)
+    {
+        ActiveSlot = string.IsNullOrWhiteSpace(slot) ? null : slot.Trim();
+        UpdatedAtUtc = occurredAtUtc;
     }
 
     /// <summary>True when a CI publish on <paramref name="branch"/> targets the main deploy (vs. a preview).
