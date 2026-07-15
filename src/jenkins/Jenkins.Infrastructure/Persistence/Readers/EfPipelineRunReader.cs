@@ -26,7 +26,7 @@ public sealed class EfPipelineRunReader : IPipelineRunReader
 
         return runs.Select(r => new PipelineRunSummaryDto(
             r.Id, r.PipelineId, r.PipelineName, (PipelineRunStatusDto)(int)r.Status,
-            r.StartedAtUtc, r.CompletedAtUtc, r.Steps.Count)).ToList();
+            r.StartedAtUtc, r.CompletedAtUtc, r.Steps.Count, r.FailureReason)).ToList();
     }
 
     public async Task<PipelineRunDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

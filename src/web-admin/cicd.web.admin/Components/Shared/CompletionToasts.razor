@@ -33,7 +33,7 @@
                 var text = $"Pipeline '{m.PipelineName}' {m.Status.ToLowerInvariant()}";
                 if (m.Status != "Succeeded" && m.FailureReason is { Length: > 0 } reason)
                     text += $" — {reason}";
-                Toast(text, m.Status, "/jenkins/pipeline-runs");
+                Toast(text, m.Status, "/jenkins/runs");
             }));
             await _pipelineHub.StartAsync();
         }
