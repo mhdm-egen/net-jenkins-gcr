@@ -63,7 +63,9 @@ Pre-check:
 ### Act 1 — trigger it (30s)
 Pick your story:
 
-- **Push-driven:** push a commit → the git webhook starts a pipeline run. Best "real world" beat.
+- **Push-driven:** POST the normalized git webhook → it starts a pipeline run. Best "real world"
+  beat. See [Webhooks locally](#webhooks-locally) for the exact curl (no cloud provider can reach the
+  local port).
 - **Click-driven:** `CI → Pipelines → Start` (safer for a live room — no waiting on webhooks).
 
 ### Act 2 — watch it flow (2 min)
@@ -95,6 +97,53 @@ health-gates in a shadow namespace and cuts over.
 
 ### Closing line
 > "Commit to running, scanned, immutable, and gated — the pipeline is the product, not a pile of scripts."
+
+## Webhooks locally
+
+"Webhooks" here means **two plain HTTP POSTs of normalized JSON** — no provider-specific signature
+parsing, no inbound polling. (Everything *Jenkins → platform* — build status, pushed images — is the
+opposite: `JenkinsBuildSyncService` polls on a timer. There is no Jenkins-fires-a-webhook path.)
+
+| Hop | From → To | Endpoint | Fires on |
+| --- | --- | --- | --- |
+| 1 — git PR lifecycle | provider/curl → **jenkins-api** | `POST /api/jenkins/webhooks/git` | PR opened/closed |
+| 2 — preview teardown | jenkins-api → **deployment-api** | `POST /api/deployment/previews/webhook` | PR close (internal) |
+
+**The catch:** jenkins-api listens on a **dynamic localhost port** the Aspire host assigns (read it
+from the dashboard; e.g. `http://localhost:7229`). It is **not publicly reachable**, and there's **no
+local git server** in the AppHost — so a real GitHub/GitLab cloud webhook can't hit it. Hop 2 "just
+works" because Aspire injects its base URL (`jenkins.WithEnvironment("Deployment__ApiBaseUrl", …)`) and
+service discovery resolves it. Hop 1 you fire yourself.
+
+The endpoint takes a **normalized, provider-agnostic** body (a thin adapter maps a raw GitHub/GitLab
+payload onto it — or you POST it directly). There is **no HMAC/secret check**, and it always returns
+200 with the outcome in the body. Routing: the repo must be **registered** (CI → Repositories) and of
+kind **Aspire** (previews are Aspire-only); `opened/synchronize/reopened` on a **feature** branch
+builds a preview (the **default** branch is skipped — that's a normal deploy), and `closed/merged`
+tears the preview down via Hop 2.
+
+Drive the whole preview lifecycle from the terminal (`PORT` = the jenkins-api port):
+
+```bash
+PORT=7229; REPO=aspire-sample; APP=sampleapp
+
+# PR opened on a feature branch → build + spin up a per-PR preview environment
+curl -sS -X POST "http://localhost:$PORT/api/jenkins/webhooks/git" \
+  -H 'Content-Type: application/json' \
+  -d "{\"repository\":\"$REPO\",\"branch\":\"feature/x\",\"action\":\"opened\",\"prNumber\":42,\"appName\":\"$APP\"}"
+# → {"outcome":"build-triggered","runId":"..."}
+#   other outcomes: default-branch-skipped | repo-not-found | not-an-aspire-repo | ignored-action:<a>
+
+# PR closed → tear the preview down (jenkins-api calls the deployment teardown webhook)
+curl -sS -X POST "http://localhost:$PORT/api/jenkins/webhooks/git" \
+  -H 'Content-Type: application/json' \
+  -d "{\"repository\":\"$REPO\",\"branch\":\"feature/x\",\"action\":\"closed\",\"prNumber\":42,\"appName\":\"$APP\"}"
+# → {"outcome":"teardown-requested"}
+```
+
+Watch it land in `Deployment → Previews`: the `opened` call materializes an ephemeral namespace,
+the `closed` call reaps it. For a real cloud provider, front the port with a tunnel (ngrok /
+cloudflared) **and** supply an adapter, since the endpoint expects the normalized shape.
 
 ## Levers / fallback
 
