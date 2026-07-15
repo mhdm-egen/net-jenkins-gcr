@@ -139,6 +139,9 @@ public sealed class RunConfiguration : IEntityTypeConfiguration<DeploymentRun>
         b.Property(r => r.KubernetesContext).HasMaxLength(200);
         b.Property(r => r.KubernetesNamespace).HasMaxLength(200);
         b.Property(r => r.KubernetesResource).HasMaxLength(500);
+        b.Property(r => r.RolloutGreenSlot).HasMaxLength(50);
+        b.Property(r => r.RolloutActiveSlot).HasMaxLength(50);
+        b.Property(r => r.DecisionBy).HasMaxLength(200);
         b.Property(r => r.Trigger).HasConversion<int>().IsRequired();
         b.Property(r => r.TriggeredBy).HasMaxLength(200).IsRequired();
         b.Property(r => r.Status).HasConversion<int>().IsRequired();

@@ -45,6 +45,8 @@ public static class DependencyInjection
 
         // Runs + inventory
         services.AddScoped<RequestDeploymentHandler>();
+        services.AddScoped<PromoteDeploymentRunHandler>();
+        services.AddScoped<RollbackDeploymentRunHandler>();
         services.AddScoped<ListRunsHandler>();
         services.AddScoped<GetRunByIdHandler>();
         services.AddScoped<ListKnownContainersHandler>();

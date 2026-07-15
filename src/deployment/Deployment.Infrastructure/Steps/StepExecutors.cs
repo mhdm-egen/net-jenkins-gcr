@@ -76,7 +76,12 @@ internal sealed class CloudRunDeployStepExecutor : IDeploymentStepExecutor
 internal sealed class KubernetesApplyStepExecutor : IDeploymentStepExecutor
 {
     private readonly IKubernetesDeployer _deployer;
-    public KubernetesApplyStepExecutor(IKubernetesDeployer deployer) => _deployer = deployer;
+    private readonly IBlueGreenDeployer _blueGreen;
+    public KubernetesApplyStepExecutor(IKubernetesDeployer deployer, IBlueGreenDeployer blueGreen)
+    {
+        _deployer = deployer;
+        _blueGreen = blueGreen;
+    }
 
     public DeploymentStepKind Kind => DeploymentStepKind.KubernetesApply;
 
@@ -88,11 +93,45 @@ internal sealed class KubernetesApplyStepExecutor : IDeploymentStepExecutor
             return StepOutcome.Fail("mapping has no Kubernetes spec.");
 
         var name = string.IsNullOrWhiteSpace(spec.DeploymentName) ? LeafName(ctx.ContainerName) : spec.DeploymentName;
+        var port = spec.ContainerPort <= 0 ? 8080 : spec.ContainerPort;
+
+        if (spec.Strategy == RolloutStrategy.BlueGreen)
+            return await BlueGreenAsync(ctx, spec, name, port, ct).ConfigureAwait(false);
+
         var resource = await _deployer.ApplyAsync(new KubernetesApplyRequest(
             ctx.KubernetesContext!, ctx.KubernetesNamespace!, name, ctx.ImageToDeploy,
-            spec.ContainerPort <= 0 ? 8080 : spec.ContainerPort, spec.Replicas, spec.EnvVars, spec.ImagePullSecret, spec.CreateService), ct).ConfigureAwait(false);
+            port, spec.Replicas, spec.EnvVars, spec.ImagePullSecret, spec.CreateService), ct).ConfigureAwait(false);
         ctx.KubernetesResource = resource;
         return StepOutcome.Ok($"applied {resource}");
+    }
+
+    private async Task<StepOutcome> BlueGreenAsync(DeploymentContext ctx, KubernetesSpec spec, string name, int port, CancellationToken ct)
+    {
+        var result = await _blueGreen.DeployGreenAsync(new BlueGreenDeployRequest(
+            ctx.KubernetesContext!, ctx.KubernetesNamespace!, name, ctx.ImageToDeploy,
+            port, spec.Replicas, spec.EnvVars, spec.ImagePullSecret), ct).ConfigureAwait(false);
+        ctx.KubernetesResource = result.Detail;
+
+        // Bootstrap: the first deploy created the Service pointing at this slot — it's already live.
+        if (result.ActiveSlot == result.GreenSlot)
+            return StepOutcome.Ok($"deployed {name} ({result.GreenSlot}, live)");
+
+        if (!result.Healthy)
+        {
+            await _blueGreen.RollbackAsync(ctx.KubernetesContext!, ctx.KubernetesNamespace!, name, result.GreenSlot, ct).ConfigureAwait(false);
+            return StepOutcome.Fail($"green slot '{result.GreenSlot}' did not become healthy — rolled back.", StepFailureKind.Timeout);
+        }
+
+        if (spec.PromotionMode == PromotionMode.Automatic)
+        {
+            var promoted = await _blueGreen.PromoteAsync(ctx.KubernetesContext!, ctx.KubernetesNamespace!, name, result.GreenSlot, result.ActiveSlot, ct).ConfigureAwait(false);
+            ctx.KubernetesResource = promoted;
+            return StepOutcome.Ok($"promoted {name} to '{result.GreenSlot}'");
+        }
+
+        // Manual promotion → park the run in AwaitingPromotion.
+        return StepOutcome.PausedForPromotion(result.GreenSlot, result.ActiveSlot,
+            $"green '{result.GreenSlot}' healthy; awaiting promotion (active '{result.ActiveSlot}').");
     }
 
     private static string LeafName(string containerName)

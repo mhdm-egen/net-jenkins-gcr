@@ -57,6 +57,8 @@ public sealed class DeploymentRunExecutor
         string? failReason = null;
         StepFailureKind? failureKind = null;
         Deployment.Domain.Mappings.DeploymentStepKind? failedStep = null;
+        var paused = false;
+        string? pausedGreenSlot = null, pausedActiveSlot = null;
 
         foreach (var step in steps.OrderBy(s => s.Order))
         {
@@ -69,6 +71,17 @@ public sealed class DeploymentRunExecutor
             try
             {
                 var outcome = await executor.ExecuteAsync(ctx, ct).ConfigureAwait(false);
+
+                // Blue-green manual promotion: green is healthy but traffic hasn't cut over. Park the run.
+                if (outcome.Paused)
+                {
+                    run.RecordStep(step.Order, step.Kind, "AwaitingPromotion", outcome.Detail);
+                    paused = true;
+                    pausedGreenSlot = outcome.GreenSlot;
+                    pausedActiveSlot = outcome.ActiveSlot;
+                    break;
+                }
+
                 run.RecordStep(step.Order, step.Kind, outcome.Success ? "Succeeded" : "Failed", outcome.Detail, outcome.FailureKind);
                 if (!outcome.Success)
                 {
@@ -106,7 +119,8 @@ public sealed class DeploymentRunExecutor
         if (ctx.KubernetesResource is { Length: > 0 }) run.SetKubernetesResource(ctx.KubernetesResource);
 
         var now = clock.GetUtcNow();
-        if (failed) run.Fail(failReason ?? "Deployment failed.", now, failedStep?.ToString(), failureKind?.ToString());
+        if (paused) run.AwaitPromotion(pausedGreenSlot ?? "green", pausedActiveSlot ?? "blue", now);
+        else if (failed) run.Fail(failReason ?? "Deployment failed.", now, failedStep?.ToString(), failureKind?.ToString());
         else run.Succeed(now);
 
         await uow.SaveChangesAsync(ct).ConfigureAwait(false);
