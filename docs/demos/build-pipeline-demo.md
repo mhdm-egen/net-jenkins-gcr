@@ -144,8 +144,9 @@ curl -sS -X POST "http://localhost:$PORT/api/jenkins/webhooks/git" \
 ```
 
 Watch it land in `Deployment → Previews`: the `opened` call materializes an ephemeral namespace,
-the `closed` call reaps it. For a real cloud provider, front the port with a tunnel (ngrok /
-cloudflared) **and** supply an adapter, since the endpoint expects the normalized shape.
+the `closed` call reaps it. For a real cloud provider, front port `7229` with a tunnel and supply an
+adapter (the endpoint expects the normalized shape) — step-by-step in
+[webhooks-ngrok-setup.md](webhooks-ngrok-setup.md).
 
 ## Levers / fallback
 
