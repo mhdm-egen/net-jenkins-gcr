@@ -26,6 +26,7 @@ public sealed class DeploymentRunExecutor
         IDeploymentRunRepository runs,
         IDeploymentMappingRepository mappings,
         IStepExecutorRegistry stepExecutors,
+        Observability.DeploymentTelemetry telemetry,
         IUnitOfWork uow,
         TimeProvider clock,
         ILogger<DeploymentRunExecutor> logger,
@@ -33,6 +34,10 @@ public sealed class DeploymentRunExecutor
     {
         var run = await runs.GetByIdAsync(evt.RunId, ct).ConfigureAwait(false);
         if (run is null || run.Status != DeploymentRunStatus.Pending) return;
+
+        using var activity = Observability.DeploymentTelemetry.Activity.StartActivity("deploy.run");
+        activity?.SetTag("deploy.service", run.ServiceName);
+        activity?.SetTag("deploy.version", run.Version);
 
         run.Start();
 
@@ -124,6 +129,14 @@ public sealed class DeploymentRunExecutor
         else run.Succeed(now);
 
         await uow.SaveChangesAsync(ct).ConfigureAwait(false);
+        activity?.SetTag("deploy.outcome", run.Status.ToString());
+
+        // Metric on a terminal settle only (a parked manual promotion records when it resolves).
+        if (!paused)
+        {
+            var target = run.KubernetesSpec is not null ? "kubernetes" : "cloudrun";
+            telemetry.RecordRun(target, run.Status.ToString(), run.KubernetesSpec?.Strategy.ToString(), (now - run.RequestedAtUtc).TotalSeconds);
+        }
         logger.LogInformation("[deploy] Run {Run} -> {Status}.", run.Id, run.Status);
     }
 }

@@ -8,6 +8,8 @@ using Deployment.Application.Abstractions;
 using Deployment.Infrastructure;
 using Deployment.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
 using Wolverine.SqlServer;
@@ -15,6 +17,12 @@ using Wolverine.SqlServer;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+
+// Wire the custom deploy Meter + ActivitySource into the OTel pipeline (composes with ServiceDefaults).
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(m => m.AddMeter(Deployment.Application.Observability.DeploymentTelemetry.Name))
+    .WithTracing(t => t.AddSource(Deployment.Application.Observability.DeploymentTelemetry.Name));
+
 builder.Services.AddOpenApi();
 builder.Services.ConfigureHttpJsonOptions(opts => opts.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
@@ -59,6 +67,9 @@ builder.Host.UseWolverine(opts =>
     // constraint as above, or the AspireApplicationRunRequested handler leaves runs stuck Pending.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.AspireApps.Runs.IAspireApplicationRunRepository>();
     opts.CodeGeneration.AlwaysUseServiceLocationFor<IAspirateRunner>();
+    // Resolve the telemetry singleton from the container (it has a public ctor Wolverine would otherwise
+    // new up, creating a duplicate, undisposed Meter).
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Observability.DeploymentTelemetry>();
     // The executor also snapshots deployed images via this reader (internal Infrastructure impl) — service-locate it.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.AspireApps.IAspireClusterStatusReader>();
     // Preview-environment executor resolves the internal preview repository — service-locate it (same constraint).
