@@ -18,7 +18,8 @@ public sealed record PreviewEnvironmentDto(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? ExpiresAtUtc,
     DateTimeOffset? ActivatedAtUtc,
-    DateTimeOffset? TornDownAtUtc);
+    DateTimeOffset? TornDownAtUtc,
+    string? Url = null);
 
 /// <summary>Stand up a preview environment for an Aspire app. <see cref="ManifestSource"/>/<see cref="Version"/>
 /// default to the app's current when omitted (e.g. pass a branch build's manifest URL to preview that build).</summary>

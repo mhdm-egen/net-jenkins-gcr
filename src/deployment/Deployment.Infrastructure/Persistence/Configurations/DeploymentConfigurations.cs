@@ -245,6 +245,7 @@ public sealed class PreviewEnvironmentConfiguration : IEntityTypeConfiguration<P
         b.Property(p => p.ExpiresAtUtc);
         b.Property(p => p.ActivatedAtUtc);
         b.Property(p => p.TornDownAtUtc);
+        b.Property(p => p.Url).HasMaxLength(500);
         b.HasIndex(p => p.ApplicationId);
         b.HasIndex(p => p.Status);
     }

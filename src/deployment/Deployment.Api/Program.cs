@@ -74,6 +74,8 @@ builder.Host.UseWolverine(opts =>
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.AspireApps.IAspireClusterStatusReader>();
     // The Aspire executor deletes namespaces for blue-green promote/rollback via this (internal impl).
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Abstractions.INamespaceManager>();
+    // The preview executor stamps a browsable Ingress via this (internal impl).
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Abstractions.IIngressManager>();
     // Preview-environment executor resolves the internal preview repository — service-locate it (same constraint).
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.Previews.IPreviewEnvironmentRepository>();
     // AspireAppPublished consumer (CI→deploy handoff): the repository is an internal Infrastructure type

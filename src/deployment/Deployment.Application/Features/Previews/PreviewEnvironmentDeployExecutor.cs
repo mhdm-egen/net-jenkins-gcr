@@ -23,6 +23,7 @@ public sealed class PreviewEnvironmentDeployExecutor
         PreviewEnvironmentRequested evt,
         IPreviewEnvironmentRepository previews,
         IAspirateRunner aspirate,
+        IIngressManager ingress,
         IUnitOfWork uow,
         TimeProvider clock,
         ILogger<PreviewEnvironmentDeployExecutor> logger,
@@ -44,7 +45,18 @@ public sealed class PreviewEnvironmentDeployExecutor
         }
 
         var now = clock.GetUtcNow();
-        if (result.Success) preview.MarkActive(result.Log, now);
+        if (result.Success)
+        {
+            // Stamp a browsable Ingress for the preview's frontend (best-effort — a ClusterIP-only preview
+            // stays reachable via port-forward). The manager builds the host {key}.{configured-domain}.
+            string? url = null;
+            try
+            {
+                url = await ingress.EnsureFrontendIngressAsync(preview.KubeContext, preview.Namespace, preview.Key, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) { logger.LogWarning(ex, "[preview] {Preview} ingress stamp failed; reachable via port-forward.", preview.Id); }
+            preview.MarkActive(result.Log, now, url);
+        }
         else preview.MarkFailed(result.FailureReason ?? "aspirate deploy failed.", result.Log, now);
 
         await uow.SaveChangesAsync(ct).ConfigureAwait(false);

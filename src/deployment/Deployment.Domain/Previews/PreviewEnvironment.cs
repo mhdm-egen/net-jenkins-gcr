@@ -34,6 +34,9 @@ public sealed class PreviewEnvironment : AggregateRoot<Guid>
     public DateTimeOffset? ActivatedAtUtc { get; private set; }
     public DateTimeOffset? TornDownAtUtc { get; private set; }
 
+    /// <summary>Browsable URL once the deploy is Active and an Ingress was stamped (null on vanilla ClusterIP).</summary>
+    public string? Url { get; private set; }
+
     private PreviewEnvironment()
     {
         ApplicationName = string.Empty;
@@ -80,13 +83,14 @@ public sealed class PreviewEnvironment : AggregateRoot<Guid>
         RaiseEvent(new PreviewEnvironmentRequested(Id, occurredAtUtc));
     }
 
-    public void MarkActive(string? log, DateTimeOffset occurredAtUtc)
+    public void MarkActive(string? log, DateTimeOffset occurredAtUtc, string? url = null)
     {
         if (Status == PreviewStatus.TornDown) return;
         Status = PreviewStatus.Active;
         Log = Trim(log);
         FailureReason = null;
         ActivatedAtUtc = occurredAtUtc;
+        Url = string.IsNullOrWhiteSpace(url) ? null : url.Trim();
     }
 
     public void MarkFailed(string reason, string? log, DateTimeOffset occurredAtUtc)

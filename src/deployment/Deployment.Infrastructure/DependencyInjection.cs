@@ -101,6 +101,7 @@ public static class DependencyInjection
         services.AddSingleton<IRolloutDeployer, RolloutDeployer>();
         services.AddScoped<Application.Features.AspireApps.IAspireClusterStatusReader, AspireClusterStatusReader>();
         services.AddScoped<INamespaceManager, KubernetesNamespaceManager>();
+        services.AddScoped<IIngressManager, KubernetesIngressManager>();
 
         // Preview environments: TTL sweeper (background) tears down expired previews.
         services.AddOptions<PreviewOptions>().Bind(configuration.GetSection(PreviewOptions.SectionName));

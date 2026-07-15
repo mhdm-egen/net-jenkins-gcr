@@ -184,7 +184,7 @@ internal sealed class EfPreviewEnvironmentReader : IPreviewEnvironmentReader
     private static PreviewEnvironmentDto ToDto(Domain.Previews.PreviewEnvironment p) => new(
         p.Id, p.ApplicationId, p.ApplicationName, p.Key, p.KubeContext, p.Namespace, p.ManifestSource, p.Version,
         (PreviewStatusDto)(int)p.Status, p.TriggeredBy, p.Log, p.FailureReason,
-        p.CreatedAtUtc, p.ExpiresAtUtc, p.ActivatedAtUtc, p.TornDownAtUtc);
+        p.CreatedAtUtc, p.ExpiresAtUtc, p.ActivatedAtUtc, p.TornDownAtUtc, p.Url);
 
     public async Task<IReadOnlyList<PreviewEnvironmentDto>> ListAsync(Guid? applicationId = null, bool includeTornDown = false, CancellationToken ct = default)
     {
