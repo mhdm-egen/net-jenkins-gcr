@@ -109,11 +109,13 @@ opposite: `JenkinsBuildSyncService` polls on a timer. There is no Jenkins-fires-
 | 1 — git PR lifecycle | provider/curl → **jenkins-api** | `POST /api/jenkins/webhooks/git` | PR opened/closed |
 | 2 — preview teardown | jenkins-api → **deployment-api** | `POST /api/deployment/previews/webhook` | PR close (internal) |
 
-**The catch:** jenkins-api listens on a **dynamic localhost port** the Aspire host assigns (read it
-from the dashboard; e.g. `http://localhost:7229`). It is **not publicly reachable**, and there's **no
-local git server** in the AppHost — so a real GitHub/GitLab cloud webhook can't hit it. Hop 2 "just
-works" because Aspire injects its base URL (`jenkins.WithEnvironment("Deployment__ApiBaseUrl", …)`) and
-service discovery resolves it. Hop 1 you fire yourself.
+**The catch:** jenkins-api's http endpoint is **pinned to `http://localhost:7229`** in
+[AppHost.cs](../../src/Aspire/Cicd.Aspire.Host/AppHost.cs) (`.WithEndpoint("http", e => e.Port = 7229…)`)
+— without that pin Aspire assigns a fresh port each run and any ngrok tunnel / provider config drifts.
+Even pinned it is **not publicly reachable**, and there's **no local git server** in the AppHost — so a
+real GitHub/GitLab cloud webhook can't hit it (front it with a tunnel; see below). Hop 2 "just works"
+because Aspire injects its base URL (`jenkins.WithEnvironment("Deployment__ApiBaseUrl", …)`) and service
+discovery resolves it. Hop 1 you fire yourself.
 
 The endpoint takes a **normalized, provider-agnostic** body (a thin adapter maps a raw GitHub/GitLab
 payload onto it — or you POST it directly). There is **no HMAC/secret check**, and it always returns
