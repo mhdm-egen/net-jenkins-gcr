@@ -7,6 +7,9 @@ all on vanilla Kubernetes, no service mesh.
 
 > Runs against the whole-Aspire-app deploy path. Feature reference:
 > [../deployment/deploy-safety-features.md](../deployment/deploy-safety-features.md).
+>
+> Pairs with [build-pipeline-demo.md](build-pipeline-demo.md), which *produces* the artifact this
+> demo *ships*. Run them back-to-back for a full "commit → running" story.
 
 ## Live URLs
 
