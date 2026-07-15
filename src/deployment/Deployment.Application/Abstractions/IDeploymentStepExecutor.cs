@@ -32,12 +32,19 @@ public sealed class DeploymentContext
     public string ImageToDeploy => string.IsNullOrWhiteSpace(RemoteImageRef) ? SourceRef : RemoteImageRef!;
 }
 
-public sealed record StepOutcome(bool Success, string? Detail, StepFailureKind? FailureKind = null)
+public sealed record StepOutcome(
+    bool Success, string? Detail, StepFailureKind? FailureKind = null,
+    bool Paused = false, string? GreenSlot = null, string? ActiveSlot = null)
 {
     public static StepOutcome Ok(string? detail = null) => new(true, detail);
 
     /// <summary>A step that failed up-front on a missing input defaults to <see cref="StepFailureKind.Config"/>.</summary>
     public static StepOutcome Fail(string detail, StepFailureKind kind = StepFailureKind.Config) => new(false, detail, kind);
+
+    /// <summary>Blue-green manual promotion: green is deployed + healthy but traffic hasn't cut over.
+    /// The run executor parks the run in <c>AwaitingPromotion</c> instead of settling it.</summary>
+    public static StepOutcome PausedForPromotion(string greenSlot, string activeSlot, string? detail = null)
+        => new(false, detail, null, Paused: true, GreenSlot: greenSlot, ActiveSlot: activeSlot);
 }
 
 /// <summary>

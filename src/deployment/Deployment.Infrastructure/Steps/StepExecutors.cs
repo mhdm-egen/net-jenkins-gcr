@@ -76,7 +76,12 @@ internal sealed class CloudRunDeployStepExecutor : IDeploymentStepExecutor
 internal sealed class KubernetesApplyStepExecutor : IDeploymentStepExecutor
 {
     private readonly IKubernetesDeployer _deployer;
-    public KubernetesApplyStepExecutor(IKubernetesDeployer deployer) => _deployer = deployer;
+    private readonly IRolloutDeployer _rollout;
+    public KubernetesApplyStepExecutor(IKubernetesDeployer deployer, IRolloutDeployer rollout)
+    {
+        _deployer = deployer;
+        _rollout = rollout;
+    }
 
     public DeploymentStepKind Kind => DeploymentStepKind.KubernetesApply;
 
@@ -88,11 +93,52 @@ internal sealed class KubernetesApplyStepExecutor : IDeploymentStepExecutor
             return StepOutcome.Fail("mapping has no Kubernetes spec.");
 
         var name = string.IsNullOrWhiteSpace(spec.DeploymentName) ? LeafName(ctx.ContainerName) : spec.DeploymentName;
+        var port = spec.ContainerPort <= 0 ? 8080 : spec.ContainerPort;
+
+        if (spec.Strategy is RolloutStrategy.BlueGreen or RolloutStrategy.Canary)
+            return await RolloutAsync(ctx, spec, name, port, ct).ConfigureAwait(false);
+
         var resource = await _deployer.ApplyAsync(new KubernetesApplyRequest(
             ctx.KubernetesContext!, ctx.KubernetesNamespace!, name, ctx.ImageToDeploy,
-            spec.ContainerPort <= 0 ? 8080 : spec.ContainerPort, spec.Replicas, spec.EnvVars, spec.ImagePullSecret, spec.CreateService), ct).ConfigureAwait(false);
+            port, spec.Replicas, spec.EnvVars, spec.ImagePullSecret, spec.CreateService), ct).ConfigureAwait(false);
         ctx.KubernetesResource = resource;
         return StepOutcome.Ok($"applied {resource}");
+    }
+
+    private async Task<StepOutcome> RolloutAsync(DeploymentContext ctx, KubernetesSpec spec, string name, int port, CancellationToken ct)
+    {
+        var canary = spec.Strategy == RolloutStrategy.Canary;
+        var req = new RolloutDeployRequest(ctx.KubernetesContext!, ctx.KubernetesNamespace!, name, ctx.ImageToDeploy,
+            port, spec.Replicas, spec.EnvVars, spec.ImagePullSecret, spec.CanaryWeightPercent);
+
+        var result = canary
+            ? await _rollout.DeployCanaryAsync(req, ct).ConfigureAwait(false)
+            : await _rollout.DeployGreenAsync(req, ct).ConfigureAwait(false);
+        ctx.KubernetesResource = result.Detail;
+
+        // Bootstrap: the first deploy created the Service pointing at this slot — it's already live.
+        if (result.ActiveSlot == result.NewSlot)
+            return StepOutcome.Ok($"deployed {name} ({result.NewSlot}, live)");
+
+        var kindLabel = canary ? "canary" : "green";
+        if (!result.Healthy)
+        {
+            await _rollout.RollbackAsync(ctx.KubernetesContext!, ctx.KubernetesNamespace!, name, result.NewSlot, ct).ConfigureAwait(false);
+            return StepOutcome.Fail($"{kindLabel} slot '{result.NewSlot}' did not become healthy — rolled back.", StepFailureKind.Timeout);
+        }
+
+        if (spec.PromotionMode == PromotionMode.Automatic)
+        {
+            var promoted = canary
+                ? await _rollout.PromoteCanaryAsync(ctx.KubernetesContext!, ctx.KubernetesNamespace!, name, result.NewSlot, result.ActiveSlot, spec.Replicas, ct).ConfigureAwait(false)
+                : await _rollout.PromoteBlueGreenAsync(ctx.KubernetesContext!, ctx.KubernetesNamespace!, name, result.NewSlot, result.ActiveSlot, ct).ConfigureAwait(false);
+            ctx.KubernetesResource = promoted;
+            return StepOutcome.Ok($"promoted {name} to '{result.NewSlot}'");
+        }
+
+        // Manual promotion → park the run in AwaitingPromotion.
+        return StepOutcome.PausedForPromotion(result.NewSlot, result.ActiveSlot,
+            $"{kindLabel} '{result.NewSlot}' healthy; awaiting promotion (active '{result.ActiveSlot}').");
     }
 
     private static string LeafName(string containerName)

@@ -55,6 +55,22 @@
             <MudNumericField @bind-Value="_form.K8sPort" Label="Container port" Min="1" />
             <MudNumericField @bind-Value="_form.K8sReplicas" Label="Replicas" Min="1" />
             <MudTextField @bind-Value="_form.K8sImagePullSecret" Label="Image pull secret (optional)" HelperText="for pulling from a private Nexus" />
+            <MudSelect T="RolloutStrategyDto" @bind-Value="_form.K8sStrategy" Label="Rollout strategy" Class="mt-2">
+                <MudSelectItem Value="RolloutStrategyDto.Direct">Direct (rolling update in place)</MudSelectItem>
+                <MudSelectItem Value="RolloutStrategyDto.BlueGreen">Blue-green (deploy green, health-gate, cut over)</MudSelectItem>
+                <MudSelectItem Value="RolloutStrategyDto.Canary">Canary (weighted replicas, health-gate, then promote)</MudSelectItem>
+            </MudSelect>
+            @if (_form.K8sStrategy == RolloutStrategyDto.Canary)
+            {
+                <MudNumericField @bind-Value="_form.K8sCanaryWeight" Label="Canary weight (%)" Min="1" Max="100" HelperText="the canary's share of replicas during the gate (~traffic %)" />
+            }
+            @if (_form.K8sStrategy != RolloutStrategyDto.Direct)
+            {
+                <MudSelect T="PromotionModeDto" @bind-Value="_form.K8sPromotionMode" Label="Promotion" HelperText="when to complete the rollout (cut over / scale canary to full)">
+                    <MudSelectItem Value="PromotionModeDto.Automatic">Automatic (promote once healthy)</MudSelectItem>
+                    <MudSelectItem Value="PromotionModeDto.Manual">Manual (park for a human to promote)</MudSelectItem>
+                </MudSelect>
+            }
             <MudSwitch T="bool" @bind-Value="_form.AutoDeploy" Color="Color.Primary" Label="Auto-deploy on new container push" Class="mt-2" />
             <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">Recipe: KubernetesApply (generated Deployment + Service).</MudText>
         }
@@ -119,7 +135,8 @@
             if (SelectedEnvIsK8s())
             {
                 var k8s = new KubernetesSpecDto(_form.K8sDeploymentName ?? "", _form.K8sPort, _form.K8sReplicas, null,
-                    string.IsNullOrWhiteSpace(_form.K8sImagePullSecret) ? null : _form.K8sImagePullSecret, true);
+                    string.IsNullOrWhiteSpace(_form.K8sImagePullSecret) ? null : _form.K8sImagePullSecret, true,
+                    _form.K8sStrategy, _form.K8sPromotionMode, _form.K8sCanaryWeight);
                 req = new CreateMappingRequest(_form.ServiceId, _form.EnvironmentId, null, k8s, _form.AutoDeploy, null);
             }
             else
@@ -167,5 +184,8 @@
         public int K8sPort { get; set; } = 8080;
         public int K8sReplicas { get; set; } = 1;
         public string? K8sImagePullSecret { get; set; }
+        public RolloutStrategyDto K8sStrategy { get; set; } = RolloutStrategyDto.Direct;
+        public PromotionModeDto K8sPromotionMode { get; set; } = PromotionModeDto.Automatic;
+        public int K8sCanaryWeight { get; set; } = 20;
     }
 }

@@ -99,7 +99,7 @@ public sealed class PipelineRunExecutorService : BackgroundService
                 ? await sp.GetRequiredService<ISourceRepositoryStore>().GetByIdAsync(rid, ct).ConfigureAwait(false)
                 : null;
 
-            var steps = BuildSteps(pipeline, repo);
+            var steps = BuildSteps(pipeline, repo, run.Branch);
             var progress = new Progress<PipelineEvent>(evt => OnEvent(runId, evt));
 
             Jenkins.Orchestrator.PipelineRun result;
@@ -180,7 +180,7 @@ public sealed class PipelineRunExecutorService : BackgroundService
     /// <summary>The Jenkins job that builds + pushes the container image (the per-repo gate target).</summary>
     private const string ContainerPublishJobName = "cicd-publish-nexus-docker";
 
-    private static IReadOnlyList<PipelineStep> BuildSteps(Pipeline pipeline, SourceRepository? repo)
+    private static IReadOnlyList<PipelineStep> BuildSteps(Pipeline pipeline, SourceRepository? repo, string? branch)
     {
         var steps = new List<PipelineStep>();
         foreach (var stage in pipeline.Stages)
@@ -201,7 +201,7 @@ public sealed class PipelineRunExecutorService : BackgroundService
                 // Source steps clone the repo; downstream steps consume artifacts (decision
                 // mirrored from the orchestrator UI's EffectiveSteps).
                 pars["GIT_URL"] = repo.GitUrl;
-                pars["GIT_BRANCH"] = repo.DefaultBranch;
+                pars["GIT_BRANCH"] = string.IsNullOrWhiteSpace(branch) ? repo.DefaultBranch : branch!;
                 if (!string.IsNullOrWhiteSpace(repo.BaseVersion))
                     pars["BASE_VER"] = repo.BaseVersion; // versioning base for the build job
                 if (!string.IsNullOrWhiteSpace(repo.AppHostPath))

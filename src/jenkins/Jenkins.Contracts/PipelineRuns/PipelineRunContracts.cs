@@ -20,7 +20,8 @@ public sealed record PipelineRunDto(
     DateTimeOffset StartedAtUtc,
     DateTimeOffset? CompletedAtUtc,
     string? FailureReason,
-    IReadOnlyList<PipelineRunStepDto> Steps);
+    IReadOnlyList<PipelineRunStepDto> Steps,
+    string? Branch = null);
 
 public sealed record PipelineRunSummaryDto(
     Guid Id,
@@ -31,4 +32,4 @@ public sealed record PipelineRunSummaryDto(
     DateTimeOffset? CompletedAtUtc,
     int StepCount);
 
-public sealed record StartPipelineRunRequest(Guid? RepositoryId, string? TriggeredBy);
+public sealed record StartPipelineRunRequest(Guid? RepositoryId, string? TriggeredBy, string? Branch = null);

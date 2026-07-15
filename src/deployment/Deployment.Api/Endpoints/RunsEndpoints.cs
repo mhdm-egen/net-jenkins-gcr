@@ -15,6 +15,19 @@ public static class RunsEndpoints
         g.MapGet("{id:guid}", async (Guid id, GetRunByIdHandler h, CancellationToken ct) =>
             await h.HandleAsync(new GetRunByIdQuery(id), ct) is { } d ? Results.Ok(d) : Results.NotFound());
 
+        // Blue-green manual promotion: promote (cut traffic to green) or roll back (delete green) a run
+        // parked in AwaitingPromotion.
+        g.MapPost("{id:guid}/promote", async (Guid id, PromoteDeploymentRunRequest? body, PromoteDeploymentRunHandler h, CancellationToken ct) =>
+        {
+            var r = await h.HandleAsync(new PromoteDeploymentRunCommand(id, body?.PromotedBy), ct);
+            return r.Applied ? Results.Ok(r) : Results.Problem(title: "Cannot promote", detail: r.Outcome, statusCode: 409);
+        });
+        g.MapPost("{id:guid}/rollback", async (Guid id, RollbackDeploymentRunRequest? body, RollbackDeploymentRunHandler h, CancellationToken ct) =>
+        {
+            var r = await h.HandleAsync(new RollbackDeploymentRunCommand(id, body?.RolledBackBy, body?.Reason), ct);
+            return r.Applied ? Results.Ok(r) : Results.Problem(title: "Cannot roll back", detail: r.Outcome, statusCode: 409);
+        });
+
         // The light container inventory (latest push per name) — what manual deploys draw from.
         app.MapGet("/api/deployment/containers", async (ListKnownContainersHandler h, CancellationToken ct) =>
             Results.Ok(await h.HandleAsync(new ListKnownContainersQuery(), ct))).WithTags("Containers");

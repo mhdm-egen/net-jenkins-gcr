@@ -10,6 +10,10 @@ public enum DeploymentRunStatus
     AwaitingApproval = 4,
     /// <summary>An approval request that was rejected — terminal, nothing applied.</summary>
     Rejected = 5,
+    /// <summary>Blue-green: green is deployed + healthy, parked until a human promotes (or rolls back).</summary>
+    AwaitingPromotion = 6,
+    /// <summary>Blue-green: the green slot was rolled back (deleted) — terminal, blue stayed active.</summary>
+    RolledBack = 7,
 }
 
 public enum DeploymentTrigger

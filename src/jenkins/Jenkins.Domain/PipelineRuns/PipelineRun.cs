@@ -13,6 +13,9 @@ public sealed class PipelineRun : AggregateRoot<Guid>
     public Guid PipelineId { get; private set; }
     public string PipelineName { get; private set; }
     public Guid? RepositoryId { get; private set; }
+    /// <summary>The git branch this run builds. Null = the repository's default branch. A non-default
+    /// branch is what drives per-PR preview environments downstream.</summary>
+    public string? Branch { get; private set; }
     public string TriggeredBy { get; private set; }
     public PipelineRunStatus Status { get; private set; }
     public DateTimeOffset StartedAtUtc { get; private set; }
@@ -34,7 +37,8 @@ public sealed class PipelineRun : AggregateRoot<Guid>
         string pipelineName,
         Guid? repositoryId,
         string triggeredBy,
-        DateTimeOffset startedAtUtc)
+        DateTimeOffset startedAtUtc,
+        string? branch = null)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
         if (pipelineId == Guid.Empty) throw new ArgumentException("PipelineId cannot be empty.", nameof(pipelineId));
@@ -45,6 +49,7 @@ public sealed class PipelineRun : AggregateRoot<Guid>
         PipelineId = pipelineId;
         PipelineName = pipelineName.Trim();
         RepositoryId = repositoryId;
+        Branch = string.IsNullOrWhiteSpace(branch) ? null : branch.Trim();
         TriggeredBy = string.IsNullOrWhiteSpace(triggeredBy) ? "unknown" : triggeredBy.Trim();
         Status = PipelineRunStatus.Running;
         StartedAtUtc = startedAtUtc;

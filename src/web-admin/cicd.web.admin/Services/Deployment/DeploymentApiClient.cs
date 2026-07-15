@@ -63,6 +63,11 @@ public sealed class DeploymentApiClient
         => PostJsonAsync<TriggerDeploymentRequest, DeployResponse>($"api/deployment/mappings/{mappingId}/deploy", body, ct);
 
     // ---- Runs + inventory ----
+    public Task PromoteRunAsync(Guid runId, CancellationToken ct = default)
+        => PostJsonNoBodyAsync($"api/deployment/runs/{runId}/promote", new PromoteDeploymentRunRequest("ui"), ct);
+    public Task RollbackRunAsync(Guid runId, string? reason = null, CancellationToken ct = default)
+        => PostJsonNoBodyAsync($"api/deployment/runs/{runId}/rollback", new RollbackDeploymentRunRequest("ui", reason), ct);
+
     public async Task<IReadOnlyList<DeploymentRunDto>> ListRunsAsync(Guid? serviceId = null, Guid? mappingId = null, CancellationToken ct = default)
     {
         var q = new List<string>();

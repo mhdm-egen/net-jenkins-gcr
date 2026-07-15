@@ -165,7 +165,9 @@ public sealed class JenkinsBuildSyncService : BackgroundService
             CiRunId: $"{repo.CiJobName}/#{build.Number}",
             CommitSha: info.GitCommitHash!,
             CommitShort: commitShort,
-            Branch: repo.DefaultBranch,
+            // The real branch from build-info.json drives per-PR preview routing; fall back to the
+            // repo default for older/partial builds that didn't record it.
+            Branch: string.IsNullOrWhiteSpace(info.GitBranch) ? repo.DefaultBranch : info.GitBranch.Trim(),
             Author: null,
             Message: null,
             CommittedAtUtc: null,
@@ -361,6 +363,8 @@ public sealed class JenkinsBuildSyncService : BackgroundService
         string? InformationalVersion,
         string? GitCommitHash,
         string? GitCommitShort,
+        string? GitBranch,
+        string? GitUrl,
         string? BuildNumber,
         string? PackVer,
         string? BuildFile,

@@ -71,6 +71,15 @@ public static class DependencyInjection
         // is an inert no-op (the auto-publish path still runs but hands off to nothing).
         services.AddScoped<IDeploymentReleaseClient, NoOpDeploymentReleaseClient>();
 
+        // Preview teardown → deployment service's /previews/webhook (PR close/merge). Typed HttpClient;
+        // base URL from Deployment:ApiBaseUrl. Best-effort — the client swallows transport failures.
+        services.AddHttpClient<IDeploymentPreviewClient, Previews.HttpDeploymentPreviewClient>(c =>
+        {
+            var baseUrl = configuration["Deployment:ApiBaseUrl"];
+            if (!string.IsNullOrWhiteSpace(baseUrl))
+                c.BaseAddress = new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/");
+        });
+
         return services;
     }
 

@@ -38,6 +38,7 @@ public sealed class EfPipelineRunReader : IPipelineRunReader
         return new PipelineRunDto(
             r.Id, r.PipelineId, r.PipelineName, r.RepositoryId, r.TriggeredBy,
             (PipelineRunStatusDto)(int)r.Status, r.StartedAtUtc, r.CompletedAtUtc, r.FailureReason,
-            r.Steps.Select(s => new PipelineRunStepDto(s.Order, s.JobName, s.BuildNumber, s.Result)).ToList());
+            r.Steps.Select(s => new PipelineRunStepDto(s.Order, s.JobName, s.BuildNumber, s.Result)).ToList(),
+            r.Branch);
     }
 }
