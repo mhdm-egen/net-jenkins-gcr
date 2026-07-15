@@ -13,7 +13,8 @@ public sealed record KubernetesSpec(
     string? ImagePullSecret,
     bool CreateService,
     RolloutStrategy Strategy = RolloutStrategy.Direct,
-    PromotionMode PromotionMode = PromotionMode.Automatic)
+    PromotionMode PromotionMode = PromotionMode.Automatic,
+    int CanaryWeightPercent = 20)
 {
     public static KubernetesSpec Default(string deploymentName) =>
         new(deploymentName, 8080, 1, new Dictionary<string, string>(), null, true);

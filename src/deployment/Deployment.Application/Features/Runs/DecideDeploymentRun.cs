@@ -16,13 +16,13 @@ public sealed record RollbackDeploymentRunCommand(Guid RunId, string? RolledBack
 public sealed class PromoteDeploymentRunHandler
 {
     private readonly IDeploymentRunRepository _runs;
-    private readonly IBlueGreenDeployer _blueGreen;
+    private readonly IRolloutDeployer _rollout;
     private readonly IUnitOfWork _uow;
     private readonly TimeProvider _clock;
     private readonly ILogger<PromoteDeploymentRunHandler> _logger;
 
-    public PromoteDeploymentRunHandler(IDeploymentRunRepository runs, IBlueGreenDeployer blueGreen, IUnitOfWork uow, TimeProvider clock, ILogger<PromoteDeploymentRunHandler> logger)
-    { _runs = runs; _blueGreen = blueGreen; _uow = uow; _clock = clock; _logger = logger; }
+    public PromoteDeploymentRunHandler(IDeploymentRunRepository runs, IRolloutDeployer rollout, IUnitOfWork uow, TimeProvider clock, ILogger<PromoteDeploymentRunHandler> logger)
+    { _runs = runs; _rollout = rollout; _uow = uow; _clock = clock; _logger = logger; }
 
     public async Task<DeploymentRunDecisionResult> HandleAsync(PromoteDeploymentRunCommand cmd, CancellationToken ct = default)
     {
@@ -31,7 +31,10 @@ public sealed class PromoteDeploymentRunHandler
         if (run.Status != DeploymentRunStatus.AwaitingPromotion) return new DeploymentRunDecisionResult(false, "run-not-awaiting-promotion");
         if (!RolloutTarget.TryResolve(run, out var t)) return new DeploymentRunDecisionResult(false, "run-missing-rollout-context");
 
-        await _blueGreen.PromoteAsync(t.Context, t.Namespace, t.Name, t.GreenSlot, t.ActiveSlot, ct).ConfigureAwait(false);
+        if (t.Strategy == Domain.Mappings.RolloutStrategy.Canary)
+            await _rollout.PromoteCanaryAsync(t.Context, t.Namespace, t.Name, t.GreenSlot, t.ActiveSlot, t.Replicas, ct).ConfigureAwait(false);
+        else
+            await _rollout.PromoteBlueGreenAsync(t.Context, t.Namespace, t.Name, t.GreenSlot, t.ActiveSlot, ct).ConfigureAwait(false);
         run.SetKubernetesResource($"service/{t.Name} -> deployment/{t.Name}-{t.GreenSlot}");
         run.PromoteRollout(cmd.PromotedBy ?? "unknown", _clock.GetUtcNow());
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -43,13 +46,13 @@ public sealed class PromoteDeploymentRunHandler
 public sealed class RollbackDeploymentRunHandler
 {
     private readonly IDeploymentRunRepository _runs;
-    private readonly IBlueGreenDeployer _blueGreen;
+    private readonly IRolloutDeployer _rollout;
     private readonly IUnitOfWork _uow;
     private readonly TimeProvider _clock;
     private readonly ILogger<RollbackDeploymentRunHandler> _logger;
 
-    public RollbackDeploymentRunHandler(IDeploymentRunRepository runs, IBlueGreenDeployer blueGreen, IUnitOfWork uow, TimeProvider clock, ILogger<RollbackDeploymentRunHandler> logger)
-    { _runs = runs; _blueGreen = blueGreen; _uow = uow; _clock = clock; _logger = logger; }
+    public RollbackDeploymentRunHandler(IDeploymentRunRepository runs, IRolloutDeployer rollout, IUnitOfWork uow, TimeProvider clock, ILogger<RollbackDeploymentRunHandler> logger)
+    { _runs = runs; _rollout = rollout; _uow = uow; _clock = clock; _logger = logger; }
 
     public async Task<DeploymentRunDecisionResult> HandleAsync(RollbackDeploymentRunCommand cmd, CancellationToken ct = default)
     {
@@ -58,7 +61,7 @@ public sealed class RollbackDeploymentRunHandler
         if (run.Status != DeploymentRunStatus.AwaitingPromotion) return new DeploymentRunDecisionResult(false, "run-not-awaiting-promotion");
         if (!RolloutTarget.TryResolve(run, out var t)) return new DeploymentRunDecisionResult(false, "run-missing-rollout-context");
 
-        await _blueGreen.RollbackAsync(t.Context, t.Namespace, t.Name, t.GreenSlot, ct).ConfigureAwait(false);
+        await _rollout.RollbackAsync(t.Context, t.Namespace, t.Name, t.GreenSlot, ct).ConfigureAwait(false);
         run.RollbackRollout(cmd.RolledBackBy ?? "unknown", cmd.Reason, _clock.GetUtcNow());
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
         _logger.LogInformation("[deploy] Run {Run} rolled back (green '{Slot}' deleted) by {By}.", run.Id, t.GreenSlot, run.DecisionBy);
@@ -66,8 +69,10 @@ public sealed class RollbackDeploymentRunHandler
     }
 }
 
-/// <summary>The resolved blue-green target for a parked run (context/namespace/name + the two slots).</summary>
-internal readonly record struct RolloutTarget(string Context, string Namespace, string Name, string GreenSlot, string ActiveSlot)
+/// <summary>The resolved rollout target for a parked run (coordinates, the two slots, strategy + replicas).</summary>
+internal readonly record struct RolloutTarget(
+    string Context, string Namespace, string Name, string GreenSlot, string ActiveSlot,
+    Domain.Mappings.RolloutStrategy Strategy, int Replicas)
 {
     public static bool TryResolve(DeploymentRun run, out RolloutTarget target)
     {
@@ -78,7 +83,9 @@ internal readonly record struct RolloutTarget(string Context, string Namespace, 
         var name = run.KubernetesSpec is { DeploymentName: { Length: > 0 } d } ? d : LeafName(run.ContainerName);
         if (string.IsNullOrWhiteSpace(name)) return false;
 
-        target = new RolloutTarget(run.KubernetesContext!, run.KubernetesNamespace!, name, run.RolloutGreenSlot!, run.RolloutActiveSlot!);
+        var strategy = run.KubernetesSpec?.Strategy ?? Domain.Mappings.RolloutStrategy.BlueGreen;
+        var replicas = run.KubernetesSpec?.Replicas ?? 1;
+        target = new RolloutTarget(run.KubernetesContext!, run.KubernetesNamespace!, name, run.RolloutGreenSlot!, run.RolloutActiveSlot!, strategy, replicas);
         return true;
     }
 

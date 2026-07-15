@@ -9,13 +9,14 @@ public enum DeploymentStepKindDto
 
 public sealed record DeploymentStepDto(int Order, DeploymentStepKindDto Kind);
 
-public enum RolloutStrategyDto { Direct = 0, BlueGreen = 1 }
+public enum RolloutStrategyDto { Direct = 0, BlueGreen = 1, Canary = 2 }
 public enum PromotionModeDto { Automatic = 0, Manual = 1 }
 
 public sealed record KubernetesSpecDto(
     string DeploymentName, int ContainerPort, int Replicas,
     IReadOnlyDictionary<string, string>? EnvVars, string? ImagePullSecret, bool CreateService,
-    RolloutStrategyDto Strategy = RolloutStrategyDto.Direct, PromotionModeDto PromotionMode = PromotionModeDto.Automatic);
+    RolloutStrategyDto Strategy = RolloutStrategyDto.Direct, PromotionModeDto PromotionMode = PromotionModeDto.Automatic,
+    int CanaryWeightPercent = 20);
 
 public sealed record DeploymentMappingDto(
     Guid Id,
