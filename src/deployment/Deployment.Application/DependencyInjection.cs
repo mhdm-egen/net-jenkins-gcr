@@ -20,6 +20,9 @@ public static class DependencyInjection
     {
         services.AddValidatorsFromAssemblyContaining<DependencyInjectionMarker>(includeInternalTypes: true);
 
+        // Custom deploy metrics + tracing (wired into OTel in Program.cs).
+        services.AddSingleton<Observability.DeploymentTelemetry>();
+
         // Services
         services.AddScoped<CreateServiceHandler>();
         services.AddScoped<UpdateServiceHandler>();

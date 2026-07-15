@@ -1,0 +1,140 @@
+@page "/deployment/metrics"
+@inject DeploymentApiClient Api
+
+<PageTitle>Deployment — Metrics</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Deployment metrics</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">delivery performance across all deploy runs (per-service + Aspire)</MudText>
+    <MudSpacer />
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
+</MudStack>
+
+@if (_error is { Length: > 0 }) { <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert> }
+
+@if (_loading && _points is null) { <MudProgressLinear Indeterminate="true" /> }
+else if (_points is { Count: 0 }) { <MudPaper Elevation="1" Class="pa-6"><MudText Typo="Typo.body1">No deployment runs yet — trigger a deploy to populate metrics.</MudText></MudPaper> }
+else if (_points is not null)
+{
+    <MudGrid Class="mb-2">
+        <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4"><MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Total deploys</MudText><MudText Typo="Typo.h4">@_total</MudText><MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">terminal runs</MudText></MudPaper></MudItem>
+        <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4"><MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Success rate</MudText><MudText Typo="Typo.h4" Style="@RateStyle(_successRate, true)">@_successRate.ToString("P0")</MudText><MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">@_succeeded of @_total</MudText></MudPaper></MudItem>
+        <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4"><MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Change-failure rate</MudText><MudText Typo="Typo.h4" Style="@RateStyle(_cfr, false)">@_cfr.ToString("P0")</MudText><MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">failed + rolled back</MudText></MudPaper></MudItem>
+        <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4"><MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Avg duration</MudText><MudText Typo="Typo.h4">@FormatSeconds(_avgDuration)</MudText><MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">requested → settled</MudText></MudPaper></MudItem>
+    </MudGrid>
+
+    <MudGrid>
+        <MudItem xs="12" md="7">
+            <MudPaper Elevation="1" Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Deploys — last 14 days</MudText>
+                <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">deployment frequency: @_frequency.ToString("0.0") / day (7-day avg)</MudText>
+                <MudChart T="double" ChartType="ChartType.StackedBar" ChartSeries="@_daySeries" XAxisLabels="@_dayLabels" Width="100%" Height="300px" ChartOptions="@_barOptions" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="5">
+            <MudPaper Elevation="1" Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Outcome breakdown</MudText>
+                <MudChart T="double" ChartType="ChartType.Donut" InputData="@_outcomeData" InputLabels="@_outcomeLabels" Width="260px" Height="260px" ChartOptions="@_donutOptions" />
+                <div style="display:flex;flex-wrap:wrap;gap:.75rem;margin-top:.5rem">
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">Succeeded @_succeeded</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text">Failed @_failed</MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text">Rolled back @_rolledBack</MudChip>
+                </div>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudText Typo="Typo.caption" Class="mt-3" Style="color:var(--mud-palette-text-secondary)">
+        Live per-deploy metrics (<code>cicd.deploy.runs</code>, <code>cicd.deploy.duration</code>) and run spans are also exported via OpenTelemetry — view them in the Aspire dashboard's Metrics / Traces.
+    </MudText>
+}
+
+@code {
+    private sealed record DeployPoint(DateTimeOffset RequestedAt, DateTimeOffset? CompletedAt, string Outcome);
+
+    private IReadOnlyList<DeployPoint>? _points;
+    private bool _loading;
+    private string? _error;
+
+    private int _total, _succeeded, _failed, _rolledBack;
+    private double _successRate, _cfr, _avgDuration, _frequency;
+
+    private List<ChartSeries<double>> _daySeries = new();
+    private string[] _dayLabels = Array.Empty<string>();
+    private double[] _outcomeData = Array.Empty<double>();
+    private string[] _outcomeLabels = Array.Empty<string>();
+    private readonly ChartOptions _barOptions = new() { ChartPalette = new[] { "#1f9d57", "#cf3b26", "#b9740c" } };
+    private readonly ChartOptions _donutOptions = new() { ChartPalette = new[] { "#1f9d57", "#cf3b26", "#b9740c" } };
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            var svc = await Api.ListRunsAsync();
+            var aspire = await Api.ListAspireRunsAsync();
+            var points = new List<DeployPoint>();
+            points.AddRange(svc.Select(r => new DeployPoint(r.RequestedAtUtc, r.CompletedAtUtc, r.Status.ToString())));
+            points.AddRange(aspire.Select(r => new DeployPoint(r.RequestedAtUtc, r.CompletedAtUtc, r.Status.ToString())));
+            _points = points;
+            Compute();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private void Compute()
+    {
+        var terminal = _points!
+            .Where(p => p.Outcome is "Succeeded" or "Failed" or "RolledBack")
+            .ToList();
+        _total = terminal.Count;
+        _succeeded = terminal.Count(p => p.Outcome == "Succeeded");
+        _failed = terminal.Count(p => p.Outcome == "Failed");
+        _rolledBack = terminal.Count(p => p.Outcome == "RolledBack");
+        _successRate = _total == 0 ? 0 : (double)_succeeded / _total;
+        _cfr = _total == 0 ? 0 : (double)(_failed + _rolledBack) / _total;
+
+        var durations = terminal.Where(p => p.CompletedAt is not null).Select(p => (p.CompletedAt!.Value - p.RequestedAt).TotalSeconds).Where(s => s >= 0).ToList();
+        _avgDuration = durations.Count == 0 ? 0 : durations.Average();
+
+        var today = DateTimeOffset.Now.Date;
+        var days = Enumerable.Range(0, 14).Select(i => today.AddDays(-13 + i)).ToList();
+        _dayLabels = days.Select(d => d.ToString("M/d")).ToArray();
+        var succ = new double[days.Count];
+        var fail = new double[days.Count];
+        var rb = new double[days.Count];
+        foreach (var p in terminal)
+        {
+            var idx = days.IndexOf(p.RequestedAt.LocalDateTime.Date);
+            if (idx < 0) continue;
+            if (p.Outcome == "Succeeded") succ[idx]++;
+            else if (p.Outcome == "Failed") fail[idx]++;
+            else rb[idx]++;
+        }
+        _daySeries = new()
+        {
+            new ChartSeries<double> { Name = "Succeeded", Data = succ },
+            new ChartSeries<double> { Name = "Failed", Data = fail },
+            new ChartSeries<double> { Name = "Rolled back", Data = rb },
+        };
+        var last7 = terminal.Count(p => p.RequestedAt.LocalDateTime.Date >= today.AddDays(-6));
+        _frequency = last7 / 7.0;
+
+        _outcomeData = new double[] { _succeeded, _failed, _rolledBack };
+        _outcomeLabels = new[] { "Succeeded", "Failed", "Rolled back" };
+    }
+
+    private static string RateStyle(double rate, bool higherIsBetter)
+    {
+        var good = higherIsBetter ? rate >= 0.9 : rate <= 0.15;
+        var warn = higherIsBetter ? rate >= 0.75 : rate <= 0.3;
+        var color = good ? "var(--mud-palette-success)" : warn ? "var(--mud-palette-warning)" : "var(--mud-palette-error)";
+        return $"color:{color}";
+    }
+
+    private static string FormatSeconds(double s) =>
+        s <= 0 ? "—" : s < 90 ? $"{s:0}s" : $"{s / 60:0.0}m";
+}

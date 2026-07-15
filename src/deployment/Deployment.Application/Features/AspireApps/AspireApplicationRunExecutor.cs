@@ -25,6 +25,7 @@ public sealed class AspireApplicationRunExecutor
         IAspireApplicationRunRepository runs,
         IAspirateRunner aspirate,
         IAspireClusterStatusReader clusterStatus,
+        Deployment.Application.Observability.DeploymentTelemetry telemetry,
         IUnitOfWork uow,
         TimeProvider clock,
         ILogger<AspireApplicationRunExecutor> logger,
@@ -32,6 +33,9 @@ public sealed class AspireApplicationRunExecutor
     {
         var run = await runs.GetByIdAsync(evt.RunId, ct).ConfigureAwait(false);
         if (run is null || run.Status != DeploymentRunStatus.Pending) return; // idempotent under retries
+
+        using var activity = Deployment.Application.Observability.DeploymentTelemetry.Activity.StartActivity("deploy.aspire");
+        activity?.SetTag("deploy.app", run.ApplicationName);
 
         run.Start();
 
@@ -58,6 +62,8 @@ public sealed class AspireApplicationRunExecutor
         }
 
         await uow.SaveChangesAsync(ct).ConfigureAwait(false);
+        activity?.SetTag("deploy.outcome", run.Status.ToString());
+        telemetry.RecordRun("aspire", run.Status.ToString(), null, (now - run.RequestedAtUtc).TotalSeconds);
         logger.LogInformation("[aspire] Run {Run} -> {Status}.", run.Id, run.Status);
     }
 
