@@ -24,12 +24,14 @@ public sealed class GetAspireAppStatusHandler
     private readonly IEnvironmentReader _envs;
     private readonly IAspireApplicationRunReader _runs;
     private readonly IAspireClusterStatusReader _cluster;
+    private readonly Abstractions.IIngressManager _ingress;
 
     public GetAspireAppStatusHandler(
         IAspireApplicationReader apps, IEnvironmentReader envs,
-        IAspireApplicationRunReader runs, IAspireClusterStatusReader cluster)
+        IAspireApplicationRunReader runs, IAspireClusterStatusReader cluster,
+        Abstractions.IIngressManager ingress)
     {
-        _apps = apps; _envs = envs; _runs = runs; _cluster = cluster;
+        _apps = apps; _envs = envs; _runs = runs; _cluster = cluster; _ingress = ingress;
     }
 
     public async Task<AspireAppStatusDto?> HandleAsync(GetAspireAppStatusQuery q, CancellationToken ct = default)
@@ -62,11 +64,16 @@ public sealed class GetAspireAppStatusHandler
         // Image drift: what each workload runs now vs. the image the last successful run recorded deploying.
         var (workloads, hasImageDrift) = ApplyImageDrift(cluster.Workloads, lastDeploy?.DeployedImages);
 
+        // Browsable URL, if an Ingress was stamped for this namespace's frontend (best-effort).
+        var url = cluster.Reachable && !string.IsNullOrWhiteSpace(ns)
+            ? await _ingress.GetFrontendUrlAsync(context, ns!, ct).ConfigureAwait(false)
+            : null;
+
         return new AspireAppStatusDto(
             app.Id, app.Name, app.EnvironmentName, context, ns,
             cluster.Reachable, cluster.Error, cluster.OverallHealth,
             hasUndeployed, hasImageDrift, app.Version, lastDeploy?.Version, lastDeploy?.CompletedAtUtc,
-            workloads);
+            workloads, url);
     }
 
     private static (IReadOnlyList<WorkloadStatusDto> Workloads, bool HasDrift) ApplyImageDrift(

@@ -35,4 +35,11 @@ public sealed class KubernetesOptions
 
     /// <summary>When false, no Ingress is stamped for previews (they stay ClusterIP / port-forward only).</summary>
     public bool PreviewIngressEnabled { get; set; } = true;
+
+    /// <summary>DNS suffix for normal (Direct) Aspire app URLs — an app in namespace <c>foo</c> gets
+    /// <c>foo.{AppIngressDomain}</c>. Default <c>localtest.me</c> (public wildcard → 127.0.0.1).</summary>
+    public string AppIngressDomain { get; set; } = "localtest.me";
+
+    /// <summary>When false, no Ingress is stamped for normal app deploys (ClusterIP / port-forward only).</summary>
+    public bool AppIngressEnabled { get; set; } = true;
 }
