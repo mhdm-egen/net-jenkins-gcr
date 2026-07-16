@@ -139,6 +139,7 @@ app.MapRunEndpoints();
 app.MapAspireAppEndpoints();
 app.MapAspireRunEndpoints();
 app.MapPreviewEndpoints();
+app.MapK8sEndpoints();
 app.MapHub<DeploymentRunHub>("/hubs/deployment-runs");
 
 app.Run();

@@ -1,0 +1,145 @@
+@page "/kubernetes/apps"
+@inject DeploymentApiClient Api
+@implements IDisposable
+
+<PageTitle>Kubernetes — Deployed apps</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Deployed apps</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">everything running on the cluster — Aspire apps + active previews, with live health</MudText>
+    <MudSpacer />
+    <RefreshControls Loading="_loading" AutoRefreshOn="_autoOn" LastFetchedAt="_lastFetchedAt" IntervalSec="IntervalSec" OnRefresh="RefreshAsync" OnToggleAuto="ToggleAuto" />
+</MudStack>
+
+@if (_error is { Length: > 0 }) { <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert> }
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Aspire applications</MudText>
+        <MudSpacer />
+        <MudButton Size="Size.Small" Variant="Variant.Text" Href="/deployment/aspire-apps" StartIcon="@Icons.Material.Filled.OpenInNew">Manage</MudButton>
+    </MudStack>
+    @if (_loading && _apps is null) { <MudProgressLinear Indeterminate="true" /> }
+    else if (_apps is { Count: 0 }) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No Aspire apps registered.</MudText> }
+    else if (_apps is not null)
+    {
+        <MudTable Items="@_apps" Dense="true" Hover="true" Striped="true" T="AppRow">
+            <HeaderContent><MudTh Style="width:6rem;">Health</MudTh><MudTh>App</MudTh><MudTh>Environment</MudTh><MudTh>Namespace</MudTh><MudTh>Version</MudTh><MudTh Style="width:8rem;">State</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    @if (context.Status is { Reachable: true }) { <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@HealthColor(context.Status.OverallHealth)">@context.Status.OverallHealth</MudChip> }
+                    else { <MudTooltip Text="@(context.Status?.Error ?? "unknown")"><MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Default">unreachable</MudChip></MudTooltip> }
+                </MudTd>
+                <MudTd>@context.App.Name</MudTd>
+                <MudTd>@context.App.EnvironmentName</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@(context.Status?.Namespace ?? "—")</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@(context.App.Version ?? "—")</MudTd>
+                <MudTd>
+                    @if (context.Status?.HasImageDrift == true) { <MudTooltip Text="A live workload runs a different image than last deployed"><MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text" Icon="@Icons.Material.Filled.Warning">drift</MudChip></MudTooltip> }
+                    else if (context.Status?.HasUndeployedChanges == true) { <MudTooltip Text="Current manifest/version differs from the last deploy"><MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text" Icon="@Icons.Material.Filled.SyncProblem">pending</MudChip></MudTooltip> }
+                    else if (context.Status is { Reachable: true }) { <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">in sync</MudChip> }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+<MudPaper Elevation="1" Class="pa-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Active previews</MudText>
+        <MudSpacer />
+        <MudButton Size="Size.Small" Variant="Variant.Text" Href="/deployment/previews" StartIcon="@Icons.Material.Filled.OpenInNew">Manage</MudButton>
+    </MudStack>
+    @if (_previews is { Count: 0 }) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No active previews.</MudText> }
+    else if (_previews is not null)
+    {
+        <MudTable Items="@_previews" Dense="true" Hover="true" Striped="true" T="PreviewEnvironmentDto">
+            <HeaderContent><MudTh Style="width:7rem;">Status</MudTh><MudTh>App</MudTh><MudTh>Key</MudTh><MudTh>Namespace</MudTh><MudTh>URL</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@PreviewColor(context.Status)">@context.Status</MudChip></MudTd>
+                <MudTd>@context.ApplicationName</MudTd>
+                <MudTd>@context.Key</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@context.Namespace</MudTd>
+                <MudTd>
+                    @if (!string.IsNullOrEmpty(context.Url)) { <MudLink Href="@context.Url" Target="_blank" Underline="Underline.Hover" Style="font-family: ui-monospace, monospace; font-size:0.8em;">@context.Url</MudLink> }
+                    else { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">—</MudText> }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+@code {
+    public const int IntervalSec = 20;
+
+    private IReadOnlyList<AppRow>? _apps;
+    private IReadOnlyList<PreviewEnvironmentDto>? _previews;
+    private bool _loading, _autoOn;
+    private string? _error;
+    private DateTimeOffset? _lastFetchedAt;
+    private CancellationTokenSource? _inflightCts;
+    private Timer? _timer;
+
+    private sealed record AppRow(AspireApplicationDto App, AspireAppStatusDto? Status);
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        _inflightCts?.Cancel();
+        _inflightCts = new CancellationTokenSource();
+        var ct = _inflightCts.Token;
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            var apps = await Api.ListAspireAppsAsync(ct);
+            // Live health per app, in parallel (small N; each is one cluster read).
+            var statuses = await Task.WhenAll(apps.Select(async a =>
+            {
+                try { return (a.Id, Status: await Api.GetAspireAppStatusAsync(a.Id, ct)); }
+                catch { return (a.Id, Status: (AspireAppStatusDto?)null); }
+            }));
+            var byId = statuses.ToDictionary(x => x.Id, x => x.Status);
+            _apps = apps.Select(a => new AppRow(a, byId.GetValueOrDefault(a.Id))).ToList();
+            _previews = await Api.ListPreviewsAsync(includeTornDown: false, ct);
+            _lastFetchedAt = DateTimeOffset.UtcNow;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private void ToggleAuto()
+    {
+        _autoOn = !_autoOn;
+        if (_autoOn)
+        {
+            _timer ??= new Timer(_ => _ = InvokeAsync(RefreshAsync), null, Timeout.Infinite, Timeout.Infinite);
+            _timer.Change(TimeSpan.FromSeconds(IntervalSec), TimeSpan.FromSeconds(IntervalSec));
+        }
+        else { _timer?.Change(Timeout.Infinite, Timeout.Infinite); }
+    }
+
+    private static Color HealthColor(WorkloadHealthDto h) => h switch
+    {
+        WorkloadHealthDto.Healthy => Color.Success,
+        WorkloadHealthDto.Degraded => Color.Warning,
+        WorkloadHealthDto.Down => Color.Error,
+        _ => Color.Default,
+    };
+
+    private static Color PreviewColor(PreviewStatusDto s) => s switch
+    {
+        PreviewStatusDto.Active => Color.Success,
+        PreviewStatusDto.Failed => Color.Error,
+        PreviewStatusDto.Creating => Color.Info,
+        _ => Color.Default,
+    };
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _inflightCts?.Cancel();
+        _inflightCts?.Dispose();
+    }
+}

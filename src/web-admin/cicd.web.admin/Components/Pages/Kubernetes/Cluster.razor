@@ -1,0 +1,288 @@
+@page "/kubernetes/cluster"
+@inject DeploymentApiClient Api
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<PageTitle>Kubernetes — Cluster</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Cluster</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">live namespaces, workloads, pods, services &amp; ingresses (read-only)</MudText>
+    <MudSpacer />
+    @if (_contexts.Count > 0)
+    {
+        <MudSelect T="string" Value="_context" ValueChanged="OnContextChanged" Label="Context" Dense="true" Style="min-width:12rem;">
+            @foreach (var c in _contexts)
+            { <MudSelectItem T="string" Value="@c.Name">@c.Name@(c.IsCurrent ? " (current)" : "")</MudSelectItem> }
+        </MudSelect>
+    }
+    <RefreshControls Loading="_loading" AutoRefreshOn="_autoOn" LastFetchedAt="_lastFetchedAt" IntervalSec="IntervalSec" OnRefresh="RefreshAsync" OnToggleAuto="ToggleAuto" />
+</MudStack>
+
+@if (_error is { Length: > 0 }) { <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert> }
+
+<MudGrid>
+    <MudItem xs="12" md="5">
+        <MudPaper Elevation="1" Class="pa-4">
+            <MudText Typo="Typo.h6" Class="mb-2">Namespaces @(_namespaces is { Count: > 0 } ? $"({_namespaces.Count})" : "")</MudText>
+            @if (_loading && _namespaces is null) { <MudProgressLinear Indeterminate="true" /> }
+            else if (_namespaces is { Count: 0 }) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No namespaces (cluster unreachable?).</MudText> }
+            else if (_namespaces is not null)
+            {
+                <MudTable Items="@_namespaces" Dense="true" Hover="true" T="K8sNamespaceDto" OnRowClick="OnNamespaceClicked"
+                          RowClassFunc="@((ns,_) => ns.Name == _selectedNs ? "mud-selected-row" : "")" Filter="new Func<K8sNamespaceDto,bool>(MatchesNs)">
+                    <ToolBarContent>
+                        <MudTextField @bind-Value="_nsFilter" Placeholder="Filter…" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Small" Margin="Margin.Dense" Immediate="true" />
+                    </ToolBarContent>
+                    <HeaderContent><MudTh>Name</MudTh><MudTh Style="width:6rem;">Phase</MudTh><MudTh Style="width:6rem;">Age</MudTh></HeaderContent>
+                    <RowTemplate>
+                        <MudTd style="cursor:pointer;">
+                            @context.Name
+                            @if (IsPreview(context)) { <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Info">preview</MudChip> }
+                        </MudTd>
+                        <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@PhaseColor(context.Phase)">@(context.Phase ?? "—")</MudChip></MudTd>
+                        <MudTd>@Age(context.CreatedAtUtc)</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="7">
+        <MudPaper Elevation="1" Class="pa-4">
+            @if (_selectedNs is null) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">Select a namespace to inspect its workloads.</MudText> }
+            else
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                    <MudText Typo="Typo.h6" Style="font-family: ui-monospace, monospace;">@_selectedNs</MudText>
+                    @if (_detail is not null && _detail.Reachable) { <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@HealthColor(_detail.OverallHealth)">@_detail.OverallHealth</MudChip> }
+                    <MudSpacer />
+                    @if (_detailLoading) { <MudProgressCircular Size="Size.Small" Indeterminate="true" /> }
+                </MudStack>
+
+                @if (_detail is null && _detailLoading) { <MudProgressLinear Indeterminate="true" /> }
+                else if (_detail is not null)
+                {
+                    @if (!string.IsNullOrEmpty(_detail.Error)) { <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="my-2">@_detail.Error</MudAlert> }
+
+                    <MudText Typo="Typo.subtitle2" Class="mt-2">Workloads</MudText>
+                    @if (_detail.Workloads.Count == 0) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No deployments.</MudText> }
+                    else
+                    {
+                        <MudTable Items="@_detail.Workloads" Dense="true" Hover="true" T="WorkloadStatusDto" Class="mb-3">
+                            <HeaderContent><MudTh Style="width:5rem;">Health</MudTh><MudTh>Workload</MudTh><MudTh>Image</MudTh><MudTh Style="width:5rem;">Ready</MudTh><MudTh Style="width:5rem;">Restarts</MudTh></HeaderContent>
+                            <RowTemplate>
+                                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@HealthColor(context.Health)">@context.Health</MudChip></MudTd>
+                                <MudTd>@context.Name</MudTd>
+                                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.75em; max-width:20rem;"><div style="overflow:hidden; text-overflow:ellipsis;">@(context.Image ?? "—")</div></MudTd>
+                                <MudTd>@context.ReadyReplicas / @context.DesiredReplicas</MudTd>
+                                <MudTd>@context.Pods.Sum(p => p.Restarts)</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+
+                        <MudText Typo="Typo.subtitle2">Pods</MudText>
+                        <MudTable Items="@AllPods()" Dense="true" Hover="true" T="PodRow" Class="mb-3">
+                            <HeaderContent><MudTh>Pod</MudTh><MudTh Style="width:7rem;">Phase</MudTh><MudTh Style="width:5rem;">Restarts</MudTh><MudTh Style="width:5rem;">Ready</MudTh><MudTh Style="width:5rem;">Logs</MudTh></HeaderContent>
+                            <RowTemplate>
+                                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@context.Pod.Name</MudTd>
+                                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@PodPhaseColor(context.Pod.Phase)">@context.Pod.Phase</MudChip></MudTd>
+                                <MudTd>@context.Pod.Restarts</MudTd>
+                                <MudTd>@(context.Pod.Ready ? "✓" : "—")</MudTd>
+                                <MudTd><MudTooltip Text="View logs"><MudIconButton Icon="@Icons.Material.Filled.Article" Size="Size.Small" OnClick="@(() => OpenLogsAsync(context.Pod.Name))" /></MudTooltip></MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+
+                    <MudText Typo="Typo.subtitle2">Services</MudText>
+                    @if (_detail.Services.Count == 0) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">None.</MudText> }
+                    else
+                    {
+                        <MudTable Items="@_detail.Services" Dense="true" Hover="true" T="K8sServiceDto" Class="mb-3">
+                            <HeaderContent><MudTh>Name</MudTh><MudTh Style="width:8rem;">Type</MudTh><MudTh Style="width:9rem;">ClusterIP</MudTh><MudTh>Ports</MudTh></HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@context.Name</MudTd><MudTd>@context.Type</MudTd>
+                                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@(context.ClusterIP ?? "—")</MudTd>
+                                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@string.Join(", ", context.Ports)</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+
+                    <MudText Typo="Typo.subtitle2">Ingresses</MudText>
+                    @if (_detail.Ingresses.Count == 0) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">None.</MudText> }
+                    else
+                    {
+                        <MudTable Items="@_detail.Ingresses" Dense="true" Hover="true" T="K8sIngressDto">
+                            <HeaderContent><MudTh>Name</MudTh><MudTh Style="width:6rem;">Class</MudTh><MudTh>URLs</MudTh><MudTh>Backends</MudTh></HeaderContent>
+                            <RowTemplate>
+                                <MudTd>@context.Name</MudTd><MudTd>@(context.IngressClass ?? "—")</MudTd>
+                                <MudTd>
+                                    @foreach (var u in context.Urls)
+                                    { <div><MudLink Href="@u" Target="_blank" Underline="Underline.Hover" Style="font-family: ui-monospace, monospace; font-size:0.8em;">@u</MudLink></div> }
+                                </MudTd>
+                                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.75em;">@string.Join(" · ", context.Backends)</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                }
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<MudDialog @bind-Visible="_logShow" Options="_logDlg">
+    <TitleContent>Logs — <span style="font-family: ui-monospace, monospace;">@_logPod</span></TitleContent>
+    <DialogContent>
+        @if (_logLoading) { <MudProgressLinear Indeterminate="true" Class="my-2" /> }
+        <MudPaper Outlined="true" Class="pa-2 mt-1" Style="max-height:60vh; overflow:auto; background: var(--mud-palette-background-grey);">
+            <pre style="margin:0; white-space:pre-wrap; font-size:0.78em;">@_logText</pre>
+        </MudPaper>
+    </DialogContent>
+    <DialogActions>
+        <MudButton StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => LoadLogAsync())" Disabled="_logLoading">Refresh</MudButton>
+        <MudButton OnClick="@(() => _logShow = false)">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    public const int IntervalSec = 15;
+
+    private IReadOnlyList<K8sContextDto> _contexts = Array.Empty<K8sContextDto>();
+    private string? _context;
+    private IReadOnlyList<K8sNamespaceDto>? _namespaces;
+    private string? _selectedNs;
+    private K8sNamespaceDetailDto? _detail;
+    private string _nsFilter = "";
+
+    private bool _loading, _detailLoading, _autoOn;
+    private string? _error;
+    private DateTimeOffset? _lastFetchedAt;
+    private CancellationTokenSource? _inflightCts;
+    private Timer? _timer;
+
+    private bool _logShow, _logLoading;
+    private static readonly DialogOptions _logDlg = new() { MaxWidth = MaxWidth.Large, FullWidth = true };
+    private string? _logPod, _logText;
+
+    private sealed record PodRow(string Workload, PodStatusDto Pod);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _contexts = await Api.ListK8sContextsAsync();
+        _context = _contexts.FirstOrDefault(c => c.IsCurrent)?.Name ?? _contexts.FirstOrDefault()?.Name;
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        _inflightCts?.Cancel();
+        _inflightCts = new CancellationTokenSource();
+        var ct = _inflightCts.Token;
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            _namespaces = await Api.ListK8sNamespacesAsync(_context, ct);
+            if (_selectedNs is not null) await LoadDetailAsync(ct);
+            _lastFetchedAt = DateTimeOffset.UtcNow;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private async Task OnContextChanged(string ctx)
+    {
+        _context = ctx; _selectedNs = null; _detail = null;
+        await RefreshAsync();
+    }
+
+    private async Task OnNamespaceClicked(TableRowClickEventArgs<K8sNamespaceDto> args)
+    {
+        _selectedNs = args.Item.Name; _detail = null;
+        await LoadDetailAsync(CancellationToken.None);
+    }
+
+    private async Task LoadDetailAsync(CancellationToken ct)
+    {
+        if (_selectedNs is null) return;
+        _detailLoading = true; StateHasChanged();
+        try { _detail = await Api.GetK8sNamespaceAsync(_selectedNs, _context, ct); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _detailLoading = false; StateHasChanged(); }
+    }
+
+    private IReadOnlyList<PodRow> AllPods()
+        => _detail?.Workloads.SelectMany(w => w.Pods.Select(p => new PodRow(w.Name, p))).ToList() ?? new List<PodRow>();
+
+    private async Task OpenLogsAsync(string pod)
+    {
+        _logPod = pod; _logText = null; _logShow = true;
+        await LoadLogAsync();
+    }
+
+    private async Task LoadLogAsync()
+    {
+        if (_selectedNs is null || _logPod is null) return;
+        _logLoading = true; StateHasChanged();
+        try { _logText = (await Api.GetK8sPodLogAsync(_selectedNs, _logPod, tail: 500, context: _context))?.Log ?? "(no log)"; }
+        catch (Exception ex) { _logText = ex.Message; }
+        finally { _logLoading = false; StateHasChanged(); }
+    }
+
+    private void ToggleAuto()
+    {
+        _autoOn = !_autoOn;
+        if (_autoOn)
+        {
+            _timer ??= new Timer(_ => { if (!_logShow) _ = InvokeAsync(RefreshAsync); }, null, Timeout.Infinite, Timeout.Infinite);
+            _timer.Change(TimeSpan.FromSeconds(IntervalSec), TimeSpan.FromSeconds(IntervalSec));
+        }
+        else { _timer?.Change(Timeout.Infinite, Timeout.Infinite); }
+    }
+
+    private bool MatchesNs(K8sNamespaceDto n)
+        => string.IsNullOrWhiteSpace(_nsFilter) || n.Name.Contains(_nsFilter, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPreview(K8sNamespaceDto n)
+        => n.Name.Contains("-preview-", StringComparison.OrdinalIgnoreCase)
+           || (n.Labels?.ContainsKey("cicd.preview") ?? false);
+
+    private static string Age(DateTimeOffset? created)
+    {
+        if (created is not { } c) return "—";
+        var span = DateTimeOffset.UtcNow - c;
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h";
+        return $"{(int)span.TotalDays}d";
+    }
+
+    private static Color PhaseColor(string? phase) => phase switch
+    {
+        "Active" => Color.Success,
+        "Terminating" => Color.Warning,
+        _ => Color.Default,
+    };
+
+    private static Color PodPhaseColor(string phase) => phase switch
+    {
+        "Running" or "Succeeded" => Color.Success,
+        "Pending" => Color.Warning,
+        "Failed" => Color.Error,
+        _ => Color.Default,
+    };
+
+    private static Color HealthColor(WorkloadHealthDto h) => h switch
+    {
+        WorkloadHealthDto.Healthy => Color.Success,
+        WorkloadHealthDto.Degraded => Color.Warning,
+        WorkloadHealthDto.Down => Color.Error,
+        _ => Color.Default,
+    };
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _inflightCts?.Cancel();
+        _inflightCts?.Dispose();
+    }
+}

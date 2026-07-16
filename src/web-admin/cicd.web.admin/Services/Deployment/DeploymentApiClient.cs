@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Deployment.Contracts.AspireApps;
 using Deployment.Contracts.Catalog;
+using Deployment.Contracts.Kubernetes;
 using Deployment.Contracts.Mappings;
 using Deployment.Contracts.Previews;
 using Deployment.Contracts.Runs;
@@ -120,6 +121,23 @@ public sealed class DeploymentApiClient
         var url = applicationId is { } a ? $"api/deployment/aspire-runs?applicationId={a}" : "api/deployment/aspire-runs";
         return await _http.GetFromJsonAsync<List<AspireApplicationRunDto>>(url, Json, ct).ConfigureAwait(false) ?? new();
     }
+
+    // ---- Kubernetes (read-only cluster browsing) ----
+    public async Task<IReadOnlyList<K8sContextDto>> ListK8sContextsAsync(CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<List<K8sContextDto>>("api/deployment/k8s/contexts", Json, ct).ConfigureAwait(false) ?? new();
+    public async Task<IReadOnlyList<K8sNamespaceDto>> ListK8sNamespacesAsync(string? context = null, CancellationToken ct = default)
+        => await _http.GetFromJsonAsync<List<K8sNamespaceDto>>($"api/deployment/k8s/namespaces{ContextQuery(context)}", Json, ct).ConfigureAwait(false) ?? new();
+    public Task<K8sNamespaceDetailDto?> GetK8sNamespaceAsync(string ns, string? context = null, CancellationToken ct = default)
+        => _http.GetFromJsonAsync<K8sNamespaceDetailDto>($"api/deployment/k8s/namespaces/{Uri.EscapeDataString(ns)}{ContextQuery(context)}", Json, ct);
+    public Task<PodLogDto?> GetK8sPodLogAsync(string ns, string pod, string? container = null, int tail = 500, string? context = null, CancellationToken ct = default)
+    {
+        var q = $"?tail={tail}";
+        if (!string.IsNullOrWhiteSpace(container)) q += $"&container={Uri.EscapeDataString(container)}";
+        if (!string.IsNullOrWhiteSpace(context)) q += $"&context={Uri.EscapeDataString(context)}";
+        return _http.GetFromJsonAsync<PodLogDto>($"api/deployment/k8s/namespaces/{Uri.EscapeDataString(ns)}/pods/{Uri.EscapeDataString(pod)}/logs{q}", Json, ct);
+    }
+    private static string ContextQuery(string? context)
+        => string.IsNullOrWhiteSpace(context) ? "" : $"?context={Uri.EscapeDataString(context)}";
 
     // ---- Plumbing ----
     private async Task PostAsync(string url, CancellationToken ct)
