@@ -24,6 +24,9 @@ builder.Services.AddScoped<Cicd.Web.Admin.Services.ThemeService>();
 // Per-circuit owner of the run-completion SignalR hubs (toasts, live table refresh, pending badge).
 builder.Services.AddScoped<Cicd.Web.Admin.Services.RunEventsService>();
 
+// Per-circuit drawer nav expansion state (collapse-by-default + remember, persisted to localStorage).
+builder.Services.AddScoped<Cicd.Web.Admin.Services.NavStateService>();
+
 // Jenkins config — read once at startup from configuration / env vars.
 // Required: Jenkins:ApiToken (env: Jenkins__ApiToken)
 var jenkinsApiToken = builder.Configuration["Jenkins:ApiToken"];

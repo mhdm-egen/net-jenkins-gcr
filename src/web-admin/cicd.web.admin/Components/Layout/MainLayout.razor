@@ -1,6 +1,8 @@
 @inherits LayoutComponentBase
 @inject JenkinsOptions JenkinsOpts
 @inject ThemeService Theme
+@inject NavStateService Nav
+@inject NavigationManager Navigation
 @implements IDisposable
 
 <MudThemeProvider Theme="@Theme.Current.Theme" IsDarkMode="@Theme.Current.IsDarkMode" />
@@ -30,147 +32,34 @@
                Elevation="1"
                Variant="DrawerVariant.Responsive"
                ClipMode="DrawerClipMode.Always">
+        @* Drawer nav is rendered from NavModel (single source of truth). Groups default to collapsed and remember
+           their state (NavStateService → localStorage); the active section auto-expands on navigation. *@
         <MudNavMenu>
-            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Home</MudNavLink>
-            <MudNavGroup Title="Jenkins"
-                         Icon="@Icons.Material.Filled.Build"
-                         Expanded="true">
-                <MudNavLink Href="jenkins/orchestrator"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.AccountTree">
-                    Orchestrator
-                </MudNavLink>
-                <MudNavLink Href="jenkins/pipelines"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.PlayArrow">
-                    Pipelines
-                </MudNavLink>
-                <MudNavLink Href="jenkins/builds"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.History">
-                    Builds
-                </MudNavLink>
-                @* External link to the Jenkins server's own UI — opens in a new tab. *@
-                <MudNavLink Href="@JenkinsOpts.BaseUrl"
-                            Target="_blank"
-                            Icon="@Icons.Material.Filled.OpenInNew">
-                    Admin
-                </MudNavLink>
-            </MudNavGroup>
-            <MudNavGroup Title="Nexus"
-                         Icon="@Icons.Material.Filled.Inventory2"
-                         Expanded="true">
-                <MudNavLink Href="nexus/nuget"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Inventory">
-                    Nuget
-                </MudNavLink>
-                <MudNavLink Href="nexus/docker"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.ViewInAr">
-                    Docker
-                </MudNavLink>
-                @* External link to the Nexus server's own UI — opens in a new tab.
-                   Uses the host-reachable URL (localhost) rather than NexusOpts.Url,
-                   which is the docker network alias used by the server-side client. *@
-                <MudNavLink Href="http://localhost:8081"
-                            Target="_blank"
-                            Icon="@Icons.Material.Filled.OpenInNew">
-                    Admin
-                </MudNavLink>
-                @* Deep links to Nexus UI browse views (last so they're grouped). *@
-                <MudNavLink Href="http://localhost:8081/#browse/browse:nuget-hosted"
-                            Target="_blank"
-                            Icon="@Icons.Material.Filled.FolderOpen">
-                    Nuget Repo
-                </MudNavLink>
-                <MudNavLink Href="http://localhost:8081/#browse/browse:docker-private"
-                            Target="_blank"
-                            Icon="@Icons.Material.Filled.FolderOpen">
-                    Docker Repo
-                </MudNavLink>
-                <MudNavLink Href="http://localhost:8081/#browse/browse:sboms"
-                            Target="_blank"
-                            Icon="@Icons.Material.Filled.FolderOpen">
-                    Sbom Repo
-                </MudNavLink>
-            </MudNavGroup>
-            <MudNavGroup Title="SCA"
-                         Icon="@Icons.Material.Filled.Analytics"
-                         Expanded="true">
-                <MudNavLink Href="sca/sbom"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.DataObject">
-                    SBOM
-                </MudNavLink>
-                <MudNavLink Href="sca/aspire-sbom"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Inventory2">
-                    Aspire SBOM
-                </MudNavLink>
-            </MudNavGroup>
-            <MudNavGroup Title="CI"
-                         Icon="@Icons.Material.Filled.Hub"
-                         Expanded="true">
-                <MudNavLink Href="ci/repositories"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Source">
-                    Repositories
-                </MudNavLink>
-                <MudNavLink Href="ci/pipelines"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.AccountTree">
-                    Pipelines
-                </MudNavLink>
-            </MudNavGroup>
-            <MudNavGroup Title="Deployment"
-                         Icon="@Icons.Material.Filled.RocketLaunch"
-                         Expanded="true">
-                <MudNavLink Href="deployment/services" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Apps">Services</MudNavLink>
-                <MudNavLink Href="deployment/environments" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Public">Environments</MudNavLink>
-                <MudNavLink Href="deployment/mappings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Link">Mappings</MudNavLink>
-                <MudNavLink Href="deployment/containers" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Inventory2">Inventory</MudNavLink>
-                <MudNavLink Href="deployment/aspire-apps" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Hub">Aspire apps</MudNavLink>
-                <MudNavLink Href="deployment/previews" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Bolt">Previews</MudNavLink>
-                <MudNavLink Href="deployment/runs" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.History">Deployments</MudNavLink>
-                <MudNavLink Href="deployment/metrics" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Insights">Metrics</MudNavLink>
-            </MudNavGroup>
-            <MudNavGroup Title="Kubernetes"
-                         Icon="@Icons.Material.Filled.Dns"
-                         Expanded="true">
-                <MudNavLink Href="kubernetes/cluster" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.AccountTree">Cluster</MudNavLink>
-                <MudNavLink Href="kubernetes/apps" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.ViewList">Deployed apps</MudNavLink>
-            </MudNavGroup>
-            <MudNavGroup Title="Cloud"
-                         Icon="@Icons.Material.Filled.Cloud"
-                         Expanded="true">
-                <MudNavLink Href="cloud/azure"
-                            Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Cloud">
-                    Azure
-                </MudNavLink>
-                <MudNavGroup Title="Google"
-                             Icon="@Icons.Material.Filled.Cloud"
-                             Expanded="true">
-                    <MudNavLink Href="cloud/google"
-                                Match="NavLinkMatch.All"
-                                Icon="@Icons.Material.Filled.Dashboard">
-                        Overview
-                    </MudNavLink>
-                    <MudNavLink Href="cloud/google/artifacts"
-                                Match="NavLinkMatch.Prefix"
-                                Icon="@Icons.Material.Filled.Inventory2">
-                        Artifacts
-                    </MudNavLink>
-                    <MudNavLink Href="cloud/google/cloud-run"
-                                Match="NavLinkMatch.Prefix"
-                                Icon="@Icons.Material.Filled.PlayCircleOutline">
-                        Cloud Run
-                    </MudNavLink>
+            <MudNavLink Href="@NavModel.Home.Href" Match="@NavModel.Home.Match" Icon="@NavModel.Home.Icon">@NavModel.Home.Label</MudNavLink>
+            @foreach (var s in _sections)
+            {
+                <MudNavGroup Title="@s.Title" Icon="@s.Icon"
+                             Expanded="@Nav.IsExpanded(s.Key)"
+                             ExpandedChanged="@((bool v) => Nav.SetExpanded(s.Key, v))">
+                    @foreach (var l in s.Links)
+                    {
+                        @NavItem(l)
+                    }
+                    @foreach (var sub in s.Sub)
+                    {
+                        <MudNavGroup Title="@sub.Title" Icon="@sub.Icon"
+                                     Expanded="@Nav.IsExpanded(sub.Key)"
+                                     ExpandedChanged="@((bool v) => Nav.SetExpanded(sub.Key, v))">
+                            @foreach (var l in sub.Links)
+                            {
+                                @NavItem(l)
+                            }
+                        </MudNavGroup>
+                    }
                 </MudNavGroup>
-            </MudNavGroup>
+            }
             <MudDivider Class="my-2" />
-            <MudNavLink Href="settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Settings">Settings</MudNavLink>
+            <MudNavLink Href="@NavModel.Settings.Href" Match="@NavModel.Settings.Match" Icon="@NavModel.Settings.Icon">@NavModel.Settings.Label</MudNavLink>
         </MudNavMenu>
     </MudDrawer>
 
@@ -179,6 +68,10 @@
            the inline min-width keeps a horizontal scrollbar at the page level
            instead of cramping panels on narrow windows. *@
         <MudContainer MaxWidth="MaxWidth.False" Class="my-4" Style="min-width: 600px;">
+            @if (_crumbs.Count > 0)
+            {
+                <MudBreadcrumbs Items="_crumbs" Class="px-1 mb-2" />
+            }
             @Body
         </MudContainer>
     </MudMainContent>
@@ -192,19 +85,65 @@
 
 @code {
     private bool _drawerOpen = true;
+    private IReadOnlyList<NavSection> _sections = [];
+    private List<BreadcrumbItem> _crumbs = new();
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
 
-    // The theme lives in ThemeService (shared with the Settings page). Re-render the app-wide provider when it
-    // changes — from either the Settings selector or the initial localStorage load.
-    protected override void OnInitialized() => Theme.Changed += OnThemeChanged;
+    // One MudNavLink for a nav entry; external links open in a new tab (no Match).
+    private RenderFragment NavItem(NavEntry l) => __builder =>
+    {
+        <MudNavLink Href="@l.Href"
+                    Match="@l.Match"
+                    Target="@(l.External ? "_blank" : null)"
+                    Icon="@l.Icon">@l.Label</MudNavLink>
+    };
 
-    private void OnThemeChanged() => InvokeAsync(StateHasChanged);
+    protected override void OnInitialized()
+    {
+        _sections = NavModel.Build(JenkinsOpts.BaseUrl);
+        // Re-render on theme changes (Settings selector / initial load) and on nav-expansion changes.
+        Theme.Changed += OnStateChanged;
+        Nav.Changed += OnStateChanged;
+        Navigation.LocationChanged += OnLocationChanged;
+        BuildCrumbs();
+    }
+
+    private void OnStateChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        BuildCrumbs();
+        ExpandActiveSection();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void BuildCrumbs() =>
+        _crumbs = NavModel.Crumbs(Navigation.ToBaseRelativePath(Navigation.Uri))
+            .Select(c => new BreadcrumbItem(c.Label, c.Href))
+            .ToList();
+
+    // Open (and remember) the group(s) the current route lives under. Safe to call only post-render — it persists
+    // via localStorage — so it runs from OnAfterRenderAsync(firstRender) and LocationChanged, never during prerender.
+    private void ExpandActiveSection()
+    {
+        foreach (var key in NavModel.ActiveKeys(Navigation.ToBaseRelativePath(Navigation.Uri)))
+            Nav.SetExpanded(key, true);
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender) await Theme.InitializeAsync(); // localStorage is only available post-render
+        if (!firstRender) return;
+        await Theme.InitializeAsync();   // localStorage is only available post-render
+        await Nav.InitializeAsync();     // restore remembered group expansion
+        ExpandActiveSection();           // ensure the current section is open
+        await InvokeAsync(StateHasChanged);
     }
 
-    public void Dispose() => Theme.Changed -= OnThemeChanged;
+    public void Dispose()
+    {
+        Theme.Changed -= OnStateChanged;
+        Nav.Changed -= OnStateChanged;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
 }
