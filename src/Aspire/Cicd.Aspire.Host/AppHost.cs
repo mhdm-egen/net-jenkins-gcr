@@ -99,6 +99,10 @@ var nexusRegistryV2Url = NexusParam("NexusRegistryV2Url", "");
 var nexusUsername = NexusParam("NexusUsername", "admin");
 
 var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
+    // Pin the http endpoint's (proxy) port so Aspire binds + injects a reachable URL. Without this, an
+    // unpinned endpoint injects the launchSettings port (9601) into web-admin while the proxy runs elsewhere,
+    // so the admin UI's deployment client can't reach the API. (Mirrors the jenkins-api pin above.)
+    .WithEndpoint("http", e => e.Port = 7228, createIfNotExists: false)
     .WithReference(deploymentDb)
     .WaitFor(sql)
     .WithReference(rabbit)
