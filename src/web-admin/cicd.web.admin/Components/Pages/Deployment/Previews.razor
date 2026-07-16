@@ -1,6 +1,8 @@
 @page "/deployment/previews"
 @inject DeploymentApiClient Api
 @inject ISnackbar Snackbar
+@inject RunEventsService Events
+@implements IDisposable
 
 <PageTitle>Deployment — Preview environments</PageTitle>
 
@@ -108,7 +110,10 @@
     private string _key = "", _manifestOverride = "", _versionOverride = "";
     private int? _ttlHours;
 
+    protected override void OnInitialized() => Events.Changed += OnRunsChanged;
     protected override Task OnInitializedAsync() => LoadAsync();
+    private void OnRunsChanged() => InvokeAsync(LoadAsync);
+    public void Dispose() => Events.Changed -= OnRunsChanged;
 
     private Task OnIncludeTornDownChanged(bool value) { _includeTornDown = value; return LoadAsync(); }
 

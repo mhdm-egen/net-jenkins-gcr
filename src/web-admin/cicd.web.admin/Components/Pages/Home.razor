@@ -1,0 +1,336 @@
+@page "/"
+@inject DeploymentApiClient Api
+@inject JenkinsApiClient Jenkins
+@inject RunEventsService Events
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+<PageTitle>Overview</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Overview</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">health, previews, recent activity — and what needs you</MudText>
+    <MudSpacer />
+    <RefreshControls Loading="_loading" AutoRefreshOn="_autoOn" LastFetchedAt="_lastFetchedAt" IntervalSec="IntervalSec" OnRefresh="RefreshAsync" OnToggleAuto="ToggleAuto" />
+</MudStack>
+
+@if (_error is { Length: > 0 }) { <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert> }
+
+@* ---- KPI + DORA cards ---- *@
+<MudGrid Class="mb-2">
+    <MudItem xs="6" md="2">
+        <MudPaper Elevation="1" Class="pa-4">
+            <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Apps healthy</MudText>
+            <MudText Typo="Typo.h4">@_healthy<span style="font-size:0.5em; color:var(--mud-palette-text-secondary)"> / @(_apps?.Count ?? 0)</span></MudText>
+            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">@_degraded degraded · @_down down</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="6" md="2">
+        <MudPaper Elevation="1" Class="pa-4">
+            <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Active previews</MudText>
+            <MudText Typo="Typo.h4">@(_previews?.Count ?? 0)</MudText>
+            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">ephemeral envs</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="6" md="2">
+        <MudPaper Elevation="1" Class="pa-4">
+            <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Needs you</MudText>
+            <MudText Typo="Typo.h4" Style="@(_pending.Count > 0 ? "color:var(--mud-palette-warning)" : "")">@_pending.Count</MudText>
+            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">approvals · promotions</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="6" md="2">
+        <MudPaper Elevation="1" Class="pa-4">
+            <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Deploys / day</MudText>
+            <MudText Typo="Typo.h4">@_dora.FrequencyPerDay.ToString("0.0")</MudText>
+            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">7-day avg</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="6" md="2">
+        <MudPaper Elevation="1" Class="pa-4">
+            <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Success rate</MudText>
+            <MudText Typo="Typo.h4" Style="@RateStyle(_dora.SuccessRate, true)">@_dora.SuccessRate.ToString("P0")</MudText>
+            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">@_dora.Succeeded of @_dora.Total</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="6" md="2">
+        <MudPaper Elevation="1" Class="pa-4">
+            <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Change-failure</MudText>
+            <MudText Typo="Typo.h4" Style="@RateStyle(_dora.ChangeFailureRate, false)">@_dora.ChangeFailureRate.ToString("P0")</MudText>
+            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">failed + rolled back</MudText>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@* ---- Needs your attention ---- *@
+@if (_pending.Count > 0)
+{
+    <MudPaper Elevation="1" Class="pa-4 mb-4" Style="border-left: 3px solid var(--mud-palette-warning);">
+        <MudText Typo="Typo.h6" Class="mb-2">Needs your attention</MudText>
+        <MudTable Items="@_pending" Dense="true" Hover="true" T="PendingItem">
+            <HeaderContent><MudTh Style="width:6rem;">Kind</MudTh><MudTh>Name</MudTh><MudTh>Waiting for</MudTh><MudTh Style="width:11rem;">Since</MudTh><MudTh Style="width:8rem;">Actions</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@(context.Kind == PendingKind.DeployPromotion ? Color.Info : Color.Secondary)">@(context.Kind == PendingKind.DeployPromotion ? "Deploy" : "Aspire")</MudChip></MudTd>
+                <MudTd>@context.Name <span style="color:var(--mud-palette-text-secondary); font-size:0.8em;">@context.Env</span></MudTd>
+                <MudTd>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">@(context.Kind == PendingKind.AspireApproval ? "approval" : "promotion")</MudChip>
+                    @if (!string.IsNullOrEmpty(context.Note)) { <span style="color:var(--mud-palette-text-secondary); font-size:0.8em;">@context.Note</span> }
+                </MudTd>
+                <MudTd>@context.When.LocalDateTime.ToString("g")</MudTd>
+                <MudTd>
+                    @if (context.Kind == PendingKind.AspireApproval)
+                    {
+                        <MudTooltip Text="Approve"><MudIconButton Icon="@Icons.Material.Filled.Check" Color="Color.Success" Size="Size.Small" Disabled="_busy" OnClick="@(() => Act(context, "approve"))" /></MudTooltip>
+                        <MudTooltip Text="Reject"><MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Error" Size="Size.Small" Disabled="_busy" OnClick="@(() => Act(context, "reject"))" /></MudTooltip>
+                    }
+                    else
+                    {
+                        <MudTooltip Text="Promote"><MudIconButton Icon="@Icons.Material.Filled.MoveUp" Color="Color.Success" Size="Size.Small" Disabled="_busy" OnClick="@(() => Act(context, "promote"))" /></MudTooltip>
+                        <MudTooltip Text="Roll back"><MudIconButton Icon="@Icons.Material.Filled.Undo" Color="Color.Error" Size="Size.Small" Disabled="_busy" OnClick="@(() => Act(context, "rollback"))" /></MudTooltip>
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+}
+
+@* ---- Deploy health ---- *@
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Deploy health</MudText>
+        <MudSpacer />
+        <MudButton Size="Size.Small" Variant="Variant.Text" Href="/deployment/aspire-apps" StartIcon="@Icons.Material.Filled.OpenInNew">Aspire apps</MudButton>
+    </MudStack>
+    @if (_loading && _apps is null) { <MudProgressLinear Indeterminate="true" /> }
+    else if (_apps is { Count: 0 }) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No Aspire apps registered.</MudText> }
+    else if (_apps is not null)
+    {
+        <MudTable Items="@_apps" Dense="true" Hover="true" Striped="true" T="AppRow">
+            <HeaderContent><MudTh Style="width:6rem;">Health</MudTh><MudTh>App</MudTh><MudTh>Environment</MudTh><MudTh>Namespace</MudTh><MudTh>URL</MudTh><MudTh Style="width:7rem;">State</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    @if (context.Status is { Reachable: true }) { <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@HealthColor(context.Status.OverallHealth)">@context.Status.OverallHealth</MudChip> }
+                    else { <MudTooltip Text="@(context.Status?.Error ?? "unknown")"><MudChip T="string" Size="Size.Small" Variant="Variant.Text">unreachable</MudChip></MudTooltip> }
+                </MudTd>
+                <MudTd>@context.App.Name</MudTd>
+                <MudTd>@context.App.EnvironmentName</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@(context.Status?.Namespace ?? "—")</MudTd>
+                <MudTd>
+                    @if (!string.IsNullOrEmpty(context.Status?.Url)) { <MudLink Href="@context.Status.Url" Target="_blank" Underline="Underline.Hover" Style="font-family: ui-monospace, monospace; font-size:0.8em;">@context.Status.Url</MudLink> }
+                    else { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">—</MudText> }
+                </MudTd>
+                <MudTd>
+                    @if (context.Status?.HasImageDrift == true) { <MudTooltip Text="live image differs from last deploy"><MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text" Icon="@Icons.Material.Filled.Warning">drift</MudChip></MudTooltip> }
+                    else if (context.Status?.HasUndeployedChanges == true) { <MudTooltip Text="current manifest differs from last deploy"><MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text" Icon="@Icons.Material.Filled.SyncProblem">pending</MudChip></MudTooltip> }
+                    else if (context.Status is { Reachable: true }) { <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">in sync</MudChip> }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+@* ---- Active previews ---- *@
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Active previews</MudText>
+        <MudSpacer />
+        <MudButton Size="Size.Small" Variant="Variant.Text" Href="/deployment/previews" StartIcon="@Icons.Material.Filled.OpenInNew">Previews</MudButton>
+    </MudStack>
+    @if (_previews is { Count: 0 }) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No active previews.</MudText> }
+    else if (_previews is not null)
+    {
+        <MudTable Items="@_previews" Dense="true" Hover="true" Striped="true" T="PreviewEnvironmentDto">
+            <HeaderContent><MudTh Style="width:7rem;">Status</MudTh><MudTh>App</MudTh><MudTh>Key</MudTh><MudTh>Namespace</MudTh><MudTh>URL</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@PreviewColor(context.Status)">@context.Status</MudChip></MudTd>
+                <MudTd>@context.ApplicationName</MudTd>
+                <MudTd>@context.Key</MudTd>
+                <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@context.Namespace</MudTd>
+                <MudTd>
+                    @if (!string.IsNullOrEmpty(context.Url)) { <MudLink Href="@context.Url" Target="_blank" Underline="Underline.Hover" Style="font-family: ui-monospace, monospace; font-size:0.8em;">@context.Url</MudLink> }
+                    else { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">—</MudText> }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+@* ---- Recent activity ---- *@
+<MudPaper Elevation="1" Class="pa-4">
+    <MudText Typo="Typo.h6" Class="mb-2">Recent activity</MudText>
+    @if (_activity is { Count: 0 }) { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No recent runs.</MudText> }
+    else if (_activity is not null)
+    {
+        <MudTable Items="@_activity" Dense="true" Hover="true" T="ActivityRow">
+            <HeaderContent><MudTh Style="width:6rem;">Kind</MudTh><MudTh>Name</MudTh><MudTh Style="width:8rem;">Status</MudTh><MudTh Style="width:11rem;">When</MudTh><MudTh Style="width:3rem;"></MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@context.KindColor">@context.Kind</MudChip></MudTd>
+                <MudTd>@context.Name</MudTd>
+                <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@ActivityColor(context.Status)">@context.Status</MudChip></MudTd>
+                <MudTd>@context.When.LocalDateTime.ToString("g")</MudTd>
+                <MudTd><MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" Href="@context.Href" /></MudTd>
+            </RowTemplate>
+        </MudTable>
+    }
+</MudPaper>
+
+@code {
+    public const int IntervalSec = 30;
+
+    private IReadOnlyList<AppRow>? _apps;
+    private IReadOnlyList<PreviewEnvironmentDto>? _previews;
+    private List<PendingItem> _pending = new();
+    private IReadOnlyList<ActivityRow>? _activity;
+    private DoraSummary _dora = new(0, 0, 0, 0, 0, 0, 0, 0);
+    private int _healthy, _degraded, _down;
+
+    private bool _loading, _busy, _autoOn;
+    private string? _error;
+    private DateTimeOffset? _lastFetchedAt;
+    private CancellationTokenSource? _inflightCts;
+    private System.Threading.Timer? _timer;
+
+    private enum PendingKind { AspireApproval, AspirePromotion, DeployPromotion }
+    private sealed record PendingItem(PendingKind Kind, Guid RunId, string Name, string Env, DateTimeOffset When, string? Note);
+    private sealed record AppRow(AspireApplicationDto App, AspireAppStatusDto? Status);
+    private sealed record ActivityRow(string Kind, Color KindColor, string Name, string Status, DateTimeOffset When, string Href);
+
+    protected override void OnInitialized() => Events.Changed += OnRunsChanged;
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    private void OnRunsChanged() => InvokeAsync(RefreshAsync);
+
+    private async Task RefreshAsync()
+    {
+        _inflightCts?.Cancel();
+        _inflightCts = new CancellationTokenSource();
+        var ct = _inflightCts.Token;
+        _loading = true; _error = null; StateHasChanged();
+        try
+        {
+            var apps = await Api.ListAspireAppsAsync(ct);
+            var statusesTask = Task.WhenAll(apps.Select(async a =>
+            {
+                try { return (a.Id, Status: await Api.GetAspireAppStatusAsync(a.Id, ct)); }
+                catch { return (a.Id, Status: (AspireAppStatusDto?)null); }
+            }));
+            var previewsTask = Api.ListPreviewsAsync(includeTornDown: false, ct);
+            var deployRunsTask = Api.ListRunsAsync(ct: ct);
+            var aspireRunsTask = Api.ListAspireRunsAsync(ct: ct);
+            var pipelineRunsTask = Jenkins.ListPipelineRunsAsync(take: 15, ct: ct);
+            await Task.WhenAll(statusesTask, previewsTask, deployRunsTask, aspireRunsTask, pipelineRunsTask);
+
+            var byId = statusesTask.Result.ToDictionary(x => x.Id, x => x.Status);
+            _apps = apps.Select(a => new AppRow(a, byId.GetValueOrDefault(a.Id))).ToList();
+            _healthy = _apps.Count(a => a.Status is { Reachable: true, OverallHealth: WorkloadHealthDto.Healthy });
+            _degraded = _apps.Count(a => a.Status is { Reachable: true, OverallHealth: WorkloadHealthDto.Degraded });
+            _down = _apps.Count(a => a.Status is { Reachable: true, OverallHealth: WorkloadHealthDto.Down });
+
+            _previews = previewsTask.Result;
+            var deployRuns = deployRunsTask.Result;
+            var aspireRuns = aspireRunsTask.Result;
+            var pipelineRuns = pipelineRunsTask.Result;
+
+            // DORA (deployment + aspire terminal runs) — same computation as the Metrics page.
+            _dora = DoraMetrics.Compute(
+                deployRuns.Select(r => (r.RequestedAtUtc, r.CompletedAtUtc, r.Status.ToString()))
+                    .Concat(aspireRuns.Select(r => (r.RequestedAtUtc, r.CompletedAtUtc, r.Status.ToString()))));
+
+            // Needs-your-attention.
+            var pending = new List<PendingItem>();
+            pending.AddRange(aspireRuns.Where(r => r.Status == AspireRunStatusDto.AwaitingApproval)
+                .Select(r => new PendingItem(PendingKind.AspireApproval, r.Id, r.ApplicationName, r.EnvironmentName, r.RequestedAtUtc, null)));
+            pending.AddRange(aspireRuns.Where(r => r.Status == AspireRunStatusDto.AwaitingPromotion)
+                .Select(r => new PendingItem(PendingKind.AspirePromotion, r.Id, r.ApplicationName, r.EnvironmentName, r.RequestedAtUtc, r.RolloutGreenSlot is { Length: > 0 } s ? $"slot {s}" : null)));
+            pending.AddRange(deployRuns.Where(r => r.Status == DeploymentRunStatusDto.AwaitingPromotion)
+                .Select(r => new PendingItem(PendingKind.DeployPromotion, r.Id, r.ServiceName, "", r.RequestedAtUtc, r.RolloutCanaryWeight is { } w ? $"canary {w}%" : null)));
+            _pending = pending.OrderBy(p => p.When).ToList();
+
+            // Recent activity — merge + sort desc, top 15.
+            var activity = new List<ActivityRow>();
+            activity.AddRange(pipelineRuns.Select(r => new ActivityRow("CI", Color.Primary, r.PipelineName, r.Status.ToString(), r.StartedAtUtc, "/jenkins/runs")));
+            activity.AddRange(deployRuns.Select(r => new ActivityRow("Deploy", Color.Info, r.ServiceName, r.Status.ToString(), r.RequestedAtUtc, "/deployment/runs")));
+            activity.AddRange(aspireRuns.Select(r => new ActivityRow("Aspire", Color.Secondary, r.ApplicationName, r.Status.ToString(), r.RequestedAtUtc, "/deployment/aspire-apps")));
+            _activity = activity.OrderByDescending(a => a.When).Take(15).ToList();
+
+            _lastFetchedAt = DateTimeOffset.UtcNow;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private async Task Act(PendingItem item, string action)
+    {
+        _busy = true; StateHasChanged();
+        try
+        {
+            switch (item.Kind, action)
+            {
+                case (PendingKind.AspireApproval, "approve"): await Api.ApproveAspireRunAsync(item.RunId); break;
+                case (PendingKind.AspireApproval, "reject"): await Api.RejectAspireRunAsync(item.RunId); break;
+                case (PendingKind.AspirePromotion, "promote"): await Api.PromoteAspireRunAsync(item.RunId); break;
+                case (PendingKind.AspirePromotion, "rollback"): await Api.RollbackAspireRunAsync(item.RunId); break;
+                case (PendingKind.DeployPromotion, "promote"): await Api.PromoteRunAsync(item.RunId); break;
+                case (PendingKind.DeployPromotion, "rollback"): await Api.RollbackRunAsync(item.RunId); break;
+            }
+            Snackbar.Add($"{action} — {item.Name}", Severity.Info);
+            await RefreshAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; StateHasChanged(); }
+    }
+
+    private void ToggleAuto()
+    {
+        _autoOn = !_autoOn;
+        if (_autoOn)
+        {
+            _timer ??= new System.Threading.Timer(_ => { if (!_busy) _ = InvokeAsync(RefreshAsync); }, null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+            _timer.Change(TimeSpan.FromSeconds(IntervalSec), TimeSpan.FromSeconds(IntervalSec));
+        }
+        else { _timer?.Change(System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite); }
+    }
+
+    private static string RateStyle(double rate, bool higherIsBetter)
+    {
+        var good = higherIsBetter ? rate >= 0.9 : rate <= 0.15;
+        var warn = higherIsBetter ? rate >= 0.75 : rate <= 0.3;
+        var color = good ? "var(--mud-palette-success)" : warn ? "var(--mud-palette-warning)" : "var(--mud-palette-error)";
+        return $"color:{color}";
+    }
+
+    private static Color HealthColor(WorkloadHealthDto h) => h switch
+    {
+        WorkloadHealthDto.Healthy => Color.Success,
+        WorkloadHealthDto.Degraded => Color.Warning,
+        WorkloadHealthDto.Down => Color.Error,
+        _ => Color.Default,
+    };
+
+    private static Color PreviewColor(PreviewStatusDto s) => s switch
+    {
+        PreviewStatusDto.Active => Color.Success,
+        PreviewStatusDto.Failed => Color.Error,
+        PreviewStatusDto.Creating => Color.Info,
+        _ => Color.Default,
+    };
+
+    private static Color ActivityColor(string status) => status switch
+    {
+        "Succeeded" => Color.Success,
+        "Failed" or "Rejected" or "RolledBack" => Color.Error,
+        "Running" or "Pending" or "Creating" => Color.Info,
+        "AwaitingApproval" or "AwaitingPromotion" => Color.Warning,
+        _ => Color.Default,
+    };
+
+    public void Dispose()
+    {
+        Events.Changed -= OnRunsChanged;
+        _timer?.Dispose();
+        _inflightCts?.Cancel();
+        _inflightCts?.Dispose();
+    }
+}

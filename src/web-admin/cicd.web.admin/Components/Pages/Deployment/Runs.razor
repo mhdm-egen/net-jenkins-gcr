@@ -1,6 +1,8 @@
 @page "/deployment/runs"
 @inject DeploymentApiClient Api
 @inject ISnackbar Snackbar
+@inject RunEventsService Events
+@implements IDisposable
 
 <PageTitle>Deployment — Runs</PageTitle>
 
@@ -55,7 +57,10 @@
     private bool _loading, _busy;
     private string? _error;
 
+    protected override void OnInitialized() => Events.Changed += OnRunsChanged;
     protected override Task OnInitializedAsync() => LoadAsync();
+    private void OnRunsChanged() => InvokeAsync(LoadAsync);
+    public void Dispose() => Events.Changed -= OnRunsChanged;
 
     private async Task LoadAsync()
     {
