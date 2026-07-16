@@ -31,11 +31,24 @@ internal sealed class KubernetesIngressManager : IIngressManager
         _logger = logger;
     }
 
-    public async Task<string?> EnsureFrontendIngressAsync(string? context, string @namespace, string subdomain, CancellationToken cancellationToken = default)
+    public Task<string?> EnsureFrontendIngressAsync(string? context, string @namespace, string subdomain, CancellationToken cancellationToken = default)
     {
         var opts = _options.CurrentValue;
-        if (!opts.PreviewIngressEnabled || string.IsNullOrWhiteSpace(@namespace) || string.IsNullOrWhiteSpace(subdomain)) return null;
-        var host = $"{subdomain.Trim()}.{opts.PreviewIngressDomain}";
+        if (!opts.PreviewIngressEnabled) return Task.FromResult<string?>(null);
+        return EnsureAsync(context, @namespace, subdomain, opts.PreviewIngressDomain, cancellationToken);
+    }
+
+    public Task<string?> EnsureAppIngressAsync(string? context, string @namespace, string subdomain, CancellationToken cancellationToken = default)
+    {
+        var opts = _options.CurrentValue;
+        if (!opts.AppIngressEnabled) return Task.FromResult<string?>(null);
+        return EnsureAsync(context, @namespace, subdomain, opts.AppIngressDomain, cancellationToken);
+    }
+
+    private async Task<string?> EnsureAsync(string? context, string @namespace, string subdomain, string domain, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(@namespace) || string.IsNullOrWhiteSpace(subdomain)) return null;
+        var host = $"{subdomain.Trim()}.{domain}";
         using var client = _factory.Create(context);
 
         var services = await client.CoreV1.ListNamespacedServiceAsync(@namespace, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -62,6 +75,20 @@ internal sealed class KubernetesIngressManager : IIngressManager
         var url = $"http://{host}";
         _logger.LogInformation("[ingress] {Namespace}: {Host} -> {Service}:{Port} ({Url}).", @namespace, host, frontend.Metadata.Name, port, url);
         return url;
+    }
+
+    public async Task<string?> GetFrontendUrlAsync(string? context, string @namespace, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(@namespace)) return null;
+        try
+        {
+            using var client = _factory.Create(context);
+            var ing = await client.NetworkingV1.ReadNamespacedIngressAsync(IngressName, @namespace, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var host = ing.Spec?.Rules?.FirstOrDefault(r => !string.IsNullOrWhiteSpace(r.Host))?.Host;
+            return string.IsNullOrWhiteSpace(host) ? null : $"http://{host}";
+        }
+        catch (HttpOperationException http) when ((int)http.Response.StatusCode == 404) { return null; }
+        catch { return null; }
     }
 
     public async Task DeleteIngressAsync(string? context, string @namespace, CancellationToken cancellationToken = default)

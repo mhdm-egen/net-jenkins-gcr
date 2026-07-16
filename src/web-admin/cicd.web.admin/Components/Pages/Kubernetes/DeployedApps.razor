@@ -24,7 +24,7 @@
     else if (_apps is not null)
     {
         <MudTable Items="@_apps" Dense="true" Hover="true" Striped="true" T="AppRow">
-            <HeaderContent><MudTh Style="width:6rem;">Health</MudTh><MudTh>App</MudTh><MudTh>Environment</MudTh><MudTh>Namespace</MudTh><MudTh>Version</MudTh><MudTh Style="width:8rem;">State</MudTh></HeaderContent>
+            <HeaderContent><MudTh Style="width:6rem;">Health</MudTh><MudTh>App</MudTh><MudTh>Environment</MudTh><MudTh>Namespace</MudTh><MudTh>URL</MudTh><MudTh>Version</MudTh><MudTh Style="width:8rem;">State</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd>
                     @if (context.Status is { Reachable: true }) { <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@HealthColor(context.Status.OverallHealth)">@context.Status.OverallHealth</MudChip> }
@@ -33,6 +33,10 @@
                 <MudTd>@context.App.Name</MudTd>
                 <MudTd>@context.App.EnvironmentName</MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@(context.Status?.Namespace ?? "—")</MudTd>
+                <MudTd>
+                    @if (!string.IsNullOrEmpty(context.Status?.Url)) { <MudLink Href="@context.Status.Url" Target="_blank" Underline="Underline.Hover" Style="font-family: ui-monospace, monospace; font-size:0.8em;">@context.Status.Url</MudLink> }
+                    else { <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">—</MudText> }
+                </MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size:0.8em;">@(context.App.Version ?? "—")</MudTd>
                 <MudTd>
                     @if (context.Status?.HasImageDrift == true) { <MudTooltip Text="A live workload runs a different image than last deployed"><MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text" Icon="@Icons.Material.Filled.Warning">drift</MudChip></MudTooltip> }

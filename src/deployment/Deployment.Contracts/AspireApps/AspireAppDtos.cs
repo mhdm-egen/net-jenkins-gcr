@@ -91,7 +91,8 @@ public sealed record AspireAppStatusDto(
     string? CurrentVersion,
     string? LastDeployedVersion,
     DateTimeOffset? LastDeployedAtUtc,
-    IReadOnlyList<WorkloadStatusDto> Workloads);
+    IReadOnlyList<WorkloadStatusDto> Workloads,
+    string? Url = null);
 
 /// <summary>A live Kubernetes Deployment for the app: the image it runs, desired vs. ready replicas, and its pods.</summary>
 public sealed record WorkloadStatusDto(

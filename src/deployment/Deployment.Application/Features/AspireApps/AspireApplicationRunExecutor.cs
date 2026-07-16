@@ -30,6 +30,7 @@ public sealed class AspireApplicationRunExecutor
         IAspirateRunner aspirate,
         IAspireClusterStatusReader clusterStatus,
         INamespaceManager namespaces,
+        IIngressManager ingress,
         Observability.DeploymentTelemetry telemetry,
         IUnitOfWork uow,
         TimeProvider clock,
@@ -66,7 +67,11 @@ public sealed class AspireApplicationRunExecutor
         }
         else if (!blueGreen)
         {
-            run.Succeed(result.Log, await SnapshotImagesAsync(clusterStatus, run.KubeContext, targetNamespace, run.Id, logger, ct).ConfigureAwait(false), now);
+            var images = await SnapshotImagesAsync(clusterStatus, run.KubeContext, targetNamespace, run.Id, logger, ct).ConfigureAwait(false);
+            // Stamp a browsable Ingress for the app's frontend (best-effort; host = {namespace}.{app-domain}).
+            try { await ingress.EnsureAppIngressAsync(run.KubeContext, targetNamespace, targetNamespace, ct).ConfigureAwait(false); }
+            catch (Exception ex) { logger.LogWarning(ex, "[aspire] Run {Run} ingress stamp failed; app reachable via port-forward.", run.Id); }
+            run.Succeed(result.Log, images, now);
         }
         else
         {

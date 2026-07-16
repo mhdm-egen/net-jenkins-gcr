@@ -217,6 +217,14 @@
                 @_status.EnvironmentName · @(_status.KubeContext ?? "—")/@(_status.Namespace ?? "—")
             </MudText>
 
+            @if (!string.IsNullOrEmpty(_status.Url))
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" />
+                    <MudLink Href="@_status.Url" Target="_blank" Underline="Underline.Hover" Style="font-family: ui-monospace, monospace; font-size:0.85em;">@_status.Url</MudLink>
+                </MudStack>
+            }
+
             @if (!_status.Reachable)
             {
                 <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="my-2">@(_status.Error ?? "Cluster unreachable.")</MudAlert>
