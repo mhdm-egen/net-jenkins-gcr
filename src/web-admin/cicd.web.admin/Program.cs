@@ -18,6 +18,9 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddMudServices();
 
+// Per-circuit theme state (shared by MainLayout's provider + the Settings page's selector).
+builder.Services.AddScoped<Cicd.Web.Admin.Services.ThemeService>();
+
 // Jenkins config — read once at startup from configuration / env vars.
 // Required: Jenkins:ApiToken (env: Jenkins__ApiToken)
 var jenkinsApiToken = builder.Configuration["Jenkins:ApiToken"];

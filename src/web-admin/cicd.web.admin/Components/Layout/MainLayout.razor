@@ -1,8 +1,9 @@
 @inherits LayoutComponentBase
-@inject IJSRuntime JS
 @inject JenkinsOptions JenkinsOpts
+@inject ThemeService Theme
+@implements IDisposable
 
-<MudThemeProvider Theme="@_active.Theme" IsDarkMode="@_active.IsDarkMode" />
+<MudThemeProvider Theme="@Theme.Current.Theme" IsDarkMode="@Theme.Current.IsDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -18,9 +19,8 @@
                        Edge="Edge.Start"
                        OnClick="@ToggleDrawer"
                        aria-label="Toggle menu" />
-        <MudText Typo="Typo.h6">Jenkins WebUI</MudText>
+        <MudText Typo="Typo.h6">Egen/Aven NextGen CI/CD</MudText>
         <MudSpacer />
-        <ThemeSwitcher CurrentThemeId="@_active.Id" ThemeChanged="OnThemeChangedAsync" />
         <BuildSyncBadge />
         <JenkinsStatusBadge />
     </MudAppBar>
@@ -167,6 +167,8 @@
                     </MudNavLink>
                 </MudNavGroup>
             </MudNavGroup>
+            <MudDivider Class="my-2" />
+            <MudNavLink Href="settings" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Filled.Settings">Settings</MudNavLink>
         </MudNavMenu>
     </MudDrawer>
 
@@ -187,39 +189,20 @@
 </div>
 
 @code {
-    private const string LocalStorageKey = "cicd-web-admin-theme";
-
     private bool _drawerOpen = true;
-    private AppThemes.Entry _active = AppThemes.Resolve(AppThemes.SolarizedDarkId);
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
 
+    // The theme lives in ThemeService (shared with the Settings page). Re-render the app-wide provider when it
+    // changes — from either the Settings selector or the initial localStorage load.
+    protected override void OnInitialized() => Theme.Changed += OnThemeChanged;
+
+    private void OnThemeChanged() => InvokeAsync(StateHasChanged);
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
-
-        // Persisted theme lives in localStorage; read it once on first interactive render.
-        try
-        {
-            var stored = await JS.InvokeAsync<string?>("localStorage.getItem", LocalStorageKey);
-            var resolved = AppThemes.Resolve(stored);
-            if (resolved.Id != _active.Id)
-            {
-                _active = resolved;
-                StateHasChanged();
-            }
-        }
-        catch (JSDisconnectedException) { /* page tearing down */ }
+        if (firstRender) await Theme.InitializeAsync(); // localStorage is only available post-render
     }
 
-    private async Task OnThemeChangedAsync(string themeId)
-    {
-        _active = AppThemes.Resolve(themeId);
-        try
-        {
-            await JS.InvokeVoidAsync("localStorage.setItem", LocalStorageKey, _active.Id);
-        }
-        catch (JSDisconnectedException) { /* page tearing down */ }
-        StateHasChanged();
-    }
+    public void Dispose() => Theme.Changed -= OnThemeChanged;
 }
