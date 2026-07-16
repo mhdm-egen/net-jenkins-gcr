@@ -100,6 +100,7 @@ public static class DependencyInjection
         services.AddSingleton<IKubernetesDeployer, KubernetesDeployer>();
         services.AddSingleton<IRolloutDeployer, RolloutDeployer>();
         services.AddScoped<Application.Features.AspireApps.IAspireClusterStatusReader, AspireClusterStatusReader>();
+        services.AddScoped<IKubeClusterReader, KubeClusterReader>();
         services.AddScoped<INamespaceManager, KubernetesNamespaceManager>();
         services.AddScoped<IIngressManager, KubernetesIngressManager>();
 
