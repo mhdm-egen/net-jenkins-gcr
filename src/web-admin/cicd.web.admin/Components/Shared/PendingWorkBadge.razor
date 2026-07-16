@@ -1,0 +1,41 @@
+@implements IDisposable
+@inject DeploymentApiClient Api
+@inject RunEventsService Events
+@inject NavigationManager Nav
+
+@* AppBar bell: count of runs awaiting a human (approval / promotion) across Aspire + per-service deploys.
+   Refreshes on run-completion events; click jumps to the dashboard's "Needs your attention". *@
+
+<MudBadge Content="_count" Color="Color.Warning" Overlap="true" Visible="_count > 0" Class="mx-1">
+    <MudTooltip Text="@(_count > 0 ? $"{_count} item(s) awaiting approval / promotion" : "nothing awaiting action")">
+        <MudIconButton Icon="@Icons.Material.Filled.NotificationsNone" Color="Color.Inherit" OnClick="@(() => Nav.NavigateTo("/"))" aria-label="Pending work" />
+    </MudTooltip>
+</MudBadge>
+
+@code {
+    private int _count;
+
+    protected override void OnInitialized() => Events.Changed += OnRunsChanged;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await LoadAsync();
+    }
+
+    private void OnRunsChanged() => InvokeAsync(LoadAsync);
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var aspire = await Api.ListAspireRunsAsync();
+            var deploy = await Api.ListRunsAsync();
+            var count = aspire.Count(r => r.Status is AspireRunStatusDto.AwaitingApproval or AspireRunStatusDto.AwaitingPromotion)
+                      + deploy.Count(r => r.Status == DeploymentRunStatusDto.AwaitingPromotion);
+            if (count != _count) { _count = count; StateHasChanged(); }
+        }
+        catch { /* best-effort badge */ }
+    }
+
+    public void Dispose() => Events.Changed -= OnRunsChanged;
+}

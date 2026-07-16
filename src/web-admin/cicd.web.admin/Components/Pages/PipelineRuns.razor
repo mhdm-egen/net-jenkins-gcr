@@ -1,6 +1,8 @@
 @page "/jenkins/runs"
 @inject JenkinsApiClient Api
 @inject NavigationManager Nav
+@inject RunEventsService Events
+@implements IDisposable
 
 <PageTitle>Pipeline Runs</PageTitle>
 
@@ -54,7 +56,10 @@
     private IReadOnlyList<PipelineRunSummaryDto>? _runs;
     private bool _loading;
 
+    protected override void OnInitialized() => Events.Changed += OnRunsChanged;
     protected override Task OnInitializedAsync() => LoadAsync();
+    private void OnRunsChanged() => InvokeAsync(LoadAsync);
+    public void Dispose() => Events.Changed -= OnRunsChanged;
 
     private async Task LoadAsync()
     {
