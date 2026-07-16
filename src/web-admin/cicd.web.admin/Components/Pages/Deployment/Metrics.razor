@@ -90,15 +90,11 @@ else if (_points is not null)
         var terminal = _points!
             .Where(p => p.Outcome is "Succeeded" or "Failed" or "RolledBack")
             .ToList();
-        _total = terminal.Count;
-        _succeeded = terminal.Count(p => p.Outcome == "Succeeded");
-        _failed = terminal.Count(p => p.Outcome == "Failed");
-        _rolledBack = terminal.Count(p => p.Outcome == "RolledBack");
-        _successRate = _total == 0 ? 0 : (double)_succeeded / _total;
-        _cfr = _total == 0 ? 0 : (double)(_failed + _rolledBack) / _total;
 
-        var durations = terminal.Where(p => p.CompletedAt is not null).Select(p => (p.CompletedAt!.Value - p.RequestedAt).TotalSeconds).Where(s => s >= 0).ToList();
-        _avgDuration = durations.Count == 0 ? 0 : durations.Average();
+        // Scalar summary is the shared DORA computation (also used by the Home dashboard).
+        var dora = DoraMetrics.Compute(_points!.Select(p => (p.RequestedAt, p.CompletedAt, p.Outcome)));
+        _total = dora.Total; _succeeded = dora.Succeeded; _failed = dora.Failed; _rolledBack = dora.RolledBack;
+        _successRate = dora.SuccessRate; _cfr = dora.ChangeFailureRate; _avgDuration = dora.AvgDurationSeconds; _frequency = dora.FrequencyPerDay;
 
         var today = DateTimeOffset.Now.Date;
         var days = Enumerable.Range(0, 14).Select(i => today.AddDays(-13 + i)).ToList();
@@ -120,8 +116,6 @@ else if (_points is not null)
             new ChartSeries<double> { Name = "Failed", Data = fail },
             new ChartSeries<double> { Name = "Rolled back", Data = rb },
         };
-        var last7 = terminal.Count(p => p.RequestedAt.LocalDateTime.Date >= today.AddDays(-6));
-        _frequency = last7 / 7.0;
 
         _outcomeData = new double[] { _succeeded, _failed, _rolledBack };
         _outcomeLabels = new[] { "Succeeded", "Failed", "Rolled back" };
