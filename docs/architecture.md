@@ -123,6 +123,45 @@ sequenceDiagram
   Bus->>CI: deliver
 ```
 
+## Aspire → Kubernetes deploys
+
+Alongside the per-service Cloud Run model, the deployment service deploys a **whole .NET Aspire app** to
+Kubernetes via **Aspir8** (`aspirate`). CI publishes the app's Kustomize-output archive to Nexus; the
+service fetches it, digest-pins the images, pins the target namespace, and applies. Each deploy is an
+`AspireApplicationRun`; a Wolverine handler off `AspireApplicationRunRequested` shells out to
+`aspirate apply`.
+
+A set of **deploy-safety features** layer on that run lifecycle:
+
+| Feature | Summary |
+| --- | --- |
+| **Deploy notifications** | Slack + email on every deploy outcome (`Deployment:Notifications`) |
+| **Rollback** | Redeploy a previous succeeded run's digest-pinned manifest |
+| **Promotion** | Deploy an app's current manifest to another environment (same artifacts) |
+| **Approval gate** | Runs targeting a *protected* environment park as `AwaitingApproval` until approved |
+| **Live-status & drift** | On-demand cluster health + undeployed-changes + image-drift (live vs. the run's snapshot) |
+| **Preview environments** | Ephemeral per-PR/branch deploys into `{app}-preview-{key}` namespaces, with TTL + teardown |
+
+**Namespace pinning:** the runner writes a top-level `namespace:` into the root kustomization and
+ensures that namespace exists before applying, so each environment's namespace is honored and previews
+are isolated.
+
+**CI → preview handoff.** `AspireAppPublished` carries the build's `Branch`. The consumer routes on the
+app's `MainBranch`: a publish on the main branch deploys to the app's environment; any other branch
+creates/refreshes a preview keyed by that branch. A PR-close webhook (`/previews/webhook`) or the TTL
+sweeper tears previews down.
+
+```mermaid
+flowchart LR
+  pub["AspireAppPublished<br/>(Branch)"] --> br{"Branch ==<br/>MainBranch?"}
+  br -->|yes| dep["deploy to<br/>app environment"]
+  br -->|no| prev["preview namespace<br/>{app}-preview-{key}"]
+  prev -->|PR closed / TTL| down["teardown<br/>(delete namespace)"]
+```
+
+Details: [deploy-safety-features.md](deployment/deploy-safety-features.md) ·
+[preview-environments.md](deployment/preview-environments.md).
+
 ## Components
 
 | Component | Tech | Responsibility |
@@ -135,7 +174,7 @@ sequenceDiagram
 | **Messaging** | RabbitMQ + Wolverine (SQL outbox/inbox) | Fanout channels `ci.events` (CI facts) and `deployment.events` (deploy outcomes). |
 | **Data** | SQL Server (Aspire data volume) | `JenkinsCi` and `Deployment` databases. |
 | **Cloud target** | Google Artifact Registry + Cloud Run | Per‑environment GCP project/region (default `egen-gcr` / `us-west1`). Auth via ADC. |
-| **Shared contracts** | `Cicd.IntegrationEvents` | Cross‑service events: `Ci.ContainerPublished`, `Ci.PipelineCompleted/StepCompleted/Cancelled`, `Deployment.ServiceDeployed`. |
+| **Shared contracts** | `Cicd.IntegrationEvents` | Cross‑service events: `Ci.ContainerPublished`, `Ci.AspireAppPublished` (carries `Branch`), `Ci.PipelineCompleted/StepCompleted/Cancelled`, `Deployment.ServiceDeployed`, `Deployment.AspireApplicationDeployed`. |
 
 ## Where things live
 
