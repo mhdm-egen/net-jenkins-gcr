@@ -8,6 +8,7 @@ using Deployment.Contracts.Mappings;
 using Deployment.Contracts.Previews;
 using Deployment.Contracts.Reset;
 using Deployment.Contracts.Runs;
+using Deployment.Contracts.Seed;
 
 namespace Cicd.Web.Admin.Services.Deployment;
 
@@ -141,6 +142,11 @@ public sealed class DeploymentApiClient
     /// <summary>Bulk-deletes selected deployment data/history (runs, aspire runs, previews w/ k8s teardown, container catalog). Keeps config.</summary>
     public Task<ResetDeploymentResultDto> ResetDataAsync(ResetDeploymentRequest body, CancellationToken ct = default)
         => PostJsonAsync<ResetDeploymentRequest, ResetDeploymentResultDto>("api/deployment/reset", body, ct);
+
+    // ---- Admin: demo-config seed ----
+    /// <summary>Installs curated demo config (environments, services, mappings, Aspire apps) for the selected scenarios. Additive + idempotent; creates no runs.</summary>
+    public Task<SeedDemoResultDto> SeedDemoAsync(SeedDemoRequest body, CancellationToken ct = default)
+        => PostJsonAsync<SeedDemoRequest, SeedDemoResultDto>("api/deployment/seed-demo", body, ct);
 
     // ---- Kubernetes (read-only cluster browsing) ----
     public async Task<IReadOnlyList<K8sContextDto>> ListK8sContextsAsync(CancellationToken ct = default)
