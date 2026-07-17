@@ -1,0 +1,37 @@
+@* Consistent status chip for run states across all three run types (pipeline / deployment / aspire). Takes the
+   status as a string so it works with any of the run-status enums (they share the same names). *@
+
+<MudChip T="string" Size="@Size" Color="@ColorFor(Status)" Variant="Variant.Filled" Icon="@IconFor(Status)">@Status</MudChip>
+
+@code {
+    [Parameter, EditorRequired] public string Status { get; set; } = "";
+    [Parameter] public Size Size { get; set; } = Size.Small;
+
+    public static Color ColorFor(string status) => status switch
+    {
+        "Succeeded" => Color.Success,
+        "Running" => Color.Info,
+        "Pending" => Color.Info,
+        "Failed" => Color.Error,
+        "Rejected" => Color.Error,
+        "Cancelled" => Color.Warning,
+        "RolledBack" => Color.Warning,
+        "AwaitingApproval" => Color.Warning,
+        "AwaitingPromotion" => Color.Warning,
+        _ => Color.Default,
+    };
+
+    private static string IconFor(string status) => status switch
+    {
+        "Succeeded" => Icons.Material.Filled.CheckCircle,
+        "Running" => Icons.Material.Filled.PlayCircle,
+        "Pending" => Icons.Material.Filled.Schedule,
+        "Failed" => Icons.Material.Filled.Cancel,
+        "Rejected" => Icons.Material.Filled.Block,
+        "Cancelled" => Icons.Material.Filled.DoNotDisturbOn,
+        "RolledBack" => Icons.Material.Filled.Undo,
+        "AwaitingApproval" => Icons.Material.Filled.HowToReg,
+        "AwaitingPromotion" => Icons.Material.Filled.Upgrade,
+        _ => Icons.Material.Filled.HelpOutline,
+    };
+}

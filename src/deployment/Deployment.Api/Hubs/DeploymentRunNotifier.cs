@@ -13,9 +13,9 @@ internal sealed class DeploymentRunNotifier : IDeploymentRunNotifier
 
     public DeploymentRunNotifier(IHubContext<DeploymentRunHub> hub) => _hub = hub;
 
-    public Task RunCompletedAsync(Guid runId, string status, string title, string? detail, CancellationToken cancellationToken = default)
+    public Task RunCompletedAsync(Guid runId, string status, string title, string? detail, string kind, CancellationToken cancellationToken = default)
         => _hub.Clients.All.SendAsync(
             "DeploymentCompleted",
-            new { runId, status, title, detail },
+            new { runId, status, title, detail, kind },
             cancellationToken);
 }

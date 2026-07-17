@@ -10,6 +10,7 @@ public interface IPipelineRunReader
 {
     Task<IReadOnlyList<PipelineRunSummaryDto>> ListAsync(Guid? pipelineId, int take, CancellationToken cancellationToken = default);
     Task<PipelineRunDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PipelineRunConsoleDto>> GetConsoleAsync(Guid runId, CancellationToken cancellationToken = default);
 }
 
 public sealed record ListPipelineRunsQuery(Guid? PipelineId, int Take);
@@ -32,4 +33,15 @@ public sealed class GetPipelineRunByIdHandler
 
     public Task<PipelineRunDto?> HandleAsync(GetPipelineRunByIdQuery query, CancellationToken cancellationToken = default)
         => _reader.GetByIdAsync(query.Id, cancellationToken);
+}
+
+public sealed record GetPipelineRunConsoleQuery(Guid Id);
+
+public sealed class GetPipelineRunConsoleHandler
+{
+    private readonly IPipelineRunReader _reader;
+    public GetPipelineRunConsoleHandler(IPipelineRunReader reader) => _reader = reader;
+
+    public Task<IReadOnlyList<PipelineRunConsoleDto>> HandleAsync(GetPipelineRunConsoleQuery query, CancellationToken cancellationToken = default)
+        => _reader.GetConsoleAsync(query.Id, cancellationToken);
 }

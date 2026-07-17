@@ -25,7 +25,8 @@
     }
     else if (_runs is not null)
     {
-        <MudTable Items="@_runs" Dense="true" Hover="true" Striped="true" T="PipelineRunSummaryDto">
+        <MudTable Items="@_runs" Dense="true" Hover="true" Striped="true" T="PipelineRunSummaryDto"
+                  OnRowClick="@(e => { if (e.Item is { } it) Nav.NavigateTo($"/jenkins/runs/{it.Id}"); })" Style="cursor: pointer;">
             <HeaderContent>
                 <MudTh>Pipeline</MudTh>
                 <MudTh Style="width: 7rem;">Status</MudTh>

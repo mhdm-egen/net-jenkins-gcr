@@ -7,5 +7,7 @@ namespace Deployment.Application.Abstractions;
 /// </summary>
 public interface IDeploymentRunNotifier
 {
-    Task RunCompletedAsync(Guid runId, string status, string title, string? detail, CancellationToken cancellationToken = default);
+    /// <param name="kind">Run type discriminator ("deployment" | "aspire") so the UI can deep-link the toast to the
+    /// correct run-detail page — both run types broadcast over this one channel.</param>
+    Task RunCompletedAsync(Guid runId, string status, string title, string? detail, string kind, CancellationToken cancellationToken = default);
 }

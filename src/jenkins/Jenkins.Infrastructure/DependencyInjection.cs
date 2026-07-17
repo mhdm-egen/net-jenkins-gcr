@@ -59,6 +59,7 @@ public static class DependencyInjection
         services.AddScoped<IContainerReleaseHandoffStore, ContainerReleaseHandoffStore>();
         services.AddScoped<IPipelineStore, PipelineStore>();
         services.AddScoped<IPipelineRunStore, PipelineRunStore>();
+        services.AddScoped<IPipelineRunConsoleStore, PipelineRunConsoleStore>();
 
         // Read-model readers.
         services.AddScoped<IRepositoryCatalogReader, EfRepositoryCatalogReader>();

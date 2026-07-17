@@ -48,6 +48,15 @@ public static class PipelineRunsEndpoints
             return hit is null ? Results.NotFound() : Results.Ok(hit);
         });
 
+        // Persisted console output for a completed run (one entry per job). Empty for an unknown/never-run id.
+        group.MapGet("{id:guid}/console", async (
+            Guid id,
+            GetPipelineRunConsoleHandler handler,
+            CancellationToken ct) =>
+        {
+            return Results.Ok(await handler.HandleAsync(new GetPipelineRunConsoleQuery(id), ct));
+        });
+
         // Request cancellation of an in-flight run (stops the Jenkins build; run settles Cancelled).
         group.MapPost("{id:guid}/cancel", async (
             Guid id,

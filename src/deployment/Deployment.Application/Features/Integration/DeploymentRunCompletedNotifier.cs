@@ -22,6 +22,7 @@ public sealed class DeploymentRunCompletedNotifier
             "Succeeded",
             $"Deployed {e.ServiceName} {e.Version}",
             $"{e.CloudRunServiceName} · {e.Region}",
+            "deployment",
             ct);
 
     public Task Handle(DeploymentRunFailed e, IDeploymentRunNotifier notifier, CancellationToken ct)
@@ -30,6 +31,7 @@ public sealed class DeploymentRunCompletedNotifier
             "Failed",
             BuildFailureTitle(e.FailedStep, e.Category),
             e.Reason,
+            "deployment",
             ct);
 
     /// <summary>"Deploy failed at GarPush — registry auth" when we know the step + category; degrades gracefully.</summary>

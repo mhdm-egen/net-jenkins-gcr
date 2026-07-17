@@ -41,4 +41,13 @@ public sealed class EfPipelineRunReader : IPipelineRunReader
             r.Steps.Select(s => new PipelineRunStepDto(s.Order, s.JobName, s.BuildNumber, s.Result)).ToList(),
             r.Branch);
     }
+
+    public async Task<IReadOnlyList<PipelineRunConsoleDto>> GetConsoleAsync(Guid runId, CancellationToken cancellationToken = default)
+    {
+        return await _db.PipelineRunConsoleLogs.AsNoTracking()
+            .Where(c => c.RunId == runId)
+            .OrderBy(c => c.JobName)
+            .Select(c => new PipelineRunConsoleDto(c.JobName, c.BuildNumber, c.Content))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
 }

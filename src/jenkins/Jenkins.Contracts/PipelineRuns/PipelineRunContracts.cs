@@ -10,6 +10,9 @@ public enum PipelineRunStatusDto
 
 public sealed record PipelineRunStepDto(int Order, string JobName, int BuildNumber, string Result);
 
+/// <summary>Persisted console output for one job of a completed run (see <c>GET .../pipeline-runs/{id}/console</c>).</summary>
+public sealed record PipelineRunConsoleDto(string JobName, int BuildNumber, string Content);
+
 public sealed record PipelineRunDto(
     Guid Id,
     Guid PipelineId,

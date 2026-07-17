@@ -6,7 +6,7 @@ namespace Cicd.Web.Admin.Services;
 
 /// <summary>Server-broadcast run-completion messages (camelCase JSON; SignalR binds case-insensitively).</summary>
 public sealed record PipelineRunCompletedMsg(Guid RunId, string PipelineName, string Status, string? FailureReason);
-public sealed record DeploymentRunCompletedMsg(Guid RunId, string Status, string Title, string? Detail);
+public sealed record DeploymentRunCompletedMsg(Guid RunId, string Status, string Title, string? Detail, string? Kind = null);
 
 /// <summary>
 /// The single per-circuit owner of the two SignalR hubs (<c>hubs/pipeline-runs</c> RunCompleted /

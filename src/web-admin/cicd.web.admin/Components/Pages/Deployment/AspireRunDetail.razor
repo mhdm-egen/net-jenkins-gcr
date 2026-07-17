@@ -1,0 +1,140 @@
+@page "/deployment/aspire-runs/{Id:guid}"
+@inject DeploymentApiClient Api
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<PageTitle>Deployment — Aspire run</PageTitle>
+
+@if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+
+@if (_loading && _run is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_run is null)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="my-2">Aspire run not found.</MudAlert>
+}
+else
+{
+    var r = _run;
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => Nav.NavigateTo("/deployment/aspire-apps"))" />
+        <MudText Typo="Typo.h4">@r.ApplicationName @if (r.Version is { Length: > 0 } v) { <span style="font-family: ui-monospace, monospace; font-size: 0.7em;">@v</span> }</MudText>
+        <RunStatusChip Status="@r.Status.ToString()" />
+        <MudSpacer />
+        @if (r.Status == AspireRunStatusDto.AwaitingApproval)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.HowToReg"
+                       OnClick="ApproveAsync" Disabled="_busy">Approve</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Block"
+                       OnClick="RejectAsync" Disabled="_busy">Reject</MudButton>
+        }
+        else if (r.Status == AspireRunStatusDto.AwaitingPromotion)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Upgrade"
+                       OnClick="PromoteAsync" Disabled="_busy">Promote</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Warning" StartIcon="@Icons.Material.Filled.Undo"
+                       OnClick="RollbackAsync" Disabled="_busy">Rollback</MudButton>
+        }
+    </MudStack>
+
+    @if (r.FailureReason is { Length: > 0 } reason)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">@reason</MudAlert>
+    }
+
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-2">Environment</MudText>
+                <DetailRow Label="Environment" Value="@r.EnvironmentName" />
+                <DetailRow Label="Cluster / namespace" Value="@($"{r.KubeContext} / {r.Namespace}")" Mono="true" />
+                <DetailRow Label="Manifest" Value="@r.ManifestSource" Mono="true" />
+                @if (r.RolloutGreenSlot is { Length: > 0 } || r.RolloutActiveSlot is { Length: > 0 })
+                {
+                    <DetailRow Label="Active / green slot" Value="@($"{r.RolloutActiveSlot ?? "—"} / {r.RolloutGreenSlot ?? "—"}")" />
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-2">Run</MudText>
+                <DetailRow Label="Triggered by" Value="@r.TriggeredBy" />
+                <DetailRow Label="Decision by" Value="@(r.DecisionBy ?? "—")" />
+                <DetailRow Label="Requested" Value="@r.RequestedAtUtc.LocalDateTime.ToString("g")" />
+                <DetailRow Label="Duration" Value="@Duration(r)" />
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudText Typo="Typo.h6" Class="mt-6 mb-2">Deployed images</MudText>
+    @if (r.DeployedImages is { Count: > 0 } images)
+    {
+        <MudSimpleTable Dense="true" Hover="true" Style="overflow-x: auto;">
+            <thead><tr><th style="width:14rem;">Workload</th><th>Image</th></tr></thead>
+            <tbody>
+                @foreach (var img in images)
+                {
+                    <tr>
+                        <td style="font-family: ui-monospace, monospace;">@img.Workload</td>
+                        <td style="font-family: ui-monospace, monospace; font-size: 0.85em;">@img.Image</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+    else
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No image digests recorded.</MudText>
+    }
+
+    <MudText Typo="Typo.h6" Class="mt-6 mb-2">Log</MudText>
+    <MudPaper Elevation="0" Outlined="true" Class="pa-2" Style="max-height: 28rem; overflow: auto; background: var(--mud-palette-background-grey);">
+        <pre style="margin:0; white-space: pre-wrap; word-break: break-word; font-size: 0.8rem;">@(r.Log is { Length: > 0 } ? r.Log : "(no log)")</pre>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private AspireApplicationRunDto? _run;
+    private bool _loading;
+    private bool _busy;
+    private string? _error;
+    private Guid _loadedId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId == Id) return;
+        _loadedId = Id;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null; StateHasChanged();
+        try { _run = await Api.GetAspireRunByIdAsync(Id); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private async Task Act(Func<Task> action, string ok, Severity sev)
+    {
+        _busy = true;
+        try { await action(); Snackbar.Add(ok, sev); await LoadAsync(); }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private Task ApproveAsync()  => Act(() => Api.ApproveAspireRunAsync(Id),  "Approved.", Severity.Success);
+    private Task RejectAsync()   => Act(() => Api.RejectAspireRunAsync(Id),   "Rejected.", Severity.Warning);
+    private Task PromoteAsync()  => Act(() => Api.PromoteAspireRunAsync(Id),  "Promotion requested.", Severity.Success);
+    private Task RollbackAsync() => Act(() => Api.RollbackAspireRunAsync(Id), "Rollback requested.", Severity.Warning);
+
+    private static string Duration(AspireApplicationRunDto r)
+        => r.CompletedAtUtc is { } done ? $"{(done - r.RequestedAtUtc).TotalSeconds:0.0}s" : "—";
+}
