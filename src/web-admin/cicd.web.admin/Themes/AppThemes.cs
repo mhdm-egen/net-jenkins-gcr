@@ -16,6 +16,12 @@ public static class AppThemes
     public const string OneDarkId        = "one-dark";
     public const string MonokaiId        = "monokai";
     public const string MaterialDarkId   = "material-dark";
+    public const string DraculaId        = "dracula";
+    public const string TokyoNightId     = "tokyo-night";
+    public const string CatppuccinId     = "catppuccin-mocha";
+    public const string GithubDarkId     = "github-dark";
+    public const string GruvboxDarkId    = "gruvbox-dark";
+    public const string NightOwlId       = "night-owl";
     public const string DefaultId        = "default";
 
     public sealed record Entry(string Id, string Label, MudTheme Theme, bool IsDarkMode);
@@ -28,6 +34,12 @@ public static class AppThemes
         new Entry(OneDarkId,        "One Dark",        CreateOneDark(),        IsDarkMode: true),
         new Entry(MonokaiId,        "Monokai",         CreateMonokai(),        IsDarkMode: true),
         new Entry(MaterialDarkId,   "Material Dark",   CreateMaterialDark(),   IsDarkMode: true),
+        new Entry(DraculaId,        "Dracula",          CreateDracula(),          IsDarkMode: true),
+        new Entry(TokyoNightId,     "Tokyo Night",      CreateTokyoNight(),       IsDarkMode: true),
+        new Entry(CatppuccinId,     "Catppuccin Mocha", CreateCatppuccinMocha(),  IsDarkMode: true),
+        new Entry(GithubDarkId,     "GitHub Dark",      CreateGithubDark(),       IsDarkMode: true),
+        new Entry(GruvboxDarkId,    "Gruvbox Dark",     CreateGruvboxDark(),      IsDarkMode: true),
+        new Entry(NightOwlId,       "Night Owl",        CreateNightOwl(),         IsDarkMode: true),
         new Entry(DefaultId,        "Default",         CreateDefault(),        IsDarkMode: false),
     };
 
@@ -279,6 +291,256 @@ public static class AppThemes
             TableHover        = new MudColor("#ffffff").SetAlpha(0.08).ToString(),
             Divider           = new MudColor("#ffffff").SetAlpha(0.12).ToString(),
             DividerLight      = new MudColor("#ffffff").SetAlpha(0.06).ToString(),
+        },
+    };
+
+    // --- Dracula palette ---
+    //   bg #282a36  current-line #44475a  fg #f8f8f2  comment #6272a4
+    //   cyan #8be9fd  green #50fa7b  orange #ffb86c  pink #ff79c6
+    //   purple #bd93f9  red #ff5555  yellow #f1fa8c
+
+    private static MudTheme CreateDracula() => new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Primary           = "#bd93f9",   // purple — signature accent
+            Secondary         = "#ff79c6",   // pink
+            Tertiary          = "#8be9fd",   // cyan
+            Info              = "#8be9fd",
+            Success           = "#50fa7b",
+            Warning           = "#ffb86c",   // orange (yellow #f1fa8c reads too light on chips)
+            Error             = "#ff5555",
+            Black             = "#21222c",
+            Background        = "#282a36",
+            BackgroundGray    = "#21222c",
+            Surface           = "#343746",
+            AppbarBackground  = "#21222c",
+            AppbarText        = "#f8f8f2",
+            DrawerBackground  = "#21222c",
+            DrawerText        = "#f8f8f2",
+            DrawerIcon        = "#f8f8f2",
+            TextPrimary       = "#f8f8f2",
+            TextSecondary     = "#bcc0d4",
+            TextDisabled      = "#6272a4",
+            ActionDefault     = "#f8f8f2",
+            ActionDisabled    = "#6272a4",
+            ActionDisabledBackground = "#21222c",
+            LinesDefault      = "#44475a",
+            LinesInputs       = "#6272a4",
+            TableLines        = "#44475a",
+            TableStriped      = new MudColor("#44475a").SetAlpha(0.40).ToString(),
+            TableHover        = new MudColor("#6272a4").SetAlpha(0.15).ToString(),
+            Divider           = "#44475a",
+            DividerLight      = "#6272a4",
+        },
+    };
+
+    // --- Tokyo Night palette (folke, "night") ---
+    //   bg #1a1b26  bg_dark #16161e  bg_highlight #292e42  terminal_black #414868
+    //   fg #c0caf5  fg_dark #a9b1d6  comment #565f89  surface #24283b
+    //   blue #7aa2f7  cyan #7dcfff  green #9ece6a  magenta #bb9af7
+    //   red #f7768e  yellow #e0af68  orange #ff9e64
+
+    private static MudTheme CreateTokyoNight() => new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Primary           = "#7aa2f7",   // blue
+            Secondary         = "#bb9af7",   // magenta/purple
+            Tertiary          = "#7dcfff",   // cyan
+            Info              = "#7dcfff",
+            Success           = "#9ece6a",
+            Warning           = "#e0af68",
+            Error             = "#f7768e",
+            Black             = "#16161e",
+            Background        = "#1a1b26",
+            BackgroundGray    = "#16161e",
+            Surface           = "#24283b",
+            AppbarBackground  = "#16161e",
+            AppbarText        = "#c0caf5",
+            DrawerBackground  = "#16161e",
+            DrawerText        = "#a9b1d6",
+            DrawerIcon        = "#c0caf5",
+            TextPrimary       = "#c0caf5",
+            TextSecondary     = "#a9b1d6",
+            TextDisabled      = "#565f89",
+            ActionDefault     = "#c0caf5",
+            ActionDisabled    = "#565f89",
+            ActionDisabledBackground = "#16161e",
+            LinesDefault      = "#292e42",
+            LinesInputs       = "#414868",
+            TableLines        = "#292e42",
+            TableStriped      = new MudColor("#292e42").SetAlpha(0.40).ToString(),
+            TableHover        = new MudColor("#414868").SetAlpha(0.15).ToString(),
+            Divider           = "#292e42",
+            DividerLight      = "#414868",
+        },
+    };
+
+    // --- Catppuccin Mocha palette ---
+    //   base #1e1e2e  mantle #181825  crust #11111b  surface0 #313244
+    //   surface1 #45475a  surface2 #585b70  overlay0 #6c7086
+    //   text #cdd6f4  subtext0 #a6adc8  subtext1 #bac2de
+    //   blue #89b4fa  sky #89dceb  teal #94e2d5  green #a6e3a1
+    //   yellow #f9e2af  peach #fab387  red #f38ba8  mauve #cba6f7
+
+    private static MudTheme CreateCatppuccinMocha() => new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Primary           = "#89b4fa",   // blue
+            Secondary         = "#cba6f7",   // mauve
+            Tertiary          = "#94e2d5",   // teal
+            Info              = "#89dceb",   // sky
+            Success           = "#a6e3a1",
+            Warning           = "#f9e2af",
+            Error             = "#f38ba8",
+            Black             = "#11111b",
+            Background        = "#1e1e2e",
+            BackgroundGray    = "#181825",
+            Surface           = "#313244",
+            AppbarBackground  = "#181825",
+            AppbarText        = "#cdd6f4",
+            DrawerBackground  = "#181825",
+            DrawerText        = "#bac2de",
+            DrawerIcon        = "#cdd6f4",
+            TextPrimary       = "#cdd6f4",
+            TextSecondary     = "#a6adc8",
+            TextDisabled      = "#6c7086",
+            ActionDefault     = "#cdd6f4",
+            ActionDisabled    = "#6c7086",
+            ActionDisabledBackground = "#181825",
+            LinesDefault      = "#45475a",
+            LinesInputs       = "#585b70",
+            TableLines        = "#45475a",
+            TableStriped      = new MudColor("#313244").SetAlpha(0.50).ToString(),
+            TableHover        = new MudColor("#585b70").SetAlpha(0.15).ToString(),
+            Divider           = "#45475a",
+            DividerLight      = "#585b70",
+        },
+    };
+
+    // --- GitHub Dark palette (github.com dark default) ---
+    //   canvas #0d1117  subtle #161b22  border #30363d  border-muted #21262d
+    //   fg #e6edf3  fg-muted #8b949e  fg-subtle #6e7681
+    //   accent #58a6ff  success #3fb950  attention #d29922  danger #f85149  done #a371f7
+
+    private static MudTheme CreateGithubDark() => new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Primary           = "#58a6ff",   // accent blue
+            Secondary         = "#a371f7",   // purple (done)
+            Tertiary          = "#db61a2",   // pink (sponsors)
+            Info              = "#58a6ff",
+            Success           = "#3fb950",
+            Warning           = "#d29922",
+            Error             = "#f85149",
+            Black             = "#010409",
+            Background        = "#0d1117",
+            BackgroundGray    = "#161b22",
+            Surface           = "#161b22",
+            AppbarBackground  = "#161b22",
+            AppbarText        = "#e6edf3",
+            DrawerBackground  = "#0d1117",
+            DrawerText        = "#c9d1d9",
+            DrawerIcon        = "#e6edf3",
+            TextPrimary       = "#e6edf3",
+            TextSecondary     = "#8b949e",
+            TextDisabled      = "#6e7681",
+            ActionDefault     = "#c9d1d9",
+            ActionDisabled    = "#6e7681",
+            ActionDisabledBackground = "#161b22",
+            LinesDefault      = "#30363d",
+            LinesInputs       = "#6e7681",
+            TableLines        = "#30363d",
+            TableStriped      = new MudColor("#161b22").SetAlpha(0.60).ToString(),
+            TableHover        = new MudColor("#6e7681").SetAlpha(0.12).ToString(),
+            Divider           = "#30363d",
+            DividerLight      = "#21262d",
+        },
+    };
+
+    // --- Gruvbox Dark palette (morhetz) ---
+    //   bg0 #282828  bg0_h #1d2021  bg1 #3c3836  bg2 #504945  bg3 #665c54
+    //   fg #ebdbb2  fg3 #bdae93  gray #928374
+    //   blue #83a598  aqua #8ec07c  green #b8bb26  yellow #fabd2f
+    //   orange #fe8019  red #fb4934  purple #d3869b
+
+    private static MudTheme CreateGruvboxDark() => new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Primary           = "#83a598",   // blue — calm accent
+            Secondary         = "#d3869b",   // purple
+            Tertiary          = "#8ec07c",   // aqua
+            Info              = "#8ec07c",
+            Success           = "#b8bb26",
+            Warning           = "#fabd2f",
+            Error             = "#fb4934",
+            Black             = "#1d2021",
+            Background        = "#282828",
+            BackgroundGray    = "#1d2021",
+            Surface           = "#3c3836",
+            AppbarBackground  = "#1d2021",
+            AppbarText        = "#ebdbb2",
+            DrawerBackground  = "#1d2021",
+            DrawerText        = "#d5c4a1",
+            DrawerIcon        = "#ebdbb2",
+            TextPrimary       = "#ebdbb2",
+            TextSecondary     = "#bdae93",
+            TextDisabled      = "#928374",
+            ActionDefault     = "#ebdbb2",
+            ActionDisabled    = "#928374",
+            ActionDisabledBackground = "#1d2021",
+            LinesDefault      = "#504945",
+            LinesInputs       = "#665c54",
+            TableLines        = "#504945",
+            TableStriped      = new MudColor("#3c3836").SetAlpha(0.50).ToString(),
+            TableHover        = new MudColor("#665c54").SetAlpha(0.15).ToString(),
+            Divider           = "#504945",
+            DividerLight      = "#665c54",
+        },
+    };
+
+    // --- Night Owl palette (sarah drasner) ---
+    //   bg #011627  bg_light #0b2942  selection #1d3b53  fg #d6deeb  fg_dim #637777
+    //   blue #82aaff  cyan #7fdbca  green #addb67  purple #c792ea
+    //   red #ff5874  yellow #ecc48d  orange #f78c6c
+
+    private static MudTheme CreateNightOwl() => new()
+    {
+        PaletteDark = new PaletteDark
+        {
+            Primary           = "#82aaff",   // blue
+            Secondary         = "#c792ea",   // purple
+            Tertiary          = "#7fdbca",   // cyan
+            Info              = "#7fdbca",
+            Success           = "#addb67",
+            Warning           = "#ecc48d",
+            Error             = "#ff5874",
+            Black             = "#01111d",
+            Background        = "#011627",
+            BackgroundGray    = "#0b2942",
+            Surface           = "#0b2942",
+            AppbarBackground  = "#01111d",
+            AppbarText        = "#d6deeb",
+            DrawerBackground  = "#01111d",
+            DrawerText        = "#d6deeb",
+            DrawerIcon        = "#d6deeb",
+            TextPrimary       = "#d6deeb",
+            TextSecondary     = "#8badc4",
+            TextDisabled      = "#637777",
+            ActionDefault     = "#d6deeb",
+            ActionDisabled    = "#637777",
+            ActionDisabledBackground = "#01111d",
+            LinesDefault      = "#1d3b53",
+            LinesInputs       = "#637777",
+            TableLines        = "#1d3b53",
+            TableStriped      = new MudColor("#0b2942").SetAlpha(0.40).ToString(),
+            TableHover        = new MudColor("#637777").SetAlpha(0.15).ToString(),
+            Divider           = "#1d3b53",
+            DividerLight      = "#637777",
         },
     };
 
