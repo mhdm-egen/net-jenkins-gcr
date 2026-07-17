@@ -7,6 +7,8 @@ Nexus; an event-driven deployment service promotes them to **Google Cloud Run** 
 one-click rollback. It **builds on the systems you already run** (Jenkins, Nexus, your cluster) rather
 than replacing them.
 
+![Egen Modern .NET CI/CD — the Overview dashboard: delivery KPIs, deploy health, and live activity](docs/screenshots/overview.png)
+
 > **→ Just want to run it?** See [docs/getting-started.md](docs/getting-started.md).
 
 ## Executive summary
