@@ -258,6 +258,20 @@ average duration — computed from real run history and also exported over OpenT
 *Orchestrated Jenkins jobs — build → scan → publish, each commit-pinned — with the live, persisted
 stage console.*
 
+### Safe releases — namespace-isolated blue-green
+
+![Aspire app deployed into a parallel blue slot namespace, with promote/rollback](docs/screenshots/blue-green-rollout.png)
+
+*A whole app rolled out into a parallel `blue` slot namespace, health-gated before cutover — promote
+or roll back with one click. Blue-green and ingress-weighted canary run on vanilla Kubernetes.*
+
+### A preview environment per PR
+
+![Active per-PR preview environment with a browsable URL and a TTL expiry](docs/screenshots/preview-environments.png)
+
+*Every pull request gets an ephemeral, browsable environment in its own namespace — auto-expiring on a
+TTL and torn down on close.*
+
 ### Multi-target deploys — Kubernetes and Cloud Run
 
 ![Deployment mappings across Kubernetes and Cloud Run with per-mapping auto-deploy](docs/screenshots/deployment-targets.png)
@@ -272,8 +286,9 @@ per-mapping auto-deploy — one model across clouds and clusters.*
 *A whole .NET Aspire app deployed to Kubernetes — every workload pinned to a digest-tagged image
 promoted from Nexus, with the manifest source and full deploy log. Every deploy traces to a commit.*
 
-### Operability — live cluster health
+### Supply-chain provenance — SBOMs
 
-![Kubernetes deployed-apps overview with live health and browsable URLs](docs/screenshots/kubernetes-apps.png)
+![Per-image CycloneDX SBOMs with digest-pinned BOM references](docs/screenshots/sbom-provenance.png)
 
-*Consolidated live health of deployed apps and previews — versions, sync state, and browsable URLs.*
+*Per-image CycloneDX SBOMs (spec 1.7) from the `cicd-aspire-publish` Trivy scan — each pinned to an
+image digest and stored as provenance in Nexus, alongside the build's `FAIL_ON_SEVERITY` CVE gate.*
