@@ -71,7 +71,7 @@
             <HeaderContent><MudTh Style="width:6rem;">Kind</MudTh><MudTh>Name</MudTh><MudTh>Waiting for</MudTh><MudTh Style="width:11rem;">Since</MudTh><MudTh Style="width:8rem;">Actions</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd><MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@(context.Kind == PendingKind.DeployPromotion ? Color.Info : Color.Secondary)">@(context.Kind == PendingKind.DeployPromotion ? "Deploy" : "Aspire")</MudChip></MudTd>
-                <MudTd>@context.Name <span style="color:var(--mud-palette-text-secondary); font-size:0.8em;">@context.Env</span></MudTd>
+                <MudTd><MudLink Href="@PendingHref(context)">@context.Name</MudLink> <span style="color:var(--mud-palette-text-secondary); font-size:0.8em;">@context.Env</span></MudTd>
                 <MudTd>
                     <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">@(context.Kind == PendingKind.AspireApproval ? "approval" : "promotion")</MudChip>
                     @if (!string.IsNullOrEmpty(context.Note)) { <span style="color:var(--mud-palette-text-secondary); font-size:0.8em;">@context.Note</span> }
@@ -249,9 +249,9 @@
 
             // Recent activity — merge + sort desc, top 15.
             var activity = new List<ActivityRow>();
-            activity.AddRange(pipelineRuns.Select(r => new ActivityRow("CI", Color.Primary, r.PipelineName, r.Status.ToString(), r.StartedAtUtc, "/jenkins/runs")));
-            activity.AddRange(deployRuns.Select(r => new ActivityRow("Deploy", Color.Info, r.ServiceName, r.Status.ToString(), r.RequestedAtUtc, "/deployment/runs")));
-            activity.AddRange(aspireRuns.Select(r => new ActivityRow("Aspire", Color.Secondary, r.ApplicationName, r.Status.ToString(), r.RequestedAtUtc, "/deployment/aspire-apps")));
+            activity.AddRange(pipelineRuns.Select(r => new ActivityRow("CI", Color.Primary, r.PipelineName, r.Status.ToString(), r.StartedAtUtc, $"/jenkins/runs/{r.Id}")));
+            activity.AddRange(deployRuns.Select(r => new ActivityRow("Deploy", Color.Info, r.ServiceName, r.Status.ToString(), r.RequestedAtUtc, $"/deployment/runs/{r.Id}")));
+            activity.AddRange(aspireRuns.Select(r => new ActivityRow("Aspire", Color.Secondary, r.ApplicationName, r.Status.ToString(), r.RequestedAtUtc, $"/deployment/aspire-runs/{r.Id}")));
             _activity = activity.OrderByDescending(a => a.When).Take(15).ToList();
 
             _lastFetchedAt = DateTimeOffset.UtcNow;
@@ -260,6 +260,11 @@
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; StateHasChanged(); }
     }
+
+    // Deep-link a pending item to its run-detail page (aspire runs vs per-service deployment runs).
+    private static string PendingHref(PendingItem item) => item.Kind == PendingKind.DeployPromotion
+        ? $"/deployment/runs/{item.RunId}"
+        : $"/deployment/aspire-runs/{item.RunId}";
 
     private async Task Act(PendingItem item, string action)
     {

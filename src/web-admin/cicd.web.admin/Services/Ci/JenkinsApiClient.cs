@@ -172,6 +172,14 @@ public sealed class JenkinsApiClient
         return await resp.Content.ReadFromJsonAsync<PipelineRunDto>(Json, ct).ConfigureAwait(false);
     }
 
+    /// <summary>Persisted console output for a completed run (one entry per job). Empty list for a run with no
+    /// persisted console yet (e.g. still running, or a run that predates console persistence).</summary>
+    public async Task<IReadOnlyList<PipelineRunConsoleDto>> GetPipelineRunConsoleAsync(Guid id, CancellationToken ct = default)
+    {
+        var list = await _http.GetFromJsonAsync<List<PipelineRunConsoleDto>>($"api/jenkins/pipeline-runs/{id}/console", Json, ct).ConfigureAwait(false);
+        return list ?? new List<PipelineRunConsoleDto>();
+    }
+
     /// <summary>Best-effort cancel of an in-flight run. 202 = requested, 404 = not running.</summary>
     public async Task CancelPipelineRunAsync(Guid runId, CancellationToken ct = default)
     {

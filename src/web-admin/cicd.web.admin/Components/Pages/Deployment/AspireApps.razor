@@ -1,5 +1,6 @@
 @page "/deployment/aspire-apps"
 @inject DeploymentApiClient Api
+@inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject RunEventsService Events
 @implements IDisposable
@@ -109,6 +110,7 @@
                 <MudTd>@context.TriggeredBy</MudTd>
                 <MudTd>@context.RequestedAtUtc.LocalDateTime.ToString("g")</MudTd>
                 <MudTd>
+                    <MudTooltip Text="Details"><MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" Href="@($"/deployment/aspire-runs/{context.Id}")" /></MudTooltip>
                     <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ShowLog(context))">Log</MudButton>
                     @if (context.Status == AspireRunStatusDto.AwaitingApproval)
                     {

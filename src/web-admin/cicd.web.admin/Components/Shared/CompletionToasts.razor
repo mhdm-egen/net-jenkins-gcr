@@ -22,11 +22,15 @@
     {
         var text = $"Pipeline '{m.PipelineName}' {m.Status.ToLowerInvariant()}";
         if (m.Status != "Succeeded" && m.FailureReason is { Length: > 0 } reason) text += $" — {reason}";
-        Toast(text, m.Status, "/jenkins/runs");
+        Toast(text, m.Status, $"/jenkins/runs/{m.RunId}");   // deep-link to the run detail
     });
 
     private void OnDeploymentRunCompleted(DeploymentRunCompletedMsg m) => InvokeAsync(() =>
-        Toast(m.Detail is { Length: > 0 } d ? $"{m.Title} — {d}" : m.Title, m.Status, "/deployment/runs"));
+    {
+        // Both deployment + aspire runs share this channel; Kind routes to the right detail page.
+        var href = m.Kind == "aspire" ? $"/deployment/aspire-runs/{m.RunId}" : $"/deployment/runs/{m.RunId}";
+        Toast(m.Detail is { Length: > 0 } d ? $"{m.Title} — {d}" : m.Title, m.Status, href);
+    });
 
     private void Toast(string text, string status, string href)
     {

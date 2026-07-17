@@ -36,6 +36,7 @@ public sealed class JenkinsCiDbContext : DbContext
     public DbSet<PipelineStage> PipelineStages => Set<PipelineStage>();
 
     public DbSet<PipelineRun> PipelineRuns => Set<PipelineRun>();
+    public DbSet<PipelineRunConsoleLog> PipelineRunConsoleLogs => Set<PipelineRunConsoleLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

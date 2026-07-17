@@ -1,0 +1,224 @@
+@page "/jenkins/runs/{Id:guid}"
+@using Microsoft.AspNetCore.SignalR.Client
+@using System.Text
+@inject JenkinsApiClient Api
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<PageTitle>Pipeline run</PageTitle>
+
+@if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+
+@if (_loading && _run is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_run is null)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="my-2">Pipeline run not found.</MudAlert>
+}
+else
+{
+    var r = _run;
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => Nav.NavigateTo("/jenkins/runs"))" />
+        <MudText Typo="Typo.h4">@r.PipelineName</MudText>
+        <RunStatusChip Status="@r.Status.ToString()" />
+        @if (r.Status == PipelineRunStatusDto.Running)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Podcasts">live</MudChip>
+        }
+        <MudSpacer />
+        @if (r.Status == PipelineRunStatusDto.Running)
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Cancel"
+                       OnClick="CancelAsync" Disabled="_busy">Cancel</MudButton>
+        }
+    </MudStack>
+
+    @if (r.FailureReason is { Length: > 0 } reason)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">@reason</MudAlert>
+    }
+
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-2">Run</MudText>
+                <DetailRow Label="Triggered by" Value="@r.TriggeredBy" />
+                <DetailRow Label="Branch" Value="@(r.Branch ?? "—")" />
+                <DetailRow Label="Started" Value="@r.StartedAtUtc.LocalDateTime.ToString("g")" />
+                <DetailRow Label="Duration" Value="@Duration(r)" />
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudText Typo="Typo.h6" Class="mt-6 mb-2">Steps</MudText>
+    @if (_steps.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No steps recorded.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Style="overflow-x: auto;">
+            <thead>
+                <tr><th style="width:3rem;">#</th><th>Job</th><th style="width:10rem;">Build</th><th style="width:10rem;">Result</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var s in _steps)
+                {
+                    <tr>
+                        <td>@s.Order</td>
+                        <td style="font-family: ui-monospace, monospace;">@s.JobName</td>
+                        <td>
+                            @if (s.BuildNumber > 0)
+                            {
+                                <MudLink Href="@($"/jenkins/builds/{s.BuildNumber}")">#@s.BuildNumber</MudLink>
+                            }
+                            else { <span>—</span> }
+                        </td>
+                        <td><RunStatusChip Status="@NormalizeStep(s.Result)" /></td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+
+    <MudText Typo="Typo.h6" Class="mt-6 mb-2">Console</MudText>
+    @if (_console.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+            @(r.Status == PipelineRunStatusDto.Running ? "Waiting for output…" : "No console output was captured for this run.")
+        </MudText>
+    }
+    else
+    {
+        foreach (var kv in _console)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-3" Style="font-family: ui-monospace, monospace;">@kv.Key</MudText>
+            <MudPaper Elevation="0" Outlined="true" Class="pa-2" Style="max-height: 24rem; overflow: auto; background: var(--mud-palette-background-grey);">
+                <pre style="margin:0; white-space: pre-wrap; word-break: break-word; font-size: 0.8rem;">@kv.Value.ToString()</pre>
+            </MudPaper>
+        }
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private PipelineRunDto? _run;
+    private readonly List<PipelineRunStepDto> _steps = new();
+    // Console per job, preserving insertion order (persisted rows come sorted; live appends in arrival order).
+    private readonly Dictionary<string, StringBuilder> _console = new();
+    private bool _loading;
+    private bool _busy;
+    private string? _error;
+    private HubConnection? _hub;
+    private Guid _loadedId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId == Id) return;   // avoid re-loading on unrelated re-renders
+        _loadedId = Id;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null;
+        _steps.Clear(); _console.Clear();
+        await DisposeHubAsync();
+        StateHasChanged();
+        try
+        {
+            _run = await Api.GetPipelineRunAsync(Id);
+            if (_run is null) return;
+
+            _steps.AddRange(_run.Steps.OrderBy(s => s.Order));
+
+            if (_run.Status == PipelineRunStatusDto.Running)
+                await ConnectLiveAsync();   // stream steps + console live
+            else
+                foreach (var seg in await Api.GetPipelineRunConsoleAsync(Id))   // persisted console
+                    _console[$"{seg.JobName}{(seg.BuildNumber > 0 ? $" #{seg.BuildNumber}" : "")}"] = new StringBuilder(seg.Content);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private async Task CancelAsync()
+    {
+        _busy = true;
+        try { await Api.CancelPipelineRunAsync(Id); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; StateHasChanged(); }
+    }
+
+    // ---- Live streaming (running runs) — mirrors Orchestrator.razor's hub usage ----
+    private async Task ConnectLiveAsync()
+    {
+        _hub = new HubConnectionBuilder().WithUrl(new Uri(Api.BaseAddress, "hubs/pipeline-runs")).WithAutomaticReconnect().Build();
+        _hub.On<PipelineRunDto>("RunSnapshot", dto => InvokeAsync(() => { ApplySnapshot(dto); StateHasChanged(); }));
+        _hub.On<StepChangedMsg>("StepChanged", m => InvokeAsync(() => { ApplyStep(m); StateHasChanged(); }));
+        _hub.On<ConsoleMsg>("ConsoleAppended", m => InvokeAsync(() => { AppendConsole(m.JobName, m.Text); StateHasChanged(); }));
+        _hub.On<SettledMsg>("RunSettled", m => InvokeAsync(async () => { await OnSettledAsync(m); }));
+        await _hub.StartAsync();
+        await _hub.SendAsync("Subscribe", Id);
+    }
+
+    private void ApplySnapshot(PipelineRunDto dto)
+    {
+        _steps.Clear();
+        _steps.AddRange(dto.Steps.OrderBy(s => s.Order));
+    }
+
+    private void ApplyStep(StepChangedMsg m)
+    {
+        var i = _steps.FindIndex(s => s.JobName == m.JobName);
+        var build = m.BuildNumber ?? (i >= 0 ? _steps[i].BuildNumber : 0);
+        var updated = new PipelineRunStepDto(i >= 0 ? _steps[i].Order : _steps.Count + 1, m.JobName, build, m.Status);
+        if (i >= 0) _steps[i] = updated; else _steps.Add(updated);
+    }
+
+    private void AppendConsole(string jobName, string text)
+    {
+        if (!_console.TryGetValue(jobName, out var sb)) { sb = new StringBuilder(); _console[jobName] = sb; }
+        sb.Append(text);
+    }
+
+    private async Task OnSettledAsync(SettledMsg m)
+    {
+        await DisposeHubAsync();
+        // Reload to pick up the final status + the now-persisted console (canonical copy).
+        await LoadAsync();
+    }
+
+    private static string Duration(PipelineRunDto r)
+        => r.CompletedAtUtc is { } done ? $"{(done - r.StartedAtUtc).TotalSeconds:0.0}s" : "—";
+
+    // Jenkins step results ("Success"/"Failure"/…) → the RunStatusChip's status vocabulary.
+    private static string NormalizeStep(string result) => result switch
+    {
+        "Success" => "Succeeded",
+        "Failure" => "Failed",
+        _ => result,
+    };
+
+    public async ValueTask DisposeAsync() => await DisposeHubAsync();
+
+    private async Task DisposeHubAsync()
+    {
+        if (_hub is not null)
+        {
+            try { await _hub.DisposeAsync(); } catch { /* teardown */ }
+            _hub = null;
+        }
+    }
+
+    private sealed record StepChangedMsg(Guid RunId, string JobName, string Status, int? BuildNumber, string? Reason);
+    private sealed record ConsoleMsg(Guid RunId, string JobName, int BuildNumber, string Text);
+    private sealed record SettledMsg(Guid RunId, string Status, string? FailureReason);
+}

@@ -1,0 +1,144 @@
+@page "/deployment/runs/{Id:guid}"
+@inject DeploymentApiClient Api
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<PageTitle>Deployment — Run</PageTitle>
+
+@if (_error is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
+}
+
+@if (_loading && _run is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_run is null)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="my-2">Deployment run not found.</MudAlert>
+}
+else
+{
+    var r = _run;
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" OnClick="@(() => Nav.NavigateTo("/deployment/runs"))" />
+        <MudText Typo="Typo.h4">@r.ServiceName <span style="font-family: ui-monospace, monospace; font-size: 0.7em;">@r.Version</span></MudText>
+        <RunStatusChip Status="@r.Status.ToString()" />
+        @if (r.RolloutCanaryWeight is { } w)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">canary @w%</MudChip>
+        }
+        <MudSpacer />
+        @if (r.Status == DeploymentRunStatusDto.AwaitingPromotion)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Upgrade"
+                       OnClick="PromoteAsync" Disabled="_busy">Promote</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Warning" StartIcon="@Icons.Material.Filled.Undo"
+                       OnClick="RollbackAsync" Disabled="_busy">Rollback</MudButton>
+        }
+    </MudStack>
+
+    @if (r.FailureReason is { Length: > 0 } reason)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">@reason</MudAlert>
+    }
+
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-2">Target</MudText>
+                <DetailRow Label="Environment" Value="@r.GcpProject" />
+                <DetailRow Label="Region" Value="@r.Region" />
+                <DetailRow Label="Cloud Run" Value="@(r.CloudRunServiceName ?? "—")" Mono="true" />
+                <DetailRow Label="Revision" Value="@(r.CloudRunRevision ?? "—")" Mono="true" />
+                <DetailRow Label="Kubernetes" Value="@(r.KubernetesResource ?? "—")" Mono="true" />
+                <DetailRow Label="Image" Value="@(r.RemoteImageRef ?? "—")" Mono="true" />
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-2">Run</MudText>
+                <DetailRow Label="Trigger" Value="@r.Trigger.ToString()" />
+                <DetailRow Label="Triggered by" Value="@r.TriggeredBy" />
+                <DetailRow Label="Source ref" Value="@r.SourceRef" Mono="true" />
+                @if (r.RolloutGreenSlot is { Length: > 0 } || r.RolloutActiveSlot is { Length: > 0 })
+                {
+                    <DetailRow Label="Active / green slot" Value="@($"{r.RolloutActiveSlot ?? "—"} / {r.RolloutGreenSlot ?? "—"}")" />
+                }
+                <DetailRow Label="Decision by" Value="@(r.DecisionBy ?? "—")" />
+                <DetailRow Label="Requested" Value="@r.RequestedAtUtc.LocalDateTime.ToString("g")" />
+                <DetailRow Label="Duration" Value="@Duration(r)" />
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudText Typo="Typo.h6" Class="mt-6 mb-2">Steps</MudText>
+    @if (r.Steps.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No steps recorded.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Style="overflow-x: auto;">
+            <thead>
+                <tr><th style="width:3rem;">#</th><th>Step</th><th style="width:10rem;">Status</th><th>Detail</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var s in r.Steps.OrderBy(s => s.Order))
+                {
+                    <tr>
+                        <td>@s.Order</td>
+                        <td style="font-family: ui-monospace, monospace;">@s.Kind</td>
+                        <td><RunStatusChip Status="@s.Status" /></td>
+                        <td>@(s.Detail ?? (s.FailureKind is { Length: > 0 } fk ? fk : "—"))</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private DeploymentRunDto? _run;
+    private bool _loading;
+    private bool _busy;
+    private string? _error;
+    private Guid _loadedId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId == Id) return;
+        _loadedId = Id;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true; _error = null; StateHasChanged();
+        try { _run = await Api.GetRunAsync(Id); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private async Task PromoteAsync()
+    {
+        _busy = true;
+        try { await Api.PromoteRunAsync(Id); Snackbar.Add("Promotion requested.", Severity.Success); await LoadAsync(); }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private async Task RollbackAsync()
+    {
+        _busy = true;
+        try { await Api.RollbackRunAsync(Id); Snackbar.Add("Rollback requested.", Severity.Warning); await LoadAsync(); }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private static string Duration(DeploymentRunDto r)
+        => r.CompletedAtUtc is { } done ? $"{(done - r.RequestedAtUtc).TotalSeconds:0.0}s" : "—";
+}

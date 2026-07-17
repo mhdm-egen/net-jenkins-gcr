@@ -1,5 +1,6 @@
 @page "/deployment/runs"
 @inject DeploymentApiClient Api
+@inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject RunEventsService Events
 @implements IDisposable
@@ -46,6 +47,7 @@
                         <MudTooltip Text="@(context.RolloutCanaryWeight is not null ? "Promote — ramp the canary to the next weight, or cut over to 100% at the last step" : "Promote — cut traffic to the green slot")"><MudIconButton Icon="@Icons.Material.Filled.Check" Color="Color.Success" Size="Size.Small" Disabled="_busy" OnClick="@(() => PromoteAsync(context))" /></MudTooltip>
                         <MudTooltip Text="Roll back — delete the new slot, keep the live one"><MudIconButton Icon="@Icons.Material.Filled.Undo" Color="Color.Error" Size="Size.Small" Disabled="_busy" OnClick="@(() => RollbackAsync(context))" /></MudTooltip>
                     }
+                    <MudTooltip Text="Details"><MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small" Href="@($"/deployment/runs/{context.Id}")" /></MudTooltip>
                 </MudTd>
             </RowTemplate>
         </MudTable>

@@ -77,6 +77,13 @@ public sealed class DeploymentApiClient
         var url = "api/deployment/runs" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
         return await _http.GetFromJsonAsync<List<DeploymentRunDto>>(url, Json, ct).ConfigureAwait(false) ?? new();
     }
+    public async Task<DeploymentRunDto?> GetRunAsync(Guid id, CancellationToken ct = default)
+    {
+        using var r = await _http.GetAsync($"api/deployment/runs/{id}", ct).ConfigureAwait(false);
+        if (r.StatusCode == HttpStatusCode.NotFound) return null;
+        await EnsureOk(r, ct).ConfigureAwait(false);
+        return await r.Content.ReadFromJsonAsync<DeploymentRunDto>(Json, ct).ConfigureAwait(false);
+    }
     public async Task<IReadOnlyList<KnownContainerDto>> ListKnownContainersAsync(CancellationToken ct = default)
         => await _http.GetFromJsonAsync<List<KnownContainerDto>>("api/deployment/containers", Json, ct).ConfigureAwait(false) ?? new();
     public Task<KnownContainerDto> AddKnownContainerAsync(AddKnownContainerRequest body, CancellationToken ct = default)
@@ -120,6 +127,13 @@ public sealed class DeploymentApiClient
     {
         var url = applicationId is { } a ? $"api/deployment/aspire-runs?applicationId={a}" : "api/deployment/aspire-runs";
         return await _http.GetFromJsonAsync<List<AspireApplicationRunDto>>(url, Json, ct).ConfigureAwait(false) ?? new();
+    }
+    public async Task<AspireApplicationRunDto?> GetAspireRunByIdAsync(Guid id, CancellationToken ct = default)
+    {
+        using var r = await _http.GetAsync($"api/deployment/aspire-runs/{id}", ct).ConfigureAwait(false);
+        if (r.StatusCode == HttpStatusCode.NotFound) return null;
+        await EnsureOk(r, ct).ConfigureAwait(false);
+        return await r.Content.ReadFromJsonAsync<AspireApplicationRunDto>(Json, ct).ConfigureAwait(false);
     }
 
     // ---- Kubernetes (read-only cluster browsing) ----

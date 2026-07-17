@@ -20,6 +20,7 @@ public sealed class AspireApplicationRunCompletedNotifier
             "Succeeded",
             $"Deployed {e.ApplicationName} to Kubernetes",
             e.Namespace,
+            "aspire",
             ct);
 
     public Task Handle(AspireApplicationRunFailed e, IDeploymentRunNotifier notifier, CancellationToken ct)
@@ -28,5 +29,6 @@ public sealed class AspireApplicationRunCompletedNotifier
             "Failed",
             $"Aspire deploy failed — {e.ApplicationName}",
             e.Reason,
+            "aspire",
             ct);
 }

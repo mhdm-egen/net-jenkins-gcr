@@ -71,6 +71,7 @@ public sealed class PipelineRunExecutorService : BackgroundService
         var sp = scope.ServiceProvider;
         var runs = sp.GetRequiredService<IPipelineRunStore>();
         var uow = sp.GetRequiredService<IUnitOfWork>();
+        var consoleStore = sp.GetRequiredService<IPipelineRunConsoleStore>();
 
         var run = await runs.GetByIdAsync(runId, ct).ConfigureAwait(false);
         if (run is null) return;
@@ -84,14 +85,14 @@ public sealed class PipelineRunExecutorService : BackgroundService
             var orchestrator = sp.GetService<IPipelineOrchestrator>();
             if (orchestrator is null)
             {
-                await SettleAsync(run, uow, () => run.Fail("Jenkins is not configured (set Jenkins:Url + Jenkins:ApiToken).", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
+                await SettleAsync(run, uow, consoleStore, () => run.Fail("Jenkins is not configured (set Jenkins:Url + Jenkins:ApiToken).", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
                 return;
             }
 
             var pipeline = await sp.GetRequiredService<IPipelineStore>().GetByIdAsync(run.PipelineId, ct).ConfigureAwait(false);
             if (pipeline is null)
             {
-                await SettleAsync(run, uow, () => run.Fail("Pipeline definition not found.", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
+                await SettleAsync(run, uow, consoleStore, () => run.Fail("Pipeline definition not found.", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
                 return;
             }
 
@@ -100,7 +101,11 @@ public sealed class PipelineRunExecutorService : BackgroundService
                 : null;
 
             var steps = BuildSteps(pipeline, repo, run.Branch);
-            var progress = new Progress<PipelineEvent>(evt => OnEvent(runId, evt));
+            // Report events SYNCHRONOUSLY. A BackgroundService has no SynchronizationContext, so Progress<T> would
+            // marshal callbacks to the thread pool — leaving a race where the final console chunk lands AFTER
+            // RunAsync returns and SettleAsync has already snapshotted the buffer, dropping it from the persisted
+            // copy. Inline dispatch guarantees the buffer is fully populated by the time RunAsync completes.
+            var progress = new SyncProgress<PipelineEvent>(evt => OnEvent(runId, evt));
 
             Jenkins.Orchestrator.PipelineRun result;
             try
@@ -114,12 +119,12 @@ public sealed class PipelineRunExecutorService : BackgroundService
             catch (OperationCanceledException)
             {
                 // Per-run cancel requested via the cancel endpoint.
-                await SettleAsync(run, uow, () => run.Cancel(_clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
+                await SettleAsync(run, uow, consoleStore, () => run.Cancel(_clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
                 return;
             }
             catch (Exception ex)
             {
-                await SettleAsync(run, uow, () => run.Fail($"Executor error: {ex.Message}", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
+                await SettleAsync(run, uow, consoleStore, () => run.Fail($"Executor error: {ex.Message}", _clock.GetUtcNow()), runId, ct).ConfigureAwait(false);
                 return;
             }
 
@@ -132,7 +137,7 @@ public sealed class PipelineRunExecutorService : BackgroundService
                     run.RecordStepSucceeded(order, s.JobName, buildNumber, now);
             }
 
-            await SettleAsync(run, uow,
+            await SettleAsync(run, uow, consoleStore,
                 () => { if (result.Success) run.Succeed(now); else run.Fail(result.FailureReason ?? "Pipeline failed.", now); },
                 runId, ct).ConfigureAwait(false);
         }
@@ -142,13 +147,39 @@ public sealed class PipelineRunExecutorService : BackgroundService
         }
     }
 
-    private async Task SettleAsync(Jenkins.Domain.PipelineRuns.PipelineRun run, IUnitOfWork uow, Action settle, Guid runId, CancellationToken ct)
+    private async Task SettleAsync(Jenkins.Domain.PipelineRuns.PipelineRun run, IUnitOfWork uow,
+        IPipelineRunConsoleStore consoleStore, Action settle, Guid runId, CancellationToken ct)
     {
         settle();
+
+        // Snapshot the live console buffer into persisted rows BEFORE it is cleared, so a completed run's logs stay
+        // readable via REST. One row per job; build numbers joined from the run's recorded steps (default 0, matching
+        // the hub's replay). Tracked on the same scoped DbContext, so it flushes in the settle transaction below.
+        var buildByJob = run.Steps
+            .GroupBy(s => s.JobName, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Last().BuildNumber, StringComparer.Ordinal);
+        var now = _clock.GetUtcNow();
+        var logs = _console.Snapshot(runId)
+            .Select(seg => new Jenkins.Domain.PipelineRuns.PipelineRunConsoleLog(
+                Guid.NewGuid(), runId, seg.JobName,
+                buildByJob.TryGetValue(seg.JobName, out var bn) ? bn : 0,
+                seg.Text, now))
+            .ToList();
+        if (logs.Count > 0) consoleStore.AddRange(logs);
+
         await uow.SaveChangesAsync(ct).ConfigureAwait(false); // dispatches domain events → translators → integration events
         await _notifier.RunSettledAsync(runId, run.Status.ToString(), run.FailureReason, ct).ConfigureAwait(false); // per-run group (live viewer)
         await _notifier.RunCompletedAsync(runId, run.PipelineName, run.Status.ToString(), run.FailureReason, ct).ConfigureAwait(false); // all clients (app-wide toast)
         _console.Clear(runId);
+    }
+
+    /// <summary>Reports progress on the caller's thread (unlike <see cref="Progress{T}"/>, which hops to the thread
+    /// pool when there's no <see cref="SynchronizationContext"/>) so console events are buffered before RunAsync returns.</summary>
+    private sealed class SyncProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _handler;
+        public SyncProgress(Action<T> handler) => _handler = handler;
+        public void Report(T value) => _handler(value);
     }
 
     private void OnEvent(Guid runId, PipelineEvent evt)
