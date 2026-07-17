@@ -67,6 +67,9 @@ public static class DependencyInjection
         // Git PR-lifecycle webhook (preview build/teardown ingress).
         services.AddScoped<Features.Webhooks.HandleGitWebhookHandler>();
 
+        // Git PR-lifecycle webhook (preview build/teardown ingress).
+        services.AddScoped<Features.Webhooks.HandleGitWebhookHandler>();
+
         return services;
     }
 }
