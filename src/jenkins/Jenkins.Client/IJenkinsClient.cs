@@ -84,6 +84,12 @@ public interface IJenkinsClient
 
     Task StopBuildAsync(string jobName, int buildNumber, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Permanently deletes a build record on the Jenkins server (<c>POST .../{n}/doDelete</c>). Idempotent —
+    /// a missing build (404) is treated as success. Requires the token to have Run/Delete permission.
+    /// </summary>
+    Task DeleteBuildAsync(string jobName, int buildNumber, CancellationToken cancellationToken = default);
+
     // --- Outputs ---
 
     Task<string> GetConsoleLogAsync(string jobName, int buildNumber, CancellationToken cancellationToken = default);

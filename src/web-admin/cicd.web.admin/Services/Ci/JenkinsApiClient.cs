@@ -6,6 +6,8 @@ using Jenkins.Contracts.Handoffs;
 using Jenkins.Contracts.Pipelines;
 using Jenkins.Contracts.PipelineRuns;
 using Jenkins.Contracts.Repositories;
+using Jenkins.Contracts.Reset;
+using Jenkins.Contracts.Seed;
 
 namespace Cicd.Web.Admin.Services.Ci;
 
@@ -189,6 +191,19 @@ public sealed class JenkinsApiClient
     }
 
     private sealed record StartRunResponse(Guid Id);
+
+    // ---- Admin: CI-history reset ----
+
+    /// <summary>Wipes selected CI history (build mirror / pipeline runs) and optionally prunes builds on the
+    /// Jenkins server. Can be slow (server prune loops per build) — the client timeout is raised accordingly.</summary>
+    public Task<CiResetResultDto> ResetCiHistoryAsync(ResetCiRequest body, CancellationToken ct = default)
+        => PostJsonAsync<ResetCiRequest, CiResetResultDto>("api/jenkins/ci/reset", body, ct);
+
+    // ---- Admin: demo-config seed ----
+
+    /// <summary>Registers the demo tracked repositories (and, for Cloud Run, the container→component mapping). Additive + idempotent.</summary>
+    public Task<SeedCiResultDto> SeedDemoAsync(SeedDemoCiRequest body, CancellationToken ct = default)
+        => PostJsonAsync<SeedDemoCiRequest, SeedCiResultDto>("api/jenkins/ci/seed-demo", body, ct);
 
     // ---- Plumbing ----
 

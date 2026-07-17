@@ -14,6 +14,16 @@ public interface INexusClient
     /// <summary>Repository name being enumerated (echoes <see cref="NexusOptions.DockerHostedRepository"/>).</summary>
     string DockerRepositoryName { get; }
 
+    /// <summary>Raw SBOM repository name (echoes <see cref="NexusOptions.SbomRepository"/>).</summary>
+    string SbomRepositoryName { get; }
+
+    /// <summary>
+    /// Purges an entire repository: deletes every component, then sweeps any leftover assets (shared docker
+    /// blobs, etc.). Returns the component count deleted; reports progress via <paramref name="log"/>. Does NOT
+    /// compact the blob store — call <see cref="TriggerCompactBlobStoreTasksAsync"/> once after purging all repos.
+    /// </summary>
+    Task<int> PurgeRepositoryAsync(string repository, IProgress<string>? log = null, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Returns every package version in the configured nuget-hosted repository.
     /// Walks Nexus's continuation-token paging until exhausted.

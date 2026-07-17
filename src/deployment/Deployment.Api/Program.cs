@@ -33,6 +33,12 @@ builder.Services.AddDeploymentInfrastructure(builder.Configuration);
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IDeploymentRunNotifier, DeploymentRunNotifier>();
 
+// Admin "danger zone" data reset (bulk history/data deletes; keeps config).
+builder.Services.AddScoped<Deployment.Api.Endpoints.ResetDeploymentHandler>();
+
+// Admin "demo setup" seed (installs curated demo config; additive + idempotent).
+builder.Services.AddScoped<Deployment.Api.Endpoints.SeedDemoHandler>();
+
 // Deploy notifications (Slack / email) — opt-in via Deployment:Notifications. The in-process
 // notification handlers fan out through INotificationDispatcher on the deploy domain events.
 builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Deployment:Notifications"));
@@ -140,6 +146,8 @@ app.MapAspireAppEndpoints();
 app.MapAspireRunEndpoints();
 app.MapPreviewEndpoints();
 app.MapK8sEndpoints();
+app.MapResetEndpoints();
+app.MapSeedEndpoints();
 app.MapHub<DeploymentRunHub>("/hubs/deployment-runs");
 
 app.Run();

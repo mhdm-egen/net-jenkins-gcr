@@ -1,0 +1,145 @@
+@page "/settings/demo"
+@inject DeploymentApiClient Api
+@inject JenkinsApiClient Jenkins
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Settings — Demo setup</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Href="/settings" />
+    <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Primary" />
+    <MudText Typo="Typo.h4">Demo setup — seed canned config</MudText>
+</MudStack>
+
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    Installs curated <b>demo configuration</b> (tracked repos, services, environments, mappings, Aspire apps)
+    so you can trigger real builds and deploys during a demo. This is <b>additive and idempotent</b> — anything
+    already present is skipped, and no runs are created. All scenarios are selected by default.
+</MudAlert>
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Demo scenarios</MudText>
+        <MudSpacer />
+        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => SetAll(true))" Disabled="_busy">Select all</MudButton>
+        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => SetAll(false))" Disabled="_busy">Clear</MudButton>
+    </MudStack>
+
+    @foreach (var t in _targets)
+    {
+        <div class="d-flex align-center">
+            <MudCheckBox T="bool" Value="_selected[t.Key]" ValueChanged="@(v => _selected[t.Key] = v)"
+                         Color="Color.Primary" Disabled="_busy" Dense="true" />
+            <div>
+                <MudText Typo="Typo.body2">@t.Label</MudText>
+                <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">@t.Caption</MudText>
+            </div>
+        </div>
+    }
+
+    <MudButton Class="mt-4" Color="Color.Primary" Variant="Variant.Filled"
+               StartIcon="@Icons.Material.Filled.AutoAwesome"
+               OnClick="RunAsync" Disabled="@(_busy || SelectedCount == 0)">
+        @(_busy ? "Installing…" : $"Install selected ({SelectedCount})")
+    </MudButton>
+</MudPaper>
+
+@if (_log.Count > 0)
+{
+    <MudPaper Elevation="1" Class="pa-4">
+        <DeleteLog Lines="_log" Label="Install progress" DisplayLines="14" />
+    </MudPaper>
+}
+
+@code {
+    private enum Key { AspireAutoDeploy, BlueGreenK8s, CloudRun, K8sAdmin }
+
+    private sealed record Target(Key Key, string Label, string Caption);
+
+    private static readonly Target[] _targets =
+    [
+        new(Key.AspireAutoDeploy, "Aspire → auto-deploy",       "sample-aspire repo + 'Sample App' (sourceKey sampleapp, auto-deploy) → local-k8s"),
+        new(Key.BlueGreenK8s,     "Blue-green / canary K8s",     "bgweb (blue-green) on bg-test + cweb (canary, manual) on canary-test"),
+        new(Key.CloudRun,         "Container / Cloud Run",       "Web App repo + web-app-host service → Cloud Run 'dev' (egen-gcr / us-west1)"),
+        new(Key.K8sAdmin,         "k8s admin",                   "apiservice-k8s → local-k8s (Direct); the K8s screens read the live cluster"),
+    ];
+
+    private readonly Dictionary<Key, bool> _selected = Enum.GetValues<Key>().ToDictionary(k => k, _ => true);
+    private readonly List<string> _log = new();
+    private bool _busy;
+
+    private int SelectedCount => _selected.Count(kv => kv.Value);
+    private bool Sel(Key k) => _selected[k];
+
+    private void SetAll(bool value)
+    {
+        foreach (var k in _selected.Keys.ToList()) _selected[k] = value;
+    }
+
+    private void Log(string message) => _log.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+
+    private async Task RunAsync()
+    {
+        var labels = _targets.Where(t => Sel(t.Key)).Select(t => t.Label).ToList();
+        if (labels.Count == 0) return;
+
+        var ok = await DialogService.ShowMessageBoxAsync(
+            title: "Install demo config?",
+            markupMessage: new MarkupString(
+                $"Seed the config for <strong>{labels.Count}</strong> scenario(s): {System.Net.WebUtility.HtmlEncode(string.Join(", ", labels))}." +
+                " This is additive and idempotent — existing items are skipped and no runs are created."),
+            yesText: "Install",
+            noText: null!,
+            cancelText: "Cancel");
+        if (ok != true) return;
+
+        _busy = true; _log.Clear(); Log("Starting demo seed…"); StateHasChanged();
+        try
+        {
+            // --- Deployment config first (returns the Cloud Run service coords for the CI component mapping) ---
+            Guid? cloudRunServiceId = null;
+            string? cloudRunServiceName = null;
+            string? cloudRunContainer = null;
+
+            await Safe("deployment config", async () =>
+            {
+                var r = await Api.SeedDemoAsync(new global::Deployment.Contracts.Seed.SeedDemoRequest(
+                    Sel(Key.AspireAutoDeploy), Sel(Key.BlueGreenK8s), Sel(Key.CloudRun), Sel(Key.K8sAdmin)));
+                foreach (var line in r.Log) Log(line);
+                Log($"deployment: {r.Created} created, {r.Skipped} skipped");
+                cloudRunServiceId = r.CloudRunServiceId;
+                cloudRunServiceName = r.CloudRunServiceName;
+                cloudRunContainer = r.CloudRunContainerName;
+            });
+
+            // --- CI config (demo repos + container→component mapping) ---
+            if (Sel(Key.AspireAutoDeploy) || Sel(Key.CloudRun))
+            {
+                await Safe("CI config", async () =>
+                {
+                    var r = await Jenkins.SeedDemoAsync(new global::Jenkins.Contracts.Seed.SeedDemoCiRequest(
+                        AspireRepo: Sel(Key.AspireAutoDeploy),
+                        CloudRunRepo: Sel(Key.CloudRun),
+                        DeployableUnitId: cloudRunServiceId,
+                        DeployableUnitName: cloudRunServiceName,
+                        ContainerName: cloudRunContainer));
+                    foreach (var line in r.Log) Log(line);
+                    Log($"ci: {r.Created} created, {r.Skipped} skipped");
+                });
+            }
+
+            Log("Done.");
+            Snackbar.Add("Demo config installed.", Severity.Success);
+        }
+        finally { _busy = false; StateHasChanged(); }
+    }
+
+    // Runs a step, logging success/failure; never throws (best-effort — one failing call doesn't abort the rest).
+    private async Task Safe(string what, Func<Task> action)
+    {
+        try { await action(); }
+        catch (Exception ex) { Log($"ERROR — {what}: {ex.Message}"); }
+        StateHasChanged();
+    }
+}

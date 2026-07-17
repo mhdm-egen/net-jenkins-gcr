@@ -42,6 +42,12 @@ builder.Services.AddJenkinsPipelineRuns(builder.Configuration);
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IPipelineRunNotifier, PipelineRunNotifier>();
 
+// Admin "danger zone" CI-history reset (mirror wipe + optional Jenkins-server build prune).
+builder.Services.AddScoped<Jenkins.Api.Endpoints.ResetCiHistoryHandler>();
+
+// Admin "demo setup" seed (registers demo repos + component mapping; additive + idempotent).
+builder.Services.AddScoped<Jenkins.Api.Endpoints.SeedCiHandler>();
+
 // Wolverine: CQRS dispatcher + in-process bus. Handlers in Features/* are discovered
 // by convention from the Application + Infrastructure assemblies. EF-transaction
 // enrolment + a durable outbox are wired in when handlers land.
@@ -127,6 +133,8 @@ app.MapHandoffEndpoints();
 app.MapPipelineEndpoints();
 app.MapPipelineRunEndpoints();
 app.MapWebhookEndpoints();
+app.MapCiResetEndpoints();
+app.MapCiSeedEndpoints();
 
 // Live pipeline-run stream (server-to-server SignalR from web-admin; no CORS needed).
 app.MapHub<PipelineRunHub>("/hubs/pipeline-runs");

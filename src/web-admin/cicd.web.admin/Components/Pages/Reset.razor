@@ -1,0 +1,166 @@
+@page "/settings/reset"
+@using Cicd.Web.Admin.Services.Nexus
+@inject DeploymentApiClient Api
+@inject JenkinsApiClient Jenkins
+@inject INexusClient Nexus
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Settings — Danger zone</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Href="/settings" />
+    <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Error" />
+    <MudText Typo="Typo.h4">Danger zone — data reset</MudText>
+</MudStack>
+
+<MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
+    Wipes the selected <b>data / history</b> and cannot be undone. <b>Configuration is always kept</b>:
+    pipelines, source repositories, deployment services / environments / mappings, and Aspire app definitions.
+    All targets are selected by default — untick anything you want to spare.
+</MudAlert>
+
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h6">Reset targets</MudText>
+        <MudSpacer />
+        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => SetAll(true))" Disabled="_busy">Select all</MudButton>
+        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => SetAll(false))" Disabled="_busy">Clear</MudButton>
+    </MudStack>
+
+    @foreach (var group in _targets.GroupBy(t => t.Group))
+    {
+        <MudText Typo="Typo.subtitle2" Class="mt-3" Style="color: var(--mud-palette-text-secondary);">@group.Key</MudText>
+        @foreach (var t in group)
+        {
+            var disabled = _busy || (t.NexusRepo is not null && !Nexus.IsConfigured);
+            <div class="d-flex align-center">
+                <MudCheckBox T="bool" Value="_selected[t.Key]" ValueChanged="@(v => _selected[t.Key] = v)"
+                             Color="Color.Error" Disabled="disabled" Dense="true" />
+                <div>
+                    <MudText Typo="Typo.body2">@t.Label @if (disabled && t.NexusRepo is not null) { <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">(Nexus not configured)</MudText> }</MudText>
+                    <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">@t.Caption</MudText>
+                </div>
+            </div>
+        }
+    }
+
+    <MudButton Class="mt-4" Color="Color.Error" Variant="Variant.Filled"
+               StartIcon="@Icons.Material.Filled.DeleteForever"
+               OnClick="RunAsync" Disabled="@(_busy || SelectedCount == 0)">
+        @(_busy ? "Resetting…" : $"Reset selected ({SelectedCount})")
+    </MudButton>
+</MudPaper>
+
+@if (_log.Count > 0)
+{
+    <MudPaper Elevation="1" Class="pa-4">
+        <DeleteLog Lines="_log" Label="Reset progress" DisplayLines="14" />
+    </MudPaper>
+}
+
+@code {
+    private enum Key { NuGet, Docker, Sbom, DeployRuns, AspireRuns, Previews, Containers, BuildHistory, PipelineRuns, PruneServer }
+
+    private sealed record Target(Key Key, string Group, string Label, string Caption, string? NexusRepo = null);
+
+    private static readonly Target[] _targets =
+    [
+        new(Key.NuGet,        "Nexus",      "NuGet packages",             "All package versions in nuget-hosted", NexusRepo: "nuget"),
+        new(Key.Docker,       "Nexus",      "Docker images",              "All image tags in docker-private (+ blob-store compact)", NexusRepo: "docker"),
+        new(Key.Sbom,         "Nexus",      "SBOM artifacts",             "All artifacts in the sboms repo", NexusRepo: "sboms"),
+        new(Key.DeployRuns,   "Deployment", "Deployment runs",            "Per-service Cloud Run / K8s deployment run history"),
+        new(Key.AspireRuns,   "Deployment", "Aspire runs",                "Aspire-app deployment run history + logs"),
+        new(Key.Previews,     "Deployment", "Preview environments",       "Tears down each preview's k8s namespace, then deletes the rows"),
+        new(Key.Containers,   "Deployment", "Container catalog",          "The derived known-container inventory"),
+        new(Key.BuildHistory, "Jenkins",    "Build history (mirror)",     "Builds + artifacts + publications + release handoffs"),
+        new(Key.PipelineRuns, "Jenkins",    "Pipeline runs",              "Server-side pipeline runs + persisted console"),
+        new(Key.PruneServer,  "Jenkins",    "Prune Jenkins server builds","Deletes builds on the real Jenkins jobs so the mirror wipe sticks"),
+    ];
+
+    private const string KeepNote =
+        "Kept: pipelines, source repositories, deployment services / environments / mappings, and Aspire app definitions.";
+
+    private readonly Dictionary<Key, bool> _selected = Enum.GetValues<Key>().ToDictionary(k => k, _ => true);
+    private readonly List<string> _log = new();
+    private bool _busy;
+
+    private int SelectedCount => _selected.Count(kv => kv.Value && Enabled(kv.Key));
+    private bool Sel(Key k) => _selected[k] && Enabled(k);
+    // Nexus targets are only actionable when Nexus is configured; everything else is always enabled.
+    private bool Enabled(Key key) => Nexus.IsConfigured || _targets.First(t => t.Key == key).NexusRepo is null;
+
+    private void SetAll(bool value)
+    {
+        foreach (var k in _selected.Keys.ToList()) _selected[k] = value;
+    }
+
+    private void Log(string message) => _log.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+
+    private async Task RunAsync()
+    {
+        var labels = _targets.Where(t => Sel(t.Key)).Select(t => t.Label).ToList();
+        if (labels.Count == 0) return;
+
+        var parameters = new DialogParameters
+        {
+            ["Message"] = "Permanently wipe the selected data across Nexus, the deployment service, and the CI service?",
+            ["Targets"] = (IReadOnlyList<string>)labels,
+            ["KeepNote"] = KeepNote,
+            ["Phrase"] = "RESET",
+            ["ConfirmText"] = $"Reset {labels.Count} target(s)",
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmResetDialog>("Confirm reset", parameters);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled) return;
+
+        _busy = true; _log.Clear(); Log("Starting reset…"); StateHasChanged();
+        try
+        {
+            var progress = new Progress<string>(m => { Log(m); InvokeAsync(StateHasChanged); });
+
+            // --- Nexus (per repo) ---
+            var anyNexus = false;
+            if (Sel(Key.NuGet)) { anyNexus = true; await Safe("NuGet purge", () => Nexus.PurgeRepositoryAsync(Nexus.NuGetRepositoryName, progress)); }
+            if (Sel(Key.Docker)) { anyNexus = true; await Safe("Docker purge", () => Nexus.PurgeRepositoryAsync(Nexus.DockerRepositoryName, progress)); }
+            if (Sel(Key.Sbom)) { anyNexus = true; await Safe("SBOM purge", () => Nexus.PurgeRepositoryAsync(Nexus.SbomRepositoryName, progress)); }
+            if (anyNexus)
+                await Safe("compact blob store", async () => { var t = await Nexus.TriggerCompactBlobStoreTasksAsync(); Log($"blob-store compact: {t.Count} task(s) triggered"); });
+
+            // --- Deployment (one call, selected flags) ---
+            if (Sel(Key.DeployRuns) || Sel(Key.AspireRuns) || Sel(Key.Previews) || Sel(Key.Containers))
+            {
+                await Safe("deployment data", async () =>
+                {
+                    var r = await Api.ResetDataAsync(new global::Deployment.Contracts.Reset.ResetDeploymentRequest(
+                        Sel(Key.DeployRuns), Sel(Key.AspireRuns), Sel(Key.Previews), Sel(Key.Containers)));
+                    Log($"deployment: runs={r.Runs}, aspireRuns={r.AspireRuns}, previews={r.Previews}, containers={r.Containers}");
+                });
+            }
+
+            // --- Jenkins (one call, selected flags) ---
+            if (Sel(Key.BuildHistory) || Sel(Key.PipelineRuns) || Sel(Key.PruneServer))
+            {
+                await Safe("CI history", async () =>
+                {
+                    var r = await Jenkins.ResetCiHistoryAsync(new global::Jenkins.Contracts.Reset.ResetCiRequest(
+                        Sel(Key.BuildHistory), Sel(Key.PipelineRuns), Sel(Key.PruneServer)));
+                    Log($"jenkins: builds={r.Builds}, pipelineRuns={r.PipelineRuns}, serverBuildsDeleted={r.JenkinsBuildsDeleted}, jobsPruned={r.JobsPruned}");
+                });
+            }
+
+            Log("Done.");
+            Snackbar.Add("Reset complete.", Severity.Success);
+        }
+        finally { _busy = false; StateHasChanged(); }
+    }
+
+    // Runs a step, logging success/failure; never throws (best-effort — one failing target doesn't abort the rest).
+    private async Task Safe(string what, Func<Task> action)
+    {
+        try { await action(); }
+        catch (Exception ex) { Log($"ERROR — {what}: {ex.Message}"); }
+        StateHasChanged();
+    }
+    private Task Safe(string what, Func<Task<int>> action) => Safe(what, async () => { await action(); });
+}
