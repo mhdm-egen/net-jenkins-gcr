@@ -91,7 +91,8 @@ builder.Services.AddHttpClient<JenkinsApiClient>(c =>
     c.BaseAddress = new Uri(jenkinsApiOptions.BaseUrl.EndsWith('/')
         ? jenkinsApiOptions.BaseUrl
         : jenkinsApiOptions.BaseUrl + "/");
-    c.Timeout = TimeSpan.FromSeconds(30);
+    // 2 min: normal calls are fast, but the admin CI-history reset prunes builds on the Jenkins server in a loop.
+    c.Timeout = TimeSpan.FromSeconds(120);
 });
 
 // Deployment service (Deployment.Api) — typed HttpClient. BaseUrl from config (Deployment:Api:BaseUrl).

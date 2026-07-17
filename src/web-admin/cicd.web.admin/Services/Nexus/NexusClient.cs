@@ -22,6 +22,7 @@ public sealed class NexusClient : INexusClient, IDisposable
     public string? ConfigurationError { get; }
     public string NuGetRepositoryName  => _options.NuGetHostedRepository;
     public string DockerRepositoryName => _options.DockerHostedRepository;
+    public string SbomRepositoryName   => _options.SbomRepository;
 
     public NexusClient(NexusOptions options, ILogger<NexusClient> logger)
     {
@@ -98,6 +99,38 @@ public sealed class NexusClient : INexusClient, IDisposable
     {
         EnsureConfigured();
         return DeleteAssetByIdAsync(asset.Id, asset.Path, cancellationToken);
+    }
+
+    public async Task<int> PurgeRepositoryAsync(string repository, IProgress<string>? log = null, CancellationToken cancellationToken = default)
+    {
+        EnsureConfigured();
+
+        // Phase 1 — delete every component (a component = one nuget version / one docker tag / one raw artifact).
+        var components = await ListAllComponentsAsync(
+            repository,
+            c => (Id: c.Id ?? string.Empty, Label: $"{c.Name} {c.Version}".Trim()),
+            cancellationToken);
+        var deleted = 0;
+        foreach (var c in components)
+        {
+            if (string.IsNullOrEmpty(c.Id)) continue;
+            await DeleteComponentAsync(c.Id, c.Label, cancellationToken);
+            deleted++;
+        }
+        log?.Report($"{repository}: deleted {deleted} component(s)");
+
+        // Phase 2 — sweep leftover assets (docker manifests/blobs linger under the component layer).
+        var assets = await ListAllAssetsAsync(repository, ToNexusAsset, cancellationToken);
+        var swept = 0;
+        foreach (var a in assets)
+        {
+            if (string.IsNullOrEmpty(a.Id)) continue;
+            await DeleteAssetByIdAsync(a.Id, a.Path, cancellationToken);
+            swept++;
+        }
+        if (swept > 0) log?.Report($"{repository}: swept {swept} leftover asset(s)");
+
+        return deleted;
     }
 
     public async Task<IReadOnlyList<string>> TriggerCompactBlobStoreTasksAsync(CancellationToken cancellationToken = default)

@@ -320,6 +320,15 @@ public sealed class JenkinsClient : IJenkinsClient, IDisposable
         }
     }
 
+    public async Task DeleteBuildAsync(string jobName, int buildNumber, CancellationToken cancellationToken = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{JobPath(jobName)}/{buildNumber}/doDelete");
+        using var resp = await SendWithCrumbAsync(req, cancellationToken);
+        // Jenkins redirects (302) to the job page on success; a missing build is 404 (already gone).
+        if (resp.StatusCode == HttpStatusCode.NotFound) return;
+        if ((int)resp.StatusCode >= 400) resp.EnsureSuccessStatusCode();
+    }
+
     public async Task<string> GetConsoleLogAsync(string jobName, int buildNumber, CancellationToken cancellationToken = default)
     {
         using var resp = await _http.GetAsync($"{JobPath(jobName)}/{buildNumber}/consoleText", cancellationToken);

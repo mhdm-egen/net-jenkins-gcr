@@ -6,6 +6,7 @@ using Deployment.Contracts.Catalog;
 using Deployment.Contracts.Kubernetes;
 using Deployment.Contracts.Mappings;
 using Deployment.Contracts.Previews;
+using Deployment.Contracts.Reset;
 using Deployment.Contracts.Runs;
 
 namespace Cicd.Web.Admin.Services.Deployment;
@@ -135,6 +136,11 @@ public sealed class DeploymentApiClient
         await EnsureOk(r, ct).ConfigureAwait(false);
         return await r.Content.ReadFromJsonAsync<AspireApplicationRunDto>(Json, ct).ConfigureAwait(false);
     }
+
+    // ---- Admin: data reset ----
+    /// <summary>Bulk-deletes selected deployment data/history (runs, aspire runs, previews w/ k8s teardown, container catalog). Keeps config.</summary>
+    public Task<ResetDeploymentResultDto> ResetDataAsync(ResetDeploymentRequest body, CancellationToken ct = default)
+        => PostJsonAsync<ResetDeploymentRequest, ResetDeploymentResultDto>("api/deployment/reset", body, ct);
 
     // ---- Kubernetes (read-only cluster browsing) ----
     public async Task<IReadOnlyList<K8sContextDto>> ListK8sContextsAsync(CancellationToken ct = default)

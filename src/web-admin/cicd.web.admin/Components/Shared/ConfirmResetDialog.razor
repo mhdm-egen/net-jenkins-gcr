@@ -1,0 +1,45 @@
+@* Strong confirmation for destructive resets: shows the exact targets + a keep note, and requires typing a
+   phrase to enable the red confirm button. Stronger than ConfirmDeleteDialog (which is plain yes/no). *@
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body1" Class="mb-2">@Message</MudText>
+
+        @if (Targets.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2">Will be permanently wiped:</MudText>
+            <MudList T="string" Dense="true" Class="mb-2">
+                @foreach (var t in Targets)
+                {
+                    <MudListItem T="string" Icon="@Icons.Material.Filled.DeleteForever" IconColor="Color.Error">@t</MudListItem>
+                }
+            </MudList>
+        }
+
+        @if (KeepNote is { Length: > 0 })
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Variant="Variant.Outlined" Class="mb-3">@KeepNote</MudAlert>
+        }
+        <MudAlert Severity="Severity.Error" Dense="true" Class="mb-3">This cannot be undone.</MudAlert>
+
+        <MudTextField @bind-Value="_typed" Immediate="true" Label="@($"Type {Phrase} to confirm")" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled"
+                   Disabled="@(_typed != Phrase)"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(true)))">@ConfirmText</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+
+    [Parameter] public string Message { get; set; } = "Reset the selected data?";
+    [Parameter] public IReadOnlyList<string> Targets { get; set; } = Array.Empty<string>();
+    [Parameter] public string? KeepNote { get; set; }
+    [Parameter] public string Phrase { get; set; } = "RESET";
+    [Parameter] public string ConfirmText { get; set; } = "Reset";
+
+    private string _typed = "";
+}
