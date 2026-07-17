@@ -229,3 +229,51 @@ See the full, PR-referenced catalog in **[docs/features.md](docs/features.md)**.
 | [docs/architecture.md](docs/architecture.md) | Full architecture, components, and diagrams |
 | [docs/features.md](docs/features.md) | Complete feature catalog, by area, with PR references |
 | [docs/getting-started.md](docs/getting-started.md) | Run it locally — setup, secrets, layout, commands |
+
+---
+
+## Screenshots
+
+> Captured from a running instance ([`docs/screenshots/`](docs/screenshots/)) — chosen to show a
+> business outcome, not just a UI.
+
+### Single pane of glass — the Overview dashboard
+
+![Overview dashboard: deploy KPIs, deploy health, and live recent activity](docs/screenshots/overview.png)
+
+*Deploys/day, success rate, and change-failure at a glance — plus deploy health and a live activity
+feed, updated over SignalR.*
+
+### Delivery metrics (DORA)
+
+![Deployment metrics: success rate, change-failure rate, average duration, and a 14-day deploy chart](docs/screenshots/delivery-metrics.png)
+
+*The delivery numbers leadership reports on — success rate, change-failure rate, deployment frequency,
+average duration — computed from real run history and also exported over OpenTelemetry.*
+
+### Real CI — a pipeline run with a live console
+
+![Pipeline run: ordered Jenkins steps and the streaming stage console](docs/screenshots/pipeline-run.png)
+
+*Orchestrated Jenkins jobs — build → scan → publish, each commit-pinned — with the live, persisted
+stage console.*
+
+### Multi-target deploys — Kubernetes and Cloud Run
+
+![Deployment mappings across Kubernetes and Cloud Run with per-mapping auto-deploy](docs/screenshots/deployment-targets.png)
+
+*Service→environment mappings with typed steps (`KubernetesApply`, `GarPush → CloudRunDeploy`) and
+per-mapping auto-deploy — one model across clouds and clusters.*
+
+### Whole-app Aspire deploy — digest-pinned & traceable
+
+![Aspire app run detail: per-workload images pinned by digest, manifest fetched from Nexus](docs/screenshots/aspire-deploy.png)
+
+*A whole .NET Aspire app deployed to Kubernetes — every workload pinned to a digest-tagged image
+promoted from Nexus, with the manifest source and full deploy log. Every deploy traces to a commit.*
+
+### Operability — live cluster health
+
+![Kubernetes deployed-apps overview with live health and browsable URLs](docs/screenshots/kubernetes-apps.png)
+
+*Consolidated live health of deployed apps and previews — versions, sync state, and browsable URLs.*
