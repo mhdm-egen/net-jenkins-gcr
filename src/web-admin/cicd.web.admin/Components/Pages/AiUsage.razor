@@ -3,11 +3,11 @@
 @using Metering.Contracts.Usage
 @inject MeteringApiClient Metering
 
-<PageTitle>AI — Usage &amp; cost</PageTitle>
+<PageTitle>Usage &amp; cost</PageTitle>
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4" Spacing="3">
-    <MudText Typo="Typo.h4">AI usage &amp; cost</MudText>
-    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">token spend across AI features, from the metering ledger</MudText>
+    <MudText Typo="Typo.h4">Usage &amp; cost</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">AI token spend + build/deploy activity, from the metering ledger</MudText>
     <MudSpacer />
     <MudSelect T="string" Value="_window" ValueChanged="OnWindowChanged" Dense="true"
                Variant="Variant.Outlined" Margin="Margin.Dense" Label="Window" Style="max-width: 11rem;">
@@ -21,7 +21,7 @@
 @if (!Metering.IsConfigured)
 {
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-        The metering service isn't configured for this environment, so AI usage can't be shown here.
+        The metering service isn't configured for this environment, so usage can't be shown here.
     </MudAlert>
 }
 else
@@ -31,117 +31,160 @@ else
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
     }
 
-    @if (_loading && _summary is null)
+    @if (_loading && _summary is null && _meters is null)
     {
         <MudProgressLinear Indeterminate="true" />
     }
-    else if (_summary is { CallCount: 0 })
+    else
     {
-        <MudPaper Elevation="1" Class="pa-6">
-            <MudText Typo="Typo.body1">
-                No AI usage recorded in this window yet — use an AI feature (e.g. "Explain this CVE" on the SBOM page) to populate the ledger.
+        @if (_meters is not { Count: > 0 } && _summary is not { CallCount: > 0 })
+        {
+            <MudPaper Elevation="1" Class="pa-6">
+                <MudText Typo="Typo.body1">
+                    No usage recorded in this window yet — use an AI feature (e.g. "Explain this CVE"),
+                    or run a pipeline / deploy, to populate the ledger.
+                </MudText>
+            </MudPaper>
+        }
+
+        @* ---------- By meter (all meter kinds) ---------- *@
+        @if (_meters is { Count: > 0 })
+        {
+            <MudPaper Elevation="1" Class="pa-4 mb-4">
+                <MudText Typo="Typo.h6" Class="mb-2">By meter</MudText>
+                <MudSimpleTable Dense="true" Hover="true" Style="font-size:0.9em">
+                    <thead>
+                        <tr>
+                            <th>Meter</th>
+                            <th style="text-align:right">Records</th>
+                            <th style="text-align:right">Quantity</th>
+                            <th style="text-align:right">Cost</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var m in _meters!)
+                        {
+                            <tr>
+                                <td>@FriendlyMeter(m.Meter)</td>
+                                <td style="text-align:right">@m.Records</td>
+                                <td style="text-align:right">@Fmt((long)m.Quantity) @m.Unit</td>
+                                <td style="text-align:right">@m.CostUsd.ToString("C2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudText Typo="Typo.caption" Class="mt-2" Style="color:var(--mud-palette-text-secondary)">
+                    Build/deploy meters are counts (jobs, runs) — the events carry no duration, so they aren't costed.
+                </MudText>
+            </MudPaper>
+        }
+
+        @* ---------- AI token detail ---------- *@
+        @if (_summary is { CallCount: > 0 } s)
+        {
+            <MudText Typo="Typo.h6" Class="mb-2">AI tokens</MudText>
+            <MudGrid Class="mb-2">
+                <MudItem xs="6" md="3">
+                    <MudPaper Elevation="1" Class="pa-4">
+                        <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">AI calls</MudText>
+                        <MudText Typo="Typo.h4">@s.CallCount</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudPaper Elevation="1" Class="pa-4">
+                        <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">AI cost</MudText>
+                        <MudText Typo="Typo.h4">@s.CostUsd.ToString("C2")</MudText>
+                        <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">estimated</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudPaper Elevation="1" Class="pa-4">
+                        <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Tokens (in / out)</MudText>
+                        <MudText Typo="Typo.h5">@Fmt(s.InputTokens) / @Fmt(s.OutputTokens)</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudPaper Elevation="1" Class="pa-4">
+                        <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Cache hit rate</MudText>
+                        <MudText Typo="Typo.h4">@s.CacheHitRate.ToString("P0")</MudText>
+                        <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">of input tokens</MudText>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudPaper Elevation="1" Class="pa-4">
+                        <MudText Typo="Typo.subtitle1" Class="mb-2">By model</MudText>
+                        <MudSimpleTable Dense="true" Hover="true" Style="font-size:0.9em">
+                            <thead>
+                                <tr>
+                                    <th>Model</th>
+                                    <th style="text-align:right">In</th>
+                                    <th style="text-align:right">Out</th>
+                                    <th style="text-align:right">Cache rd</th>
+                                    <th style="text-align:right">Cost</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var m in s.ByModel)
+                                {
+                                    <tr>
+                                        <td style="font-family:ui-monospace,monospace">@m.Model</td>
+                                        <td style="text-align:right">@Fmt(m.InputTokens)</td>
+                                        <td style="text-align:right">@Fmt(m.OutputTokens)</td>
+                                        <td style="text-align:right">@Fmt(m.CacheReadTokens)</td>
+                                        <td style="text-align:right">@m.CostUsd.ToString("C2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudPaper Elevation="1" Class="pa-4">
+                        <MudText Typo="Typo.subtitle1" Class="mb-2">By feature</MudText>
+                        <MudSimpleTable Dense="true" Hover="true" Style="font-size:0.9em">
+                            <thead>
+                                <tr>
+                                    <th>Feature</th>
+                                    <th style="text-align:right">Calls</th>
+                                    <th style="text-align:right">In</th>
+                                    <th style="text-align:right">Out</th>
+                                    <th style="text-align:right">Cost</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var f in s.ByFeature)
+                                {
+                                    <tr>
+                                        <td>@f.Feature</td>
+                                        <td style="text-align:right">@f.CallCount</td>
+                                        <td style="text-align:right">@Fmt(f.InputTokens)</td>
+                                        <td style="text-align:right">@Fmt(f.OutputTokens)</td>
+                                        <td style="text-align:right">@f.CostUsd.ToString("C2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+        }
+
+        @if (_meters is { Count: > 0 } || _summary is { CallCount: > 0 })
+        {
+            <MudText Typo="Typo.caption" Class="mt-3" Style="color:var(--mud-palette-text-secondary)">
+                AI cost is an estimate from a versioned rate table (Opus 4.8 / Sonnet 5). Live meters
+                (<code>cicd.metering.tokens</code>, <code>cicd.metering.cost.usd</code>) are also exported via OpenTelemetry.
             </MudText>
-        </MudPaper>
-    }
-    else if (_summary is { } s)
-    {
-        <MudGrid Class="mb-2">
-            <MudItem xs="6" md="3">
-                <MudPaper Elevation="1" Class="pa-4">
-                    <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">AI calls</MudText>
-                    <MudText Typo="Typo.h4">@s.CallCount</MudText>
-                </MudPaper>
-            </MudItem>
-            <MudItem xs="6" md="3">
-                <MudPaper Elevation="1" Class="pa-4">
-                    <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Total cost</MudText>
-                    <MudText Typo="Typo.h4">@s.CostUsd.ToString("C2")</MudText>
-                    <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">estimated</MudText>
-                </MudPaper>
-            </MudItem>
-            <MudItem xs="6" md="3">
-                <MudPaper Elevation="1" Class="pa-4">
-                    <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Tokens (in / out)</MudText>
-                    <MudText Typo="Typo.h5">@Fmt(s.InputTokens) / @Fmt(s.OutputTokens)</MudText>
-                </MudPaper>
-            </MudItem>
-            <MudItem xs="6" md="3">
-                <MudPaper Elevation="1" Class="pa-4">
-                    <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Cache hit rate</MudText>
-                    <MudText Typo="Typo.h4">@s.CacheHitRate.ToString("P0")</MudText>
-                    <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">of input tokens</MudText>
-                </MudPaper>
-            </MudItem>
-        </MudGrid>
-
-        <MudGrid>
-            <MudItem xs="12" md="6">
-                <MudPaper Elevation="1" Class="pa-4">
-                    <MudText Typo="Typo.h6" Class="mb-2">By model</MudText>
-                    <MudSimpleTable Dense="true" Hover="true" Style="font-size:0.9em">
-                        <thead>
-                            <tr>
-                                <th>Model</th>
-                                <th style="text-align:right">In</th>
-                                <th style="text-align:right">Out</th>
-                                <th style="text-align:right">Cache rd</th>
-                                <th style="text-align:right">Cost</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var m in s.ByModel)
-                            {
-                                <tr>
-                                    <td style="font-family:ui-monospace,monospace">@m.Model</td>
-                                    <td style="text-align:right">@Fmt(m.InputTokens)</td>
-                                    <td style="text-align:right">@Fmt(m.OutputTokens)</td>
-                                    <td style="text-align:right">@Fmt(m.CacheReadTokens)</td>
-                                    <td style="text-align:right">@m.CostUsd.ToString("C2")</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </MudSimpleTable>
-                </MudPaper>
-            </MudItem>
-            <MudItem xs="12" md="6">
-                <MudPaper Elevation="1" Class="pa-4">
-                    <MudText Typo="Typo.h6" Class="mb-2">By feature</MudText>
-                    <MudSimpleTable Dense="true" Hover="true" Style="font-size:0.9em">
-                        <thead>
-                            <tr>
-                                <th>Feature</th>
-                                <th style="text-align:right">Calls</th>
-                                <th style="text-align:right">In</th>
-                                <th style="text-align:right">Out</th>
-                                <th style="text-align:right">Cost</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var f in s.ByFeature)
-                            {
-                                <tr>
-                                    <td>@f.Feature</td>
-                                    <td style="text-align:right">@f.CallCount</td>
-                                    <td style="text-align:right">@Fmt(f.InputTokens)</td>
-                                    <td style="text-align:right">@Fmt(f.OutputTokens)</td>
-                                    <td style="text-align:right">@f.CostUsd.ToString("C2")</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </MudSimpleTable>
-                </MudPaper>
-            </MudItem>
-        </MudGrid>
-
-        <MudText Typo="Typo.caption" Class="mt-3" Style="color:var(--mud-palette-text-secondary)">
-            Cost is an estimate from a versioned rate table (Opus 4.8 / Sonnet 5). Live token/cost meters
-            (<code>cicd.metering.tokens</code>, <code>cicd.metering.cost.usd</code>) are also exported via OpenTelemetry.
-        </MudText>
+        }
     }
 }
 
 @code {
     private UsageSummaryDto? _summary;
+    private IReadOnlyList<MeterTotalDto>? _meters;
     private bool _loading;
     private string? _error;
     private string _window = "30";
@@ -168,6 +211,7 @@ else
                 "30" => DateTimeOffset.UtcNow.AddDays(-30),
                 _    => null,
             };
+            _meters = await Metering.GetMeterTotalsAsync(from, null);
             _summary = await Metering.GetUsageSummaryAsync(from, null);
         }
         catch (Exception ex)
@@ -180,6 +224,18 @@ else
             StateHasChanged();
         }
     }
+
+    private static string FriendlyMeter(string meter) => meter switch
+    {
+        "AiTokens"      => "AI tokens",
+        "BuildCompute"  => "Build activity",
+        "DeployRun"     => "Deploy runs",
+        "NexusStorage"  => "Nexus storage",
+        "DockerStorage" => "Docker storage",
+        "CloudRunCompute" => "Cloud Run",
+        "K8sResource"   => "Kubernetes",
+        _               => meter,
+    };
 
     private static string Fmt(long n) => n switch
     {
