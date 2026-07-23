@@ -13,6 +13,7 @@
     <ProjectReference Include="..\..\jenkins\Jenkins.Api\Jenkins.Api.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\..\deployment\Deployment.Api\Deployment.Api.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\..\web-admin\cicd.web.admin\cicd.web.admin.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\..\metering\Metering.Api\Metering.Api.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\Cicd.Aspire.ServiceDefaults\Cicd.Aspire.ServiceDefaults.csproj" />
   </ItemGroup>
 

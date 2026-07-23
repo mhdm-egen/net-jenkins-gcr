@@ -5,6 +5,7 @@ using Cicd.Web.Admin.Services;
 using Cicd.Web.Admin.Services.Builds;
 using Cicd.Web.Admin.Services.Ci;
 using Cicd.Web.Admin.Services.Ai;
+using Cicd.Web.Admin.Services.Metering;
 using Cicd.Web.Admin.Services.Gcp;
 using Cicd.Web.Admin.Services.Nexus;
 using Microsoft.EntityFrameworkCore;
@@ -115,7 +116,21 @@ builder.Services.AddHttpClient<Cicd.Web.Admin.Services.Deployment.DeploymentApiC
 var aiOptions = builder.Configuration.GetSection(AiOptions.SectionName).Get<AiOptions>()
                 ?? new AiOptions();
 builder.Services.AddSingleton(aiOptions);
-builder.Services.AddSingleton<IAiUsageRecorder, MeterAiUsageRecorder>();
+
+// Usage recorders — the local OTel meter always runs; the metering-api HTTP ingest runs
+// when Metering:Api:BaseUrl is set (Aspire host / compose inject it). Fanned out via a
+// composite so a metering outage never affects the AI call.
+var meteringApiOptions = builder.Configuration.GetSection(MeteringApiOptions.SectionName).Get<MeteringApiOptions>()
+                         ?? new MeteringApiOptions();
+builder.Services.AddSingleton(meteringApiOptions);
+if (!string.IsNullOrWhiteSpace(meteringApiOptions.BaseUrl))
+    builder.Services.AddHttpClient(MeteringUsageRecorder.HttpClientName, c =>
+        c.BaseAddress = new Uri(meteringApiOptions.BaseUrl.EndsWith('/') ? meteringApiOptions.BaseUrl : meteringApiOptions.BaseUrl + "/"));
+builder.Services.AddSingleton<MeterAiUsageRecorder>();
+builder.Services.AddSingleton<MeteringUsageRecorder>();
+builder.Services.AddSingleton<IAiUsageRecorder>(sp => new CompositeAiUsageRecorder(
+    sp.GetRequiredService<MeterAiUsageRecorder>(),
+    sp.GetRequiredService<MeteringUsageRecorder>()));
 builder.Services.AddSingleton<IAiInsightService, AiClient>();
 
 // Export the AI usage meter through the OpenTelemetry pipeline set up by AddServiceDefaults.

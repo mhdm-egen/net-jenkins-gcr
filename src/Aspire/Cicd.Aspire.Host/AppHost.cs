@@ -44,6 +44,7 @@ var sqlPassword = builder.AddParameter("sql-password", secret: true);
 var sql = builder.AddSqlServer("sql", password: sqlPassword).WithDataVolume();
 var jenkinsDb = sql.AddDatabase("JenkinsCi");
 var deploymentDb = sql.AddDatabase("Deployment");
+var meteringDb = sql.AddDatabase("Metering");
 
 // RabbitMQ broker for the CI service's outbox/event publishing. Ephemeral (no data volume) —
 // Wolverine's per-service SQL outbox provides durability, so the broker itself is disposable.
@@ -133,6 +134,14 @@ if (dockerConfigDir.Length > 0)
 // teardown endpoint on PR close (jenkins-api → POST /api/deployment/previews/webhook).
 jenkins.WithEnvironment("Deployment__ApiBaseUrl", deployment.GetEndpoint("http"));
 
+// Metering & cost service — general usage ledger; the AI-tokens meter ingests via HTTP
+// from web-admin (build/deploy bus meters come later). Own SQL database.
+var metering = builder.AddProject<Projects.Metering_Api>("metering-api")
+    .WithEndpoint("http", e => e.Port = 7230, createIfNotExists: false)
+    .WithReference(meteringDb)
+    .WaitFor(sql)
+    .WithEnvironment("Database__AutoMigrate", "true");
+
 builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WithReference(jenkins)
     .WaitFor(jenkins)
@@ -140,8 +149,11 @@ builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WaitFor(deployment)
     .WithReference(redis)
     .WaitFor(redis)
+    .WithReference(metering)
+    .WaitFor(metering)
     .WithEnvironment("JenkinsApi__BaseUrl", jenkins.GetEndpoint("http"))
     .WithEnvironment("Deployment__Api__BaseUrl", deployment.GetEndpoint("http"))
+    .WithEnvironment("Metering__Api__BaseUrl", metering.GetEndpoint("http"))
     // Anthropic API key (empty => AI features disabled, app still runs).
     .WithEnvironment("Ai__ApiKey", aiApiKey)
     .WithEnvironment("Jenkins__ApiToken", jenkinsToken)

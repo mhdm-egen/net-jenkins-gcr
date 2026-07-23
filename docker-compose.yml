@@ -112,6 +112,20 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  metering-api:
+    build:
+      context: ./src
+      dockerfile: metering/Metering.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Database__AutoMigrate: "true"
+      ConnectionStrings__Metering: "Server=sqlserver;Database=Metering;User Id=sa;Password=${SA_PASSWORD:-Your_Strong_Pass123};TrustServerCertificate=True;MultipleActiveResultSets=True"
+    ports:
+      - "5320:8080"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+
   web-admin:
     build:
       context: ./src
@@ -128,12 +142,15 @@ services:
       ConnectionStrings__redis: "redis:6379"
       # Anthropic API key — empty => AI features disabled (app still runs).
       Ai__ApiKey: ${AI_API_KEY:-}
+      # Metering service — AI token usage is POSTed here for the cost ledger.
+      Metering__Api__BaseUrl: "http://metering-api:8080"
     ports:
       - "8090:8080"
     depends_on:
       - deployment-api
       - jenkins-api
       - redis
+      - metering-api
 
 volumes:
   sqlserver-data:
