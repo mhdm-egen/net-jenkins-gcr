@@ -136,6 +136,14 @@ builder.Services.AddSingleton<IAiInsightService, AiClient>();
 // CVE-explain feature (Phase 1) — grounded, Redis-cached CVE explanations on the SBOM pages.
 builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ICveExplainer, Cicd.Web.Admin.Services.Sca.CveExplainer>();
 
+// Read-side metering client for the AI Usage page (GET usage/summary).
+builder.Services.AddHttpClient<MeteringApiClient>(c =>
+{
+    if (!string.IsNullOrWhiteSpace(meteringApiOptions.BaseUrl))
+        c.BaseAddress = new Uri(meteringApiOptions.BaseUrl.EndsWith('/') ? meteringApiOptions.BaseUrl : meteringApiOptions.BaseUrl + "/");
+    c.Timeout = TimeSpan.FromSeconds(30);
+});
+
 // Export the AI usage meter through the OpenTelemetry pipeline set up by AddServiceDefaults.
 builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddMeter(MeterAiUsageRecorder.MeterName));
 

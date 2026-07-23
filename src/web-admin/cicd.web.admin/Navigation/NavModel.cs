@@ -64,6 +64,10 @@ public static class NavModel
             new("SBOM",        "sca/sbom",        Icons.Material.Filled.DataObject),
             new("Aspire SBOM", "sca/aspire-sbom", Icons.Material.Filled.Inventory2),
         ], []),
+        new("ai", "AI", Icons.Material.Filled.AutoAwesome,
+        [
+            new("Usage & cost", "ai/usage", Icons.Material.Filled.Insights),
+        ], []),
         new("ci", "CI", Icons.Material.Filled.Hub,
         [
             new("Repositories", "ci/repositories", Icons.Material.Filled.Source),
