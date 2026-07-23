@@ -1,4 +1,6 @@
 @using Cicd.Web.Admin.Services.Sca
+@inject IDialogService DialogService
+@inject ICveExplainer CveExplainer
 
 @* Reusable CycloneDX analysis panels (metadata / components / vulnerabilities / dependencies),
    driven by a parsed SbomDocument. Shared by the dependency-SBOM viewer (/sca/sbom) and the
@@ -188,7 +190,7 @@
                     <MudTh Style="width: 8rem;">Severity</MudTh>
                     <MudTh Style="width: 7rem;">Source</MudTh>
                     <MudTh>Description</MudTh>
-                    <MudTh Style="width: 3rem; text-align: center;"></MudTh>
+                    <MudTh Style="width: 6rem; text-align: center;"></MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">
@@ -212,7 +214,16 @@
                     </MudTd>
                     <MudTd Style="font-size: 0.85em;">@(context.Source ?? "—")</MudTd>
                     <MudTd Style="font-size: 0.85em;">@Truncate(context.Description, 200)</MudTd>
-                    <MudTd Style="text-align: center;">
+                    <MudTd Style="text-align: center; white-space: nowrap;">
+                        @if (CveExplainer.IsConfigured && !string.IsNullOrEmpty(context.Id))
+                        {
+                            <MudTooltip Text="Explain this CVE with AI">
+                                <MudIconButton Icon="@Icons.Material.Filled.AutoAwesome"
+                                               Size="Size.Small"
+                                               Color="Color.Primary"
+                                               OnClick="@(() => OpenExplainAsync(context))" />
+                            </MudTooltip>
+                        }
                         @if (PrimaryVulnUrl(context) is { Length: > 0 } refUrl)
                         {
                             <MudTooltip Text="Open advisory in new tab">
@@ -315,6 +326,28 @@
                 }
             }
         }
+    }
+
+    private async Task OpenExplainAsync(SbomVulnerability v)
+    {
+        var affected = v.AffectsRefs.Select(ResolveComponentDisplay).ToList();
+        var refs = v.References
+            .Where(r => !string.IsNullOrEmpty(r.Url))
+            .Select(r => r.Url!)
+            .ToList();
+        if (v.SourceUrl is { Length: > 0 } su && !refs.Contains(su)) refs.Add(su);
+
+        var request = new CveExplainRequest(
+            CveId: v.Id ?? "(unknown)",
+            Severity: v.Severity,
+            Source: v.Source,
+            Description: v.Description,
+            AffectedComponents: affected,
+            ReferenceUrls: refs);
+
+        var parameters = new DialogParameters { ["Request"] = request };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<CveExplanationDialog>($"Explain {request.CveId}", parameters, options);
     }
 
     private bool MatchesComponentFilter(SbomComponentEntry c)
