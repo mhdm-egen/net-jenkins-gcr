@@ -77,5 +77,27 @@ public sealed class EfUsageLedger : IUsageLedger
         return new UsageSummaryDto(callCount, input, output, cacheRead, cacheWrite, cost, cacheHitRate, byModel, byFeature);
     }
 
+    public async Task<IReadOnlyList<MeterTotalDto>> GetMeterTotalsAsync(DateTimeOffset? fromUtc, DateTimeOffset? toUtc, CancellationToken ct)
+    {
+        var q = _db.UsageRecords.AsQueryable();
+        if (fromUtc is { } f) q = q.Where(r => r.OccurredAtUtc >= f);
+        if (toUtc is { } t) q = q.Where(r => r.OccurredAtUtc <= t);
+
+        var rows = await q
+            .Select(r => new { r.Meter, r.Quantity, r.Unit, r.CostUsd })
+            .ToListAsync(ct);
+
+        return rows
+            .GroupBy(r => r.Meter)
+            .Select(g => new MeterTotalDto(
+                g.Key.ToString(),
+                g.Count(),
+                g.Sum(r => r.Quantity),
+                g.Select(r => r.Unit).FirstOrDefault() ?? string.Empty,
+                g.Sum(r => r.CostUsd)))
+            .OrderByDescending(m => m.Records)
+            .ToList();
+    }
+
     private readonly record struct Row(Guid EventId, string Direction, double Quantity, string Model, string Feature, decimal CostUsd);
 }

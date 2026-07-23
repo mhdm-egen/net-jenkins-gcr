@@ -15,6 +15,7 @@ public static class DependencyInjection
 
         services.AddScoped<IngestAiUsageHandler>();
         services.AddScoped<GetUsageSummaryHandler>();
+        services.AddScoped<GetMeterTotalsHandler>();
 
         return services;
     }

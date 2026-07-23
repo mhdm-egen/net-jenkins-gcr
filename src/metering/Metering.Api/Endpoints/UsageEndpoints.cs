@@ -17,6 +17,14 @@ public static class UsageEndpoints
             CancellationToken ct) =>
             Results.Ok(await handler.HandleAsync(new GetUsageSummaryQuery(fromUtc, toUtc), ct)));
 
+        // General by-meter rollup across every meter kind (AI tokens + build/deploy activity).
+        g.MapGet("meters", async (
+            DateTimeOffset? fromUtc,
+            DateTimeOffset? toUtc,
+            GetMeterTotalsHandler handler,
+            CancellationToken ct) =>
+            Results.Ok(await handler.HandleAsync(new GetMeterTotalsQuery(fromUtc, toUtc), ct)));
+
         // AI token-usage ingest (from web-admin's AiClient). Idempotent on EventId.
         g.MapPost("ai", async (
             IngestAiUsageRequest body,

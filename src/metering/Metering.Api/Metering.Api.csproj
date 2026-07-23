@@ -10,6 +10,8 @@
     <ProjectReference Include="..\Metering.Application\Metering.Application.csproj" />
     <ProjectReference Include="..\Metering.Infrastructure\Metering.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Aspire\Cicd.Aspire.ServiceDefaults\Cicd.Aspire.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\shared\Cicd.Messaging\Cicd.Messaging.csproj" />
+    <ProjectReference Include="..\..\shared\Cicd.IntegrationEvents\Cicd.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -18,5 +20,12 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <!-- Wolverine host: subscribe to ci.events / deployment.events, SQL outbox in the Metering DB. -->
+    <PackageReference Include="WolverineFx" Version="6.4.3" />
+    <PackageReference Include="WolverineFx.SqlServer" Version="6.4.3" />
+    <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.4.3" />
+    <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.4.3" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Common" Version="5.0.0" />
   </ItemGroup>
 </Project>

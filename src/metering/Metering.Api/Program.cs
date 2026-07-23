@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Cicd.Messaging;
 using Metering.Api.Endpoints;
 using Metering.Application;
 using Metering.Application.Observability;
@@ -6,6 +7,9 @@ using Metering.Infrastructure;
 using Metering.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
+using Wolverine;
+using Wolverine.EntityFrameworkCore;
+using Wolverine.SqlServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +25,26 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 
 builder.Services.AddMeteringApplication();
 builder.Services.AddMeteringInfrastructure(builder.Configuration);
+
+// Wolverine bus participant: subscribe to ci.events / deployment.events to meter build &
+// deploy activity, with the SQL outbox/inbox in the Metering DB. The broker is only wired
+// when a messaging connection string is present (Aspire host / compose) — otherwise
+// metering-api still runs HTTP-only (e.g. a standalone run without RabbitMQ).
+var messagingConnection = builder.Configuration.GetConnectionString(CicdMessaging.ConnectionStringName);
+builder.Host.UseWolverine(opts =>
+{
+    opts.Discovery.IncludeAssembly(typeof(Metering.Application.DependencyInjection).Assembly);
+    opts.UseEntityFrameworkCoreTransactions();
+
+    var meteringConnection = builder.Configuration.GetConnectionString("Metering");
+    if (!string.IsNullOrEmpty(meteringConnection))
+        opts.PersistMessagesWithSqlServer(meteringConnection);
+
+    if (!string.IsNullOrWhiteSpace(messagingConnection))
+        opts.AddCicdMessaging(builder.Configuration, topology => topology
+            .Subscribe("ci.events", subscriber: "metering")
+            .Subscribe("deployment.events", subscriber: "metering"));
+});
 
 var app = builder.Build();
 

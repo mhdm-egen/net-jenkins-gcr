@@ -14,4 +14,7 @@ public interface IUsageLedger
 
     /// <summary>Aggregate AI-token usage + cost over an optional window, with breakdowns.</summary>
     Task<UsageSummaryDto> GetSummaryAsync(DateTimeOffset? fromUtc, DateTimeOffset? toUtc, CancellationToken ct);
+
+    /// <summary>Totals per <c>MeterKind</c> across all meters (AI + build/deploy activity).</summary>
+    Task<IReadOnlyList<MeterTotalDto>> GetMeterTotalsAsync(DateTimeOffset? fromUtc, DateTimeOffset? toUtc, CancellationToken ct);
 }

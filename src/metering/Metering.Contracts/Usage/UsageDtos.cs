@@ -48,3 +48,11 @@ public sealed record UsageByFeatureDto(
     long InputTokens,
     long OutputTokens,
     decimal CostUsd);
+
+/// <summary>General by-meter rollup across all meter kinds (AI tokens, build/deploy activity, …).</summary>
+public sealed record MeterTotalDto(
+    string Meter,
+    int Records,
+    double Quantity,
+    string Unit,
+    decimal CostUsd);

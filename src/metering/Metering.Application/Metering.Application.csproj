@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Metering.Domain\Metering.Domain.csproj" />
     <ProjectReference Include="..\Metering.Contracts\Metering.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\Cicd.IntegrationEvents\Cicd.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

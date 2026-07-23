@@ -120,10 +120,13 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       Database__AutoMigrate: "true"
       ConnectionStrings__Metering: "Server=sqlserver;Database=Metering;User Id=sa;Password=${SA_PASSWORD:-Your_Strong_Pass123};TrustServerCertificate=True;MultipleActiveResultSets=True"
+      ConnectionStrings__messaging: "amqp://${RABBITMQ_USER:-cicd}:${RABBITMQ_PASSWORD:-cicd_local_dev}@rabbitmq:5672"
     ports:
       - "5320:8080"
     depends_on:
       sqlserver:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   web-admin:

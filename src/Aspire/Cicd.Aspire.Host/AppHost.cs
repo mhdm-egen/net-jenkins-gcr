@@ -140,6 +140,8 @@ var metering = builder.AddProject<Projects.Metering_Api>("metering-api")
     .WithEndpoint("http", e => e.Port = 7230, createIfNotExists: false)
     .WithReference(meteringDb)
     .WaitFor(sql)
+    .WithReference(rabbit)   // subscribe to ci.events / deployment.events for build/deploy meters
+    .WaitFor(rabbit)
     .WithEnvironment("Database__AutoMigrate", "true");
 
 builder.AddProject<Projects.cicd_web_admin>("web-admin")
