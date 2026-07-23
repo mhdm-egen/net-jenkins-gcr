@@ -43,6 +43,17 @@ services:
       retries: 12
       start_period: 20s
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
   deployment-api:
     build:
       context: ./src
@@ -113,11 +124,16 @@ services:
       Jenkins__User: ${JENKINS_USER:-admin}
       # The admin UI fails to start without a Jenkins token (by design).
       Jenkins__ApiToken: ${JENKINS_API_TOKEN:?set JENKINS_API_TOKEN in .env}
+      # Redis distributed cache for the AI layer (cached CVE/DORA insights).
+      ConnectionStrings__redis: "redis:6379"
+      # Anthropic API key — empty => AI features disabled (app still runs).
+      Ai__ApiKey: ${AI_API_KEY:-}
     ports:
       - "8090:8080"
     depends_on:
       - deployment-api
       - jenkins-api
+      - redis
 
 volumes:
   sqlserver-data:

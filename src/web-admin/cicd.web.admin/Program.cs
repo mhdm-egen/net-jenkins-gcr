@@ -4,10 +4,12 @@ using Cicd.Web.Admin.Components;
 using Cicd.Web.Admin.Services;
 using Cicd.Web.Admin.Services.Builds;
 using Cicd.Web.Admin.Services.Ci;
+using Cicd.Web.Admin.Services.Ai;
 using Cicd.Web.Admin.Services.Gcp;
 using Cicd.Web.Admin.Services.Nexus;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
+using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -105,6 +107,29 @@ builder.Services.AddHttpClient<Cicd.Web.Admin.Services.Deployment.DeploymentApiC
     c.BaseAddress = new Uri(deploymentApiOptions.BaseUrl.EndsWith('/') ? deploymentApiOptions.BaseUrl : deploymentApiOptions.BaseUrl + "/");
     c.Timeout = TimeSpan.FromSeconds(60);
 });
+
+// AI layer — the model call runs on the official Anthropic SDK; token usage is captured
+// at the SDK boundary and recorded via IAiUsageRecorder (Phase 0: OTel meter + log; a
+// bus-publishing recorder arrives with the metering service). A missing Ai:ApiToken does
+// NOT fail startup — AI features surface a banner and no-op (mirrors the Nexus pattern).
+var aiOptions = builder.Configuration.GetSection(AiOptions.SectionName).Get<AiOptions>()
+                ?? new AiOptions();
+builder.Services.AddSingleton(aiOptions);
+builder.Services.AddSingleton<IAiUsageRecorder, MeterAiUsageRecorder>();
+builder.Services.AddSingleton<IAiInsightService, AiClient>();
+
+// Export the AI usage meter through the OpenTelemetry pipeline set up by AddServiceDefaults.
+builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddMeter(MeterAiUsageRecorder.MeterName));
+
+// Distributed cache for AI responses + gauge-collector snapshots. Redis when a connection
+// string is present (ConnectionStrings:redis — injected by the Aspire host / docker-compose),
+// otherwise an in-process fallback so web-admin still runs standalone.
+var redisConnection = builder.Configuration.GetConnectionString("redis")
+                      ?? builder.Configuration["Redis:Connection"];
+if (!string.IsNullOrWhiteSpace(redisConnection))
+    builder.Services.AddStackExchangeRedisCache(o => o.Configuration = redisConnection);
+else
+    builder.Services.AddDistributedMemoryCache();
 
 var app = builder.Build();
 

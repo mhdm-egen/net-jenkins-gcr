@@ -31,6 +31,11 @@ var nexusPassword = builder.AddParameter("NexusPassword", NexusParam("NexusPassw
 var nexusDockerHost = builder.AddParameter("NexusDockerHost", NexusParam("NexusDockerHost", "nexus:8082"));
 var nexusDockerRepo = builder.AddParameter("NexusDockerRepository", NexusParam("NexusDockerRepository", "docker-private"));
 
+// Anthropic API key for the admin UI's AI features. Empty => AI is disabled (the AiClient
+// soft-fails and the UI surfaces a banner — nothing else breaks). Set via user-secrets:
+//   dotnet user-secrets set Parameters:AiApiKey <key>
+var aiApiKey = builder.AddParameter("AiApiKey", NexusParam("AiApiKey", ""), secret: true);
+
 // SQL Server (container) + the Jenkins CI database. The sa password is an EXPLICIT, pinned
 // parameter (Parameters:sql-password in user-secrets) rather than Aspire's auto-generated one —
 // SQL Server bakes it into the data volume on first init and never updates it, so a drifting
@@ -43,6 +48,10 @@ var deploymentDb = sql.AddDatabase("Deployment");
 // RabbitMQ broker for the CI service's outbox/event publishing. Ephemeral (no data volume) —
 // Wolverine's per-service SQL outbox provides durability, so the broker itself is disposable.
 var rabbit = builder.AddRabbitMQ("messaging").WithManagementPlugin();
+
+// Redis — distributed cache for the admin UI's AI layer (cached CVE/DORA insights) and,
+// later, the metering service's gauge snapshots. Ephemeral: the cache is rebuildable.
+var redis = builder.AddRedis("redis");
 
 var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
     // Pin the http endpoint's (proxy) port so the inbound git-webhook URL is stable across restarts —
@@ -129,8 +138,12 @@ builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WaitFor(jenkins)
     .WithReference(deployment)
     .WaitFor(deployment)
+    .WithReference(redis)
+    .WaitFor(redis)
     .WithEnvironment("JenkinsApi__BaseUrl", jenkins.GetEndpoint("http"))
     .WithEnvironment("Deployment__Api__BaseUrl", deployment.GetEndpoint("http"))
+    // Anthropic API key (empty => AI features disabled, app still runs).
+    .WithEnvironment("Ai__ApiKey", aiApiKey)
     .WithEnvironment("Jenkins__ApiToken", jenkinsToken)
     .WithEnvironment("Jenkins__Url", jenkinsUrl)
     // Nexus config for the admin UI's Docker/NuGet pages.
