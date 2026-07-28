@@ -10,7 +10,9 @@ WORKDIR /src
 COPY jenkins/Jenkins.Client/*.csproj                        jenkins/Jenkins.Client/
 COPY jenkins/Jenkins.Orchestrator.Abstractions/*.csproj     jenkins/Jenkins.Orchestrator.Abstractions/
 COPY jenkins/Jenkins.Orchestrator/*.csproj                  jenkins/Jenkins.Orchestrator/
+COPY jenkins/Jenkins.Contracts/*.csproj                     jenkins/Jenkins.Contracts/
 COPY deployment/Deployment.Contracts/*.csproj               deployment/Deployment.Contracts/
+COPY Aspire/Cicd.Aspire.ServiceDefaults/*.csproj            Aspire/Cicd.Aspire.ServiceDefaults/
 COPY web-admin/cicd.web.admin/*.csproj                      web-admin/cicd.web.admin/
 RUN dotnet restore web-admin/cicd.web.admin/cicd.web.admin.csproj
 
@@ -18,7 +20,9 @@ RUN dotnet restore web-admin/cicd.web.admin/cicd.web.admin.csproj
 COPY jenkins/Jenkins.Client/                     jenkins/Jenkins.Client/
 COPY jenkins/Jenkins.Orchestrator.Abstractions/  jenkins/Jenkins.Orchestrator.Abstractions/
 COPY jenkins/Jenkins.Orchestrator/               jenkins/Jenkins.Orchestrator/
+COPY jenkins/Jenkins.Contracts/                  jenkins/Jenkins.Contracts/
 COPY deployment/Deployment.Contracts/            deployment/Deployment.Contracts/
+COPY Aspire/Cicd.Aspire.ServiceDefaults/         Aspire/Cicd.Aspire.ServiceDefaults/
 COPY web-admin/cicd.web.admin/                   web-admin/cicd.web.admin/
 RUN dotnet publish web-admin/cicd.web.admin/cicd.web.admin.csproj \
     -c Release \

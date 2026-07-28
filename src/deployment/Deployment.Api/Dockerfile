@@ -57,6 +57,16 @@ RUN ARCH="$(dpkg --print-architecture)" \
        "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/${ARCH}/kubectl" \
     && chmod +x /usr/local/bin/kubectl
 
+# go-containerregistry `crane` — GarPush shells out to it to promote images Nexus -> GAR.
+# Startup options validation fails fast if it isn't resolvable, so it must be in the image.
+ENV CRANE_VERSION=0.20.3
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "$ARCH" in amd64) CRANE_ARCH=x86_64 ;; arm64) CRANE_ARCH=arm64 ;; \
+         *) echo "unsupported arch $ARCH" >&2; exit 1 ;; esac \
+    && curl -fsSL "https://github.com/google/go-containerregistry/releases/download/v${CRANE_VERSION}/go-containerregistry_Linux_${CRANE_ARCH}.tar.gz" \
+       | tar -xz -C /usr/local/bin crane \
+    && chmod +x /usr/local/bin/crane
+
 COPY --from=build /app/publish .
 
 ENV ASPNETCORE_URLS=http://+:8080
