@@ -1,5 +1,5 @@
-# Build with context = src/ (the CI service references jenkins/* AND
-# deployment/Deployment.Contracts).
+# Build with context = src/ (the CI service references jenkins/*,
+# deployment/Deployment.Contracts, shared/Cicd.* AND Aspire/Cicd.Aspire.ServiceDefaults).
 #   docker build --file src/jenkins/Jenkins.Api/Dockerfile -t jenkins-api:latest ./src
 
 # --- build stage ---
@@ -16,11 +16,17 @@ COPY jenkins/Jenkins.Application/*.csproj               jenkins/Jenkins.Applicat
 COPY jenkins/Jenkins.Infrastructure/*.csproj            jenkins/Jenkins.Infrastructure/
 COPY jenkins/Jenkins.Api/*.csproj                       jenkins/Jenkins.Api/
 COPY deployment/Deployment.Contracts/*.csproj           deployment/Deployment.Contracts/
+COPY shared/Cicd.IntegrationEvents/*.csproj             shared/Cicd.IntegrationEvents/
+COPY shared/Cicd.Messaging/*.csproj                     shared/Cicd.Messaging/
+COPY Aspire/Cicd.Aspire.ServiceDefaults/*.csproj        Aspire/Cicd.Aspire.ServiceDefaults/
 RUN dotnet restore jenkins/Jenkins.Api/Jenkins.Api.csproj
 
 # Copy the rest and publish.
 COPY jenkins/ jenkins/
 COPY deployment/Deployment.Contracts/ deployment/Deployment.Contracts/
+COPY shared/Cicd.IntegrationEvents/ shared/Cicd.IntegrationEvents/
+COPY shared/Cicd.Messaging/ shared/Cicd.Messaging/
+COPY Aspire/Cicd.Aspire.ServiceDefaults/ Aspire/Cicd.Aspire.ServiceDefaults/
 RUN dotnet publish jenkins/Jenkins.Api/Jenkins.Api.csproj \
     -c Release -o /app/publish --no-restore
 
