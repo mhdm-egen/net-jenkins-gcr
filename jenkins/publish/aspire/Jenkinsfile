@@ -22,6 +22,7 @@ pipeline {
         string(name: 'ASPIRATE_PACKAGE_VERSION', defaultValue: '', description: 'Pin the Aspirate global tool version (blank = latest).')
 
         string(name: 'NEXUS_DOCKER_HOST', defaultValue: 'nexus:8082', description: 'Nexus docker registry host:port images are pushed to.')
+        string(name: 'NEXUS_SDK_HOST', defaultValue: '', description: 'Registry host:port the .NET SDK pushes to, when it must differ from NEXUS_DOCKER_HOST. The SDK connects from inside the build agent; docker resolves via the daemon. Blank = use NEXUS_DOCKER_HOST.')
         string(name: 'NEXUS_DOCKER_PROTOCOL', defaultValue: 'http://', description: 'Nexus docker registry protocol.')
         string(name: 'NEXUS_DOCKER_CREDENTIAL_ID', defaultValue: 'rhythm-docker', description: 'Jenkins username/password credential id for the Nexus docker registry.')
 
@@ -117,11 +118,21 @@ pipeline {
                         //     single-label host we resolve it to its IP for the SDK push only.
                         // Both names resolve to the same Nexus endpoint, and the deployment service repoints the
                         // registry host at apply time, so this split is purely internal to CI.
+                        // NEXUS_SDK_HOST decouples the two when one value cannot satisfy both. They are
+                        // resolved in different places: `docker login/push` is resolved by the DAEMON,
+                        // while the SDK connects from INSIDE this agent container. Under Docker Desktop
+                        // the daemon cannot resolve a container name on a user-defined network, so
+                        // 'nexus:8082' fails there with "lookup nexus: no such host", while the agent
+                        // resolves it fine. Conversely 'localhost:8082' works for the daemon (and is
+                        // insecure-by-default via 127.0.0.0/8) but points at the agent itself for the SDK.
+                        // Typical local combination: NEXUS_DOCKER_HOST=localhost:8082,
+                        // NEXUS_SDK_HOST=nexus:8082. Blank keeps the original single-value behaviour.
                         DOCKER_REGISTRY = params.NEXUS_DOCKER_HOST.trim()
-                        def parts   = DOCKER_REGISTRY.split(':', 2)
+                        def sdkSource = params.NEXUS_SDK_HOST?.trim() ?: DOCKER_REGISTRY
+                        def parts   = sdkSource.split(':', 2)
                         def regHost = parts[0]
                         def regPort = parts.length > 1 ? ":${parts[1]}" : ''
-                        SDK_REGISTRY = DOCKER_REGISTRY
+                        SDK_REGISTRY = sdkSource
                         if (regHost != 'localhost' && !regHost.contains('.')) {
                             // Resolve to an IPv4 via whatever the build image provides. `getent ahostsv4` uses
                             // getaddrinfo (hits docker's embedded DNS) where the legacy `getent hosts` path can come
