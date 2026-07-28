@@ -49,11 +49,11 @@ def pipelineCreds  = cfg('PIPELINE_REPO_CREDENTIAL_ID', '')
 // makes the agent's view of the workspace identical either way. Without it the checkout lands in an
 // empty directory and the build fails with no obvious cause.
 def BUILD_IMAGE = 'netsdk10:latest'
-def BUILD_ARGS_BUILD   = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0'
+def BUILD_ARGS_BUILD   = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_ROLL_FORWARD=Major --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0'
 // Scan job: needs the Trivy DB cache, no docker.sock (it doesn't build images).
-def BUILD_ARGS_SCAN    = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0'
+def BUILD_ARGS_SCAN    = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_ROLL_FORWARD=Major --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0'
 // Publish jobs: docker.sock for image builds + the Trivy DB cache for the image scan.
-def BUILD_ARGS_PUBLISH = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0'
+def BUILD_ARGS_PUBLISH = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_ROLL_FORWARD=Major --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0'
 
 // Helper: build a pipelineJob that loads `scriptPath` from the pipeline repo.
 // `lightweight` is always true now — every job fetches just its Jenkinsfile and clones

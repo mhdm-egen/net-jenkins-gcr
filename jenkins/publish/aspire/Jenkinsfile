@@ -18,7 +18,7 @@ pipeline {
         string(name: 'NAMESPACE', defaultValue: 'default', description: 'Kubernetes namespace baked into the generated manifests.')
 
         string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container.')
-        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container (docker socket for image build/push).')
+        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_ROLL_FORWARD=Major --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container (docker socket for image build/push).')
         string(name: 'ASPIRATE_PACKAGE_VERSION', defaultValue: '', description: 'Pin the Aspirate global tool version (blank = latest).')
 
         string(name: 'NEXUS_DOCKER_HOST', defaultValue: 'nexus:8082', description: 'Nexus docker registry host:port images are pushed to.')
