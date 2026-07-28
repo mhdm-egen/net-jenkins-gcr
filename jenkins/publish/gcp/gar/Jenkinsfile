@@ -12,7 +12,7 @@ pipeline {
         string(name: 'GAR_APPHOST_VERSION', defaultValue: 'v1', description: 'GAR app host floating release tag')
         string(name: 'GCP_PROJECT_ID', defaultValue: 'egen-gcr', description: 'GCP project ID')
         string(name: 'GAR_SERVICE_ACCOUNT_ID', defaultValue: 'gar-service-account', description: 'Jenkins credential id (Secret File) for the GCP service-account key')
-        string(name: 'NEXUS_DOCKER_HOST', defaultValue: 'nexus:8082', description: 'Nexus docker registry host:port to pull the image from')
+        string(name: 'NEXUS_DOCKER_HOST', defaultValue: 'host.docker.internal:8082', description: 'Nexus docker registry host:port to pull the image from')
         string(name: 'NEXUS_DOCKER_CREDENTIAL_ID', defaultValue: 'rhythm-docker', description: 'Jenkins credential id (Username/Password) for the Nexus docker registry')
         string(name: 'NEXUS_DOCKER_PROTOCOL', defaultValue: 'http://', description: 'Nexus communications protocol (http or https)')
         string(name: 'SOURCE_BUILD_JOB', defaultValue: 'cicd-publish-nexus-docker', description: 'Name of the upstream publish job whose forwarded build-info.json will be pulled in')

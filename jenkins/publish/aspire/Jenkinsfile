@@ -21,7 +21,7 @@ pipeline {
         string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_ROLL_FORWARD=Major --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container (docker socket for image build/push).')
         string(name: 'ASPIRATE_PACKAGE_VERSION', defaultValue: '', description: 'Pin the Aspirate global tool version (blank = latest).')
 
-        string(name: 'NEXUS_DOCKER_HOST', defaultValue: 'nexus:8082', description: 'Nexus docker registry host:port images are pushed to.')
+        string(name: 'NEXUS_DOCKER_HOST', defaultValue: 'host.docker.internal:8082', description: 'Nexus docker registry host:port images are pushed to.')
         string(name: 'NEXUS_SDK_HOST', defaultValue: '', description: 'Registry host:port the .NET SDK pushes to, when it must differ from NEXUS_DOCKER_HOST. The SDK connects from inside the build agent; docker resolves via the daemon. Blank = use NEXUS_DOCKER_HOST.')
         string(name: 'NEXUS_DOCKER_PROTOCOL', defaultValue: 'http://', description: 'Nexus docker registry protocol.')
         string(name: 'NEXUS_DOCKER_CREDENTIAL_ID', defaultValue: 'rhythm-docker', description: 'Jenkins username/password credential id for the Nexus docker registry.')
@@ -109,7 +109,7 @@ pipeline {
                     script {
                         // The same Nexus needs two registry names in CI:
                         //   * DOCKER_REGISTRY — what docker (pull/push) uses. The daemon's insecure-registries list
-                        //     matches this exact host, so it MUST stay as configured (e.g. 'nexus:8082'). Using the IP
+                        //     matches this exact host, so it MUST stay as configured (e.g. 'host.docker.internal:8082'). Using the IP
                         //     instead makes docker fall back to HTTPS and hang ("context deadline exceeded").
                         //   * SDK_REGISTRY — what aspirate's `dotnet publish -t:PublishContainer` uses. The .NET SDK
                         //     registry parser only accepts a multi-label host, 'localhost', or an IP (a single-label
@@ -118,15 +118,18 @@ pipeline {
                         //     single-label host we resolve it to its IP for the SDK push only.
                         // Both names resolve to the same Nexus endpoint, and the deployment service repoints the
                         // registry host at apply time, so this split is purely internal to CI.
-                        // NEXUS_SDK_HOST decouples the two when one value cannot satisfy both. They are
-                        // resolved in different places: `docker login/push` is resolved by the DAEMON,
-                        // while the SDK connects from INSIDE this agent container. Under Docker Desktop
-                        // the daemon cannot resolve a container name on a user-defined network, so
-                        // 'nexus:8082' fails there with "lookup nexus: no such host", while the agent
-                        // resolves it fine. Conversely 'localhost:8082' works for the daemon (and is
-                        // insecure-by-default via 127.0.0.0/8) but points at the agent itself for the SDK.
-                        // Typical local combination: NEXUS_DOCKER_HOST=localhost:8082,
-                        // NEXUS_SDK_HOST=nexus:8082. Blank keeps the original single-value behaviour.
+                        // NEXUS_SDK_HOST is an escape hatch for when one value cannot satisfy both
+                        // sides, because they resolve in different places: `docker login/push` is
+                        // resolved by the DAEMON, while the SDK connects from INSIDE this agent:
+                        //   * 'nexus:8082' — agent only. The daemon cannot resolve a container name on
+                        //     a user-defined network ("lookup nexus: no such host").
+                        //   * 'localhost:8082' — daemon only. Inside the agent that is the agent itself
+                        //     ("CONTAINER1013 ... Connection refused").
+                        //   * 'host.docker.internal:8082' — BOTH, which is why it is now the default. It
+                        //     is dotted (the SDK rejects single-label hosts with CONTAINER2012) and is
+                        //     the address the cluster runbook already uses for pulls. It does require the
+                        //     daemon's insecure-registries to list it — see docs/getting-started.md.
+                        // Blank keeps SDK and docker on the same host, which is the normal case.
                         DOCKER_REGISTRY = params.NEXUS_DOCKER_HOST.trim()
                         def sdkSource = params.NEXUS_SDK_HOST?.trim() ?: DOCKER_REGISTRY
                         def parts   = sdkSource.split(':', 2)
@@ -182,7 +185,7 @@ pipeline {
                         // aspirate reads ContainerSettings (Registry + Tags) from aspirate.json, and those WIN over the
                         // `init -cr/-ct` fallbacks — so a committed aspirate.json (sample apps ship one) or a stale one
                         // left in the reused Jenkins workspace leaks its registry/tag through (that's why the SDK saw
-                        // 'nexus:8082' and 'latest'). Clean any stale state, then pin ContainerSettings deterministically
+                        // 'host.docker.internal:8082' and 'latest'). Clean any stale state, then pin ContainerSettings deterministically
                         // to this build's SDK registry (SDK-recognisable host) + immutable tag.
                         sh """
                             set -e
@@ -192,7 +195,7 @@ pipeline {
                             # Wipe ALL stale aspirate artifacts left in the reused Jenkins workspace. Crucially
                             # aspirate-state.json caches the resolved container registry/tag from a previous build and
                             # `generate` loads it ("State loaded successfully from aspirate-state.json"), overriding the
-                            # fresh aspirate.json — which is why the SDK kept seeing 'nexus:8082' and 'latest'.
+                            # fresh aspirate.json — which is why the SDK kept seeing 'host.docker.internal:8082' and 'latest'.
                             rm -rf aspirate.json aspirate-state.json aspirate-output manifest.json .aspirate
                             aspirate init -cr ${SDK_REGISTRY} -ct ${IMAGE_TAG} --disable-secrets --non-interactive
                             printf '%s' '{"ContainerSettings":{"Registry":"${SDK_REGISTRY}","RepositoryPrefix":null,"Tags":["${IMAGE_TAG}"],"Builder":"docker","BuildArgs":null,"Context":null}}' > aspirate.json
