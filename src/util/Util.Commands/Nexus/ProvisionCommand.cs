@@ -260,15 +260,20 @@ public sealed class ProvisionCommand : ICommand
             return;
         }
 
-        var port = await client.GetDockerHttpPortAsync(name, ct);
-        if (port == 8082)
+        var settings = await client.GetDockerRepoSettingsAsync(name, ct);
+        var portOk = settings?.HttpPort == 8082;
+        var writeOk = string.Equals(settings?.WritePolicy, "ALLOW", StringComparison.OrdinalIgnoreCase);
+
+        if (portOk && writeOk)
         {
-            Console.WriteLine($"  repository '{name}' (docker) already exists with the connector on 8082.");
+            Console.WriteLine($"  repository '{name}' (docker) already correct (connector 8082, writePolicy ALLOW).");
             return;
         }
 
         await client.UpdateHostedRepositoryAsync("docker", name, DockerHosted(name), ct);
-        Console.WriteLine($"  repository '{name}' (docker) connector corrected {port?.ToString() ?? "none"} -> 8082.");
+        Console.WriteLine(
+            $"  repository '{name}' (docker) corrected: connector {settings?.HttpPort?.ToString() ?? "none"} -> 8082, " +
+            $"writePolicy {settings?.WritePolicy ?? "none"} -> ALLOW.");
     }
 
 
@@ -329,11 +334,14 @@ public sealed class ProvisionCommand : ICommand
         ["raw"] = new JsonObject { ["contentDisposition"] = "ATTACHMENT" }
     };
 
+    // ALLOW, not ALLOW_ONCE: every cicd-publish-nexus-docker run re-pushes the ":latest" tag (and
+    // aspirate re-pushes ":latest" per resource), which ALLOW_ONCE rejects with
+    // "blob upload invalid - Repository does not allow updating assets".
     private static JsonObject DockerHosted(string name) => new()
     {
         ["name"] = name,
         ["online"] = true,
-        ["storage"] = Storage("ALLOW_ONCE"),
+        ["storage"] = Storage("ALLOW"),
         ["docker"] = new JsonObject
         {
             ["v1Enabled"] = false,

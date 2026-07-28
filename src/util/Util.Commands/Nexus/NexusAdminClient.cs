@@ -120,15 +120,20 @@ public sealed class NexusAdminClient : IDisposable
         }
     }
 
-    /// <summary>The docker connector port currently configured on a docker hosted repo, if any.</summary>
-    public async Task<int?> GetDockerHttpPortAsync(string name, CancellationToken ct = default)
+    /// <summary>
+    /// The two settings on a docker hosted repo that CI depends on: the connector port images are
+    /// pushed to, and whether re-pushing a tag is allowed. Null when the repo does not exist.
+    /// </summary>
+    public async Task<(int? HttpPort, string? WritePolicy)?> GetDockerRepoSettingsAsync(
+        string name, CancellationToken ct = default)
     {
         using var resp = await _http.GetAsync(
             $"service/rest/v1/repositories/docker/hosted/{Uri.EscapeDataString(name)}", ct);
         if (!resp.IsSuccessStatusCode) return null;
 
         var node = JsonNode.Parse(await resp.Content.ReadAsStringAsync(ct));
-        return node?["docker"]?["httpPort"]?.GetValue<int?>();
+        return (node?["docker"]?["httpPort"]?.GetValue<int?>(),
+                node?["storage"]?["writePolicy"]?.GetValue<string>());
     }
 
     public async Task<List<string>> GetActiveRealmsAsync(CancellationToken ct = default)
