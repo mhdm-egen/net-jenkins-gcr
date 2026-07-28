@@ -259,6 +259,10 @@ var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithEnvironment("Deployment__Aspirate__Kubeconfig", aspirateKubeconfig)
     .WithEnvironment("Deployment__Aspirate__EnsurePullSecret", aspirateEnsurePullSecret)
     .WithEnvironment("Deployment__Seed__AspireManifestSource", seedAspireManifest)
+    // Manifest URLs are recorded by CI using the address the build AGENT used (http://nexus:8081/...),
+    // which this host process cannot resolve — without this, a CI-triggered auto-deploy fails at the
+    // fetch even though a manual deploy works. Only scheme+authority are swapped; the path is kept.
+    .WithEnvironment("Deployment__Aspirate__ManifestBaseUrl", nexus.GetEndpoint("http"))
     .WithEnvironment("Deployment__Nexus__RegistryV2Url", nexusRegistryV2Url)
     .WithEnvironment("Deployment__Nexus__Username", nexusUsername)
     .WithEnvironment("Deployment__Nexus__Password", nexusPassword);

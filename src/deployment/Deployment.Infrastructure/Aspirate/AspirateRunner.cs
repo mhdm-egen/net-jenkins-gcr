@@ -126,12 +126,46 @@ internal sealed partial class AspirateRunner : IAspirateRunner
     }
 
     /// <summary>Downloads (URL) or copies (local archive/dir) the kustomize output into the work dir; returns the dir holding the root kustomization.yaml.</summary>
+    /// <summary>
+    /// Swaps the scheme + authority of a recorded manifest URL for <c>Deployment:Aspirate:ManifestBaseUrl</c>,
+    /// leaving the path intact. CI records the address the build AGENT used (http://nexus:8081/...),
+    /// which this service cannot resolve when it runs as a host process — see
+    /// <see cref="AspireOptions.ManifestBaseUrl"/>. Returns the URL unchanged when no override is
+    /// configured, or when either URL is unparseable.
+    /// </summary>
+    internal static string RebaseManifestUrl(string source, string? baseUrl, StringBuilder log)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl)) return source;
+
+        if (!Uri.TryCreate(source, UriKind.Absolute, out var original) ||
+            !Uri.TryCreate(baseUrl, UriKind.Absolute, out var rebase))
+        {
+            log.AppendLine($"manifest rebase skipped (unparseable): source='{source}' base='{baseUrl}'");
+            return source;
+        }
+
+        var rebased = new UriBuilder(original)
+        {
+            Scheme = rebase.Scheme,
+            Host = rebase.Host,
+            Port = rebase.IsDefaultPort ? -1 : rebase.Port,
+        }.Uri.ToString();
+
+        if (!string.Equals(rebased, source, StringComparison.Ordinal))
+            log.AppendLine($"manifest rebased to {rebase.Scheme}://{rebase.Authority} (recorded host: {original.Authority})");
+
+        return rebased;
+    }
+
     private async Task<string> AcquireOutputAsync(string source, string workDir, StringBuilder log, CancellationToken ct)
     {
         var dest = Path.Combine(workDir, "output");
 
+
         if (source.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || source.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
+            source = RebaseManifestUrl(source, _options.CurrentValue.ManifestBaseUrl, log);
+
             log.AppendLine($"fetching manifest archive: {source}");
             using var req = new HttpRequestMessage(HttpMethod.Get, source);
             var n = _nexus.CurrentValue;
