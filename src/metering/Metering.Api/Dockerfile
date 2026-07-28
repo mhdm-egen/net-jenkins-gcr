@@ -12,11 +12,15 @@ COPY metering/Metering.Application/*.csproj       metering/Metering.Application/
 COPY metering/Metering.Infrastructure/*.csproj    metering/Metering.Infrastructure/
 COPY metering/Metering.Api/*.csproj               metering/Metering.Api/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/*.csproj  Aspire/Cicd.Aspire.ServiceDefaults/
+COPY shared/Cicd.IntegrationEvents/*.csproj       shared/Cicd.IntegrationEvents/
+COPY shared/Cicd.Messaging/*.csproj               shared/Cicd.Messaging/
 RUN dotnet restore metering/Metering.Api/Metering.Api.csproj
 
 # Copy the rest and publish.
 COPY metering/ metering/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/ Aspire/Cicd.Aspire.ServiceDefaults/
+COPY shared/Cicd.IntegrationEvents/ shared/Cicd.IntegrationEvents/
+COPY shared/Cicd.Messaging/ shared/Cicd.Messaging/
 RUN dotnet publish metering/Metering.Api/Metering.Api.csproj -c Release -o /app/publish --no-restore
 
 # --- runtime stage ---

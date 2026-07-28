@@ -12,6 +12,7 @@ COPY jenkins/Jenkins.Orchestrator.Abstractions/*.csproj     jenkins/Jenkins.Orch
 COPY jenkins/Jenkins.Orchestrator/*.csproj                  jenkins/Jenkins.Orchestrator/
 COPY jenkins/Jenkins.Contracts/*.csproj                     jenkins/Jenkins.Contracts/
 COPY deployment/Deployment.Contracts/*.csproj               deployment/Deployment.Contracts/
+COPY metering/Metering.Contracts/*.csproj                   metering/Metering.Contracts/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/*.csproj            Aspire/Cicd.Aspire.ServiceDefaults/
 COPY web-admin/cicd.web.admin/*.csproj                      web-admin/cicd.web.admin/
 RUN dotnet restore web-admin/cicd.web.admin/cicd.web.admin.csproj
@@ -22,6 +23,7 @@ COPY jenkins/Jenkins.Orchestrator.Abstractions/  jenkins/Jenkins.Orchestrator.Ab
 COPY jenkins/Jenkins.Orchestrator/               jenkins/Jenkins.Orchestrator/
 COPY jenkins/Jenkins.Contracts/                  jenkins/Jenkins.Contracts/
 COPY deployment/Deployment.Contracts/            deployment/Deployment.Contracts/
+COPY metering/Metering.Contracts/                metering/Metering.Contracts/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/         Aspire/Cicd.Aspire.ServiceDefaults/
 COPY web-admin/cicd.web.admin/                   web-admin/cicd.web.admin/
 RUN dotnet publish web-admin/cicd.web.admin/cicd.web.admin.csproj \
