@@ -32,6 +32,32 @@ deployment-api.)
 **Prerequisites:** Docker Desktop running (SQL Server + RabbitMQ run as containers); .NET 10 SDK. For the
 Aspire→K8s deploy + preview features, enable Kubernetes in Docker Desktop (context `docker-desktop`).
 
+#### One-time: trust the Nexus registry (required for the CI publish jobs)
+
+Nexus serves its docker registry over **plain HTTP** on `:8082`, so the docker daemon must be told to
+trust it. Without this, `cicd-publish-nexus-docker` and `cicd-aspire-publish` fail at the login/push
+step. Add `host.docker.internal:8082` to `insecure-registries` in `~/.docker/daemon.json` (Docker
+Desktop → Settings → Docker Engine), then **restart Docker**:
+
+```json
+{
+  "insecure-registries": ["host.docker.internal:8082"]
+}
+```
+
+Verify with `docker info | grep -A3 'Insecure Registries'`.
+
+> **Why `host.docker.internal` and not `nexus`?** The registry hostname has to resolve in two
+> different places. `docker login`/`push` is resolved by the **daemon**, while the .NET SDK
+> (`dotnet publish -t:PublishContainer`, used by aspirate) connects **from inside the build agent**.
+> A Docker Desktop daemon cannot resolve a container name on a user-defined network, so `nexus:8082`
+> fails there with `lookup nexus: no such host`; conversely `localhost:8082` resolves for the daemon
+> but points at the agent itself, giving `CONTAINER1013 ... Connection refused`.
+> `host.docker.internal:8082` works for both, is dotted (the SDK rejects single-label hosts with
+> `CONTAINER2012`), and is the same address cluster nodes pull from in
+> [deployment/aspire-k8s-local-runbook.md](deployment/aspire-k8s-local-runbook.md). The
+> `NEXUS_SDK_HOST` job parameter exists to split the two if your setup ever needs it.
+
 ### First-run secrets: none
 
 Nothing to set up. On first run the AppHost generates `sql-password`, `jenkins-password` and
