@@ -1,0 +1,31 @@
+# Jenkins controller plugins, installed at image build time by jenkins-plugin-cli.
+#
+# Transitive dependencies (structs, script-security, scm-api, workflow-*, credentials,
+# plain-credentials, git-client, ...) are resolved automatically — do NOT list them here.
+#
+# Every entry below is justified by actual usage in this repo; if you add one, say why.
+
+# --- config as code + jobs as code (the whole point of this image) ------------------
+configuration-as-code        # applies controller/casc/jenkins.yaml on every boot
+job-dsl                      # pipelineJob/stringParam/choiceParam/logRotator in jenkins/jobs/cicd-jobs.groovy
+
+# --- pipeline ----------------------------------------------------------------------
+workflow-aggregator          # declarative + scripted pipeline suite
+pipeline-stage-view          # stage graph the demo runbooks reference
+pipeline-utility-steps       # readJSON / writeJSON / writeFile — used by every Jenkinsfile
+docker-workflow              # agent { docker { image 'netsdk10:latest' ... reuseNode true } }
+
+# --- scm + artifacts ---------------------------------------------------------------
+git                          # cpsScm { git { ... } } in the seed script
+copyartifact                 # the ONLY handoff between cicd-build -> cicd-scan -> cicd-publish-*
+ws-cleanup
+
+# --- credentials + ergonomics -------------------------------------------------------
+credentials-binding          # withCredentials(usernamePassword | string)
+timestamper                  # options { timestamps() }
+build-timeout
+antisamy-markup-formatter    # lets systemMessage carry markup safely
+
+# Not installed on purpose:
+#   github / github-branch-source — git webhooks land on jenkins-api, which triggers Jenkins over
+#   REST. Jenkins itself never receives them, so the GitHub plugins would be dead weight.

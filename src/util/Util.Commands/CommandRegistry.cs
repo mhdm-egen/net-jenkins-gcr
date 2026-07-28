@@ -14,6 +14,7 @@ public static class CommandRegistry
         var commands = new ICommand[]
         {
             new PurgeRepoCommand(),
+            new ProvisionCommand(),
             new RunPipelineCommand(),
             new SeedDemoCommand(),
         };

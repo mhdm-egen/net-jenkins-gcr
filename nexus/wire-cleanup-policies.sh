@@ -15,7 +15,7 @@
 # Optional env (defaults shown):
 #   NEXUS_URL=http://nexus:8081
 #   NEXUS_USER=admin
-#   DOCKER_REPO=docker-hosted
+#   DOCKER_REPO=docker-private
 #   NUGET_REPO=nuget-hosted
 #   DOCKER_POLICY_NAME=docker-ci-cleanup
 #   NUGET_POLICY_NAME=nuget-prerelease-cleanup
@@ -36,7 +36,7 @@ set -euo pipefail
 NEXUS_URL="${NEXUS_URL:-http://nexus:8081}"
 NEXUS_USER="${NEXUS_USER:-admin}"
 NEXUS_PASS="${NEXUS_PASS:?NEXUS_PASS env var is required}"
-DOCKER_REPO="${DOCKER_REPO:-docker-hosted}"
+DOCKER_REPO="${DOCKER_REPO:-docker-private}"
 NUGET_REPO="${NUGET_REPO:-nuget-hosted}"
 DOCKER_POLICY_NAME="${DOCKER_POLICY_NAME:-docker-ci-cleanup}"
 NUGET_POLICY_NAME="${NUGET_POLICY_NAME:-nuget-prerelease-cleanup}"

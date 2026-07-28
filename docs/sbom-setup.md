@@ -49,7 +49,7 @@ The upload uses HTTP Basic against the Nexus REST API, so it needs a username + 
 In Jenkins: **Manage Jenkins → Credentials → System → Global → Add Credentials**
 
 - Kind: **Username with password**
-- ID: `nexus-rest` (matches `SBOM_NEXUS_CREDENTIAL_ID` default in the publish-nuget Jenkinsfile)
+- ID: `nexus-sbom` (matches `SBOM_NEXUS_CREDENTIAL_ID` default in the publish-nuget Jenkinsfile)
 - Username: e.g. `admin`
 - Password: the Nexus REST API password / user-token pass code
 

@@ -12,7 +12,7 @@
 #
 # Env (override as needed):
 #   CLUSTER     kind cluster name                            (default: kind)
-#   NEXUS_NET   docker network the Nexus container is on     (default: cicd_default)
+#   NEXUS_NET   docker network the Nexus container is on     (default: cicd-net)
 #   NEXUS_HOST  registry host:port used in manifests + pull  (default: nexus:8082)
 #
 # After running: set Deployment:Aspirate:PullRegistry to $NEXUS_HOST and EnsurePullSecret=true,
@@ -20,7 +20,7 @@
 set -euo pipefail
 
 CLUSTER="${CLUSTER:-kind}"
-NEXUS_NET="${NEXUS_NET:-cicd_default}"
+NEXUS_NET="${NEXUS_NET:-cicd-net}"
 NEXUS_HOST="${NEXUS_HOST:-nexus:8082}"
 NEXUS_NAME="${NEXUS_HOST%%:*}"   # host without the port
 

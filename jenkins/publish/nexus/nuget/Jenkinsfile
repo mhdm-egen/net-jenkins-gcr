@@ -3,7 +3,8 @@ pipeline {
         string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
         string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0', description: 'Arguments for the build container')
         string(name: 'NUGET_SOURCE', defaultValue: 'http://nexus:8081/repository/nuget-hosted/', description: 'NuGet feed URL (Nexus hosted repo, internal proxy, or https://api.nuget.org/v3/index.json)')
-        string(name: 'NUGET_API_KEY_CREDENTIAL_ID', defaultValue: 'rhythm-nuget', description: 'Jenkins credential id (Secret Text) holding the NuGet API key for the target feed')
+        string(name: 'NUGET_CREDENTIAL_ID', defaultValue: 'nexus-nuget', description: 'Jenkins credential id (Username/Password) for basic-auth publishing. Preferred for Nexus, which no longer exposes per-user NuGet API keys. Blank => fall back to NUGET_API_KEY_CREDENTIAL_ID.')
+        string(name: 'NUGET_API_KEY_CREDENTIAL_ID', defaultValue: 'rhythm-nuget', description: 'Jenkins credential id (Secret Text) holding the NuGet API key. Only used when NUGET_CREDENTIAL_ID is blank — e.g. publishing to nuget.org.')
         string(name: 'GIT_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins credentials ID for cloning a private app repo (leave blank for public/anonymous access)')
         string(name: 'SOURCE_BUILD_JOB', defaultValue: 'cicd-scan', description: 'Name of the upstream job whose build-info.json will be pulled in (the scan job, which re-archives build-info.json from cicd-build)')
         string(name: 'SOURCE_BUILD_NUMBER', defaultValue: '', description: 'Specific upstream build number to publish. Leave empty for the last successful build.')
@@ -135,25 +136,83 @@ pipeline {
 
         stage ('Publish Artifacts') {
             steps {
-                withCredentials([string(credentialsId: "${params.NUGET_API_KEY_CREDENTIAL_ID}", variable: 'NUGET_API_KEY')]) {
-                    sh """
-                        set -e
-                        pkg_dir="${env.WORKSPACE}/nupkgs"
-                        ls -lsR "\$pkg_dir"
-                        echo "Publishing NuGet packages from \$pkg_dir to ${params.NUGET_SOURCE}"
-                        if ! ls "\$pkg_dir"/*.nupkg >/dev/null 2>&1; then
-                            echo "ERROR: No .nupkg files found in \$pkg_dir"
-                            exit 1
-                        fi
-                        for pkg in "\$pkg_dir"/*.nupkg; do
-                            echo "Pushing \$pkg"
-                            dotnet nuget push "\$pkg" \\
-                                --source "${params.NUGET_SOURCE}" \\
-                                --api-key "\$NUGET_API_KEY" \\
-                                --skip-duplicate \\
-                                --allow-insecure-connections
-                        done
-                    """
+                // Two auth modes, because the two realistic targets disagree:
+                //
+                //   * Nexus  -> BASIC AUTH. Nexus 3.70+ removed the internal REST endpoint that used
+                //     to hand out a user's NuGet API key, and it rejects the account password in the
+                //     --api-key slot (verified: 401). A username/password source credential works.
+                //   * nuget.org (or any feed that issues real API keys) -> --api-key.
+                //
+                // NUGET_CREDENTIAL_ID wins when set; leave it blank to use NUGET_API_KEY_CREDENTIAL_ID.
+                script {
+                    def pkgDir = "${env.WORKSPACE}/nupkgs"
+                    def basicAuthCredId = params.NUGET_CREDENTIAL_ID?.trim()
+
+                    if (basicAuthCredId) {
+                        withCredentials([usernamePassword(credentialsId: basicAuthCredId,
+                                                          usernameVariable: 'NUGET_USER',
+                                                          passwordVariable: 'NUGET_PASS')]) {
+                            sh """
+                                set -e
+                                pkg_dir="${pkgDir}"
+                                ls -lsR "\$pkg_dir"
+                                echo "Publishing NuGet packages from \$pkg_dir to ${params.NUGET_SOURCE} (basic auth)"
+                                if ! ls "\$pkg_dir"/*.nupkg >/dev/null 2>&1; then
+                                    echo "ERROR: No .nupkg files found in \$pkg_dir"
+                                    exit 1
+                                fi
+
+                                # Credentials go in a throwaway config next to the packages, never in
+                                # the command line (which would show up in `ps` and the console log).
+                                cfg="\$(mktemp -d)/nuget.config"
+                                trap 'rm -rf "\$(dirname "\$cfg")"' EXIT
+                                cat > "\$cfg" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <add key="publishTarget" value="${params.NUGET_SOURCE}" allowInsecureConnections="true" />
+  </packageSources>
+  <packageSourceCredentials>
+    <publishTarget>
+      <add key="Username" value="\$NUGET_USER" />
+      <add key="ClearTextPassword" value="\$NUGET_PASS" />
+    </publishTarget>
+  </packageSourceCredentials>
+</configuration>
+EOF
+
+                                for pkg in "\$pkg_dir"/*.nupkg; do
+                                    echo "Pushing \$pkg"
+                                    dotnet nuget push "\$pkg" \\
+                                        --source publishTarget \\
+                                        --configfile "\$cfg" \\
+                                        --skip-duplicate \\
+                                        --allow-insecure-connections
+                                done
+                            """
+                        }
+                    } else {
+                        withCredentials([string(credentialsId: "${params.NUGET_API_KEY_CREDENTIAL_ID}", variable: 'NUGET_API_KEY')]) {
+                            sh """
+                                set -e
+                                pkg_dir="${pkgDir}"
+                                ls -lsR "\$pkg_dir"
+                                echo "Publishing NuGet packages from \$pkg_dir to ${params.NUGET_SOURCE} (api key)"
+                                if ! ls "\$pkg_dir"/*.nupkg >/dev/null 2>&1; then
+                                    echo "ERROR: No .nupkg files found in \$pkg_dir"
+                                    exit 1
+                                fi
+                                for pkg in "\$pkg_dir"/*.nupkg; do
+                                    echo "Pushing \$pkg"
+                                    dotnet nuget push "\$pkg" \\
+                                        --source "${params.NUGET_SOURCE}" \\
+                                        --api-key "\$NUGET_API_KEY" \\
+                                        --skip-duplicate \\
+                                        --allow-insecure-connections
+                                done
+                            """
+                        }
+                    }
                 }
             }
         }

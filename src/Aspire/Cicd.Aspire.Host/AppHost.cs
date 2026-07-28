@@ -1,12 +1,29 @@
+using Aspire.Hosting.ApplicationModel;
+using Cicd.Aspire.Host;
 using Microsoft.Extensions.Configuration;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// Secrets / parameters — set via the AppHost's user-secrets:
-//   dotnet user-secrets set Parameters:JenkinsApiToken <token>
-//   dotnet user-secrets set Parameters:JenkinsUrl http://<jenkins>:8080
-var jenkinsToken = builder.AddParameter("JenkinsApiToken", secret: true);
-var jenkinsUrl = builder.AddParameter("JenkinsUrl");
+// Fixed docker network shared with the sibling build-agent containers Jenkins launches through the
+// docker socket. Must exist before any container starts — see DockerNetwork.cs for the full why.
+const string CicdNetwork = "cicd-net";
+DockerNetwork.EnsureExists(CicdNetwork);
+
+// --- Secrets -------------------------------------------------------------------------------------
+// Generated once into this AppHost's user-secrets and reused forever after, so a headless
+// `dotnet run` never blocks on an interactive prompt and no secret is ever committed.
+//
+// These are passed to AddParameter as EAGER fixed strings rather than using Aspire's own
+// GenerateParameterDefault, which regenerates on every run even with persist: true — see
+// SecretStore.cs for the evidence and why that is fatal for sql and nexus specifically.
+const string UserSecretsId = "7e3b1a2c-9d4f-4a6b-8c1e-2f5a9b0c3d4e";
+
+// Jenkins admin password. Doubles as the REST API token: JenkinsClient authenticates with plain
+// Basic base64(User:ApiToken) (src/jenkins/Jenkins.Client/JenkinsClient.cs:32) and Jenkins accepts
+// the admin password in that slot across the REST surface, including the crumb issuer. One secret,
+// and no chicken-and-egg with JCasC — which creates the admin user from this same value.
+var jenkinsPassword = builder.AddParameter(
+    "jenkins-password", SecretStore.GetOrCreate(UserSecretsId, "jenkins-password"), secret: true);
 
 // Nexus — required by the CI service's artifact-reconcile loop (JenkinsBuildSyncService): it polls
 // Nexus for each tracked build's pushed docker image and attaches the publication. Also used by
@@ -26,21 +43,32 @@ string NexusParam(string key, string fallback) =>
     : paramSecrets[$"Parameters:{key}"] is { Length: > 0 } s ? s
     : fallback;
 
-var nexusUrl = builder.AddParameter("NexusUrl", NexusParam("NexusUrl", "http://nexus:8081"));
-var nexusPassword = builder.AddParameter("NexusPassword", NexusParam("NexusPassword", ""), secret: true);
-var nexusDockerHost = builder.AddParameter("NexusDockerHost", NexusParam("NexusDockerHost", "nexus:8082"));
-var nexusDockerRepo = builder.AddParameter("NexusDockerRepository", NexusParam("NexusDockerRepository", "docker-private"));
+// Nexus admin password — generated + persisted like the others. Nexus bakes credentials into
+// /nexus-data on first init, so this must stay stable across runs; `nexus-provision` rotates the
+// image's deterministic first-run password to this value.
+var nexusPassword = builder.AddParameter(
+    "nexus-password", SecretStore.GetOrCreate(UserSecretsId, "nexus-password"), secret: true);
+
+// Plain (non-parameter) strings — no dashboard rows, no prompts.
+var nexusUsername = NexusParam("NexusUsername", "admin");
+var nexusDockerRepo = NexusParam("NexusDockerRepository", "docker-private");
+// The registry host recorded in image pull references, consumed by build agents and cluster nodes —
+// NOT dialled by the Aspire-run host processes, which use the endpoint URLs below.
+var nexusDockerHost = NexusParam("NexusDockerHost", "nexus:8082");
+// Which repo/branch the seeded cicd-* jobs should fetch their Jenkinsfiles from.
+var pipelineRepoUrl = NexusParam("PipelineRepoUrl", "https://github.com/mhdm-egen/net-jenkins-gcr.git");
+var pipelineRepoBranch = NexusParam("PipelineRepoBranch", "main");
 
 // Anthropic API key for the admin UI's AI features. Empty => AI is disabled (the AiClient
 // soft-fails and the UI surfaces a banner — nothing else breaks). Set via user-secrets:
 //   dotnet user-secrets set Parameters:AiApiKey <key>
 var aiApiKey = builder.AddParameter("AiApiKey", NexusParam("AiApiKey", ""), secret: true);
 
-// SQL Server (container) + the Jenkins CI database. The sa password is an EXPLICIT, pinned
-// parameter (Parameters:sql-password in user-secrets) rather than Aspire's auto-generated one —
-// SQL Server bakes it into the data volume on first init and never updates it, so a drifting
-// auto-generated value leaves the volume's sa password mismatched ("Login failed for user 'sa'").
-var sqlPassword = builder.AddParameter("sql-password", secret: true);
+// SQL Server (container) + the Jenkins CI database. The sa password is PERSISTED rather than
+// re-generated per run — SQL Server bakes it into the data volume on first init and never updates
+// it, so a drifting value leaves the volume's sa password mismatched ("Login failed for user 'sa'").
+var sqlPassword = builder.AddParameter(
+    "sql-password", SecretStore.GetOrCreate(UserSecretsId, "sql-password"), secret: true);
 var sql = builder.AddSqlServer("sql", password: sqlPassword).WithDataVolume();
 var jenkinsDb = sql.AddDatabase("JenkinsCi");
 var deploymentDb = sql.AddDatabase("Deployment");
@@ -54,6 +82,90 @@ var rabbit = builder.AddRabbitMQ("messaging").WithManagementPlugin();
 // later, the metering service's gauge snapshots. Ephemeral: the cache is rebuildable.
 var redis = builder.AddRedis("redis");
 
+// Nexus — artifact store. 8081 = UI/REST/nuget/raw, 8082 = the docker registry connector (plain
+// HTTP), which `nexus-provision` turns on. Pinned everywhere on purpose:
+//   * WithContainerName("nexus")  — the literal hostname is load-bearing. It is recorded in image
+//     pull references and the .NET SDK rejects single-label registry hosts, hence "nexus:8082".
+//   * Persistent lifetime         — ~2 min cold boot; survives AppHost restarts. NOTE this also
+//     means Aspire will ADOPT a pre-existing container of the same name without re-applying config;
+//     `docker rm -f nexus` after changing anything here.
+//   * isProxied: false            — publish the ports straight through (-p 8081:8081), matching the
+//     old devops/docker-runs.sh and keeping registry blob traffic off the DCP proxy.
+// The tag is pinned deliberately: recent :latest is Community Edition, which adds an EULA gate.
+var nexus = builder.AddContainer("nexus", "sonatype/nexus3", "3.70.1")
+    .WithContainerName("nexus")
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithVolume("nexus-data", "/nexus-data")
+    .WithHttpEndpoint(targetPort: 8081, port: 8081, name: "http", isProxied: false)
+    .WithEndpoint(targetPort: 8082, port: 8082, name: "registry", scheme: "http", isProxied: false)
+    .WithEnvironment("INSTALL4J_ADD_VM_PARAMS", "-Xms1g -Xmx1g -XX:MaxDirectMemorySize=2g")
+    // Deterministic first-run admin password so the provisioner can bootstrap headlessly; it is
+    // rotated to the generated nexus-password on first provision.
+    .WithEnvironment("NEXUS_SECURITY_RANDOMPASSWORD", "false")
+    .WithHttpHealthCheck("/service/rest/v1/status", 200, "http");
+
+// Attach Nexus to cicd-net AFTER it starts.
+//
+// Passing a second "--network" through WithContainerRuntimeArgs does NOT work — verified: the
+// container came up attached only to "aspire-persistent-network-<hash>-Cicd.Aspire.Host", and a
+// probe container on cicd-net failed with "Could not resolve host: nexus". DCP owns the network
+// assignment at `docker run` time, so the reliable route is to connect once the container exists.
+// Docker registers the container name as a DNS name on every user-defined network it joins, so this
+// is what makes "nexus:8081"/"nexus:8082" resolvable from the Jenkins build agents.
+nexus.OnResourceReady((_, _, _) =>
+{
+    DockerNetwork.Connect(CicdNetwork, "nexus");
+    return Task.CompletedTask;
+});
+
+// Jenkins controller, built from jenkins/controller/Dockerfile with the repo's `jenkins/` directory
+// as the build context — so the EXISTING jenkins/jobs/cicd-jobs.groovy is baked in and seeded by
+// JCasC on boot. Everything the controller needs (plugins, admin user, credentials, the five cicd-*
+// jobs) is declared in jenkins/controller/casc/jenkins.yaml; nothing is configured by hand.
+//
+// Persistent + WithContainerName for the same reasons as Nexus. NOTE the consequence: Aspire
+// rebuilds the image but REUSES an existing container by name, so an edit to plugins.txt or
+// casc/jenkins.yaml does nothing until you `docker rm -f jenkins`.
+var jenkinsController = builder.AddDockerfile("jenkins", "../../../jenkins", "controller/Dockerfile")
+    .WithContainerName("jenkins")
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithVolume("jenkins-home", "/var/jenkins_home")
+    // Raw runtime args rather than WithBindMount: WithBindMount treats "/var/run/docker.sock" as a
+    // rooted path and would rewrite it to C:\var\run\docker.sock on Windows. --group-add 0 gives the
+    // non-root `jenkins` user access to the root-owned socket without running the controller as root.
+    .WithContainerRuntimeArgs("-v", "/var/run/docker.sock:/var/run/docker.sock", "--group-add", "0")
+    .WithHttpEndpoint(targetPort: 8080, port: 8080, name: "http", isProxied: false)
+    .WithEnvironment("JENKINS_ADMIN_ID", nexusUsername)
+    .WithEnvironment("JENKINS_ADMIN_PASSWORD", jenkinsPassword)
+    .WithEnvironment("JENKINS_LOCATION_URL", "http://localhost:8080/")
+    .WithEnvironment("NEXUS_USERNAME", nexusUsername)
+    .WithEnvironment("NEXUS_PASSWORD", nexusPassword)
+    // Consumed by the cfg() env rung in jenkins/jobs/cicd-jobs.groovy so the seeded jobs point at
+    // THIS checkout rather than the hard-coded upstream default.
+    .WithEnvironment("PIPELINE_REPO_URL", pipelineRepoUrl)
+    .WithEnvironment("PIPELINE_REPO_BRANCH", pipelineRepoBranch)
+    .WithHttpHealthCheck("/login", 200, "http");
+
+// Same story as Nexus: the build agents Jenkins launches live on cicd-net, so the controller has to
+// be reachable there too. See DockerNetwork.cs.
+jenkinsController.OnResourceReady((_, _, _) =>
+{
+    DockerNetwork.Connect(CicdNetwork, "jenkins");
+    return Task.CompletedTask;
+});
+
+// One-shot Nexus provisioner: creates the four repositories, turns on the :8082 docker connector,
+// activates the DockerToken + NuGetApiKey realms, and rotates the image's first-run admin password
+// to the generated one. Idempotent — it runs to completion on every start and no-ops thereafter.
+// Replaces the Nexus setup wizard, four hand-clicked repositories, and the curl in docs/sbom-setup.md.
+var nexusProvision = builder.AddProject<Projects.Util_Cli>("nexus-provision")
+    .WithArgs("nexus-provision")
+    .WithEnvironment("NEXUS_URL", nexus.GetEndpoint("http"))
+    .WithEnvironment("NEXUS_USER", nexusUsername)
+    .WithEnvironment("NEXUS_PASS", nexusPassword)
+    .WithEnvironment("NEXUS_DOCKER_REPO", nexusDockerRepo)
+    .WaitFor(nexus);
+
 var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
     // Pin the http endpoint's (proxy) port so the inbound git-webhook URL is stable across restarts —
     // otherwise Aspire assigns a fresh port each run and any ngrok tunnel / provider config drifts.
@@ -63,11 +175,19 @@ var jenkins = builder.AddProject<Projects.Jenkins_Api>("jenkins-api")
     .WaitFor(sql)
     .WithReference(rabbit)
     .WaitFor(rabbit)
+    .WaitFor(nexus)
+    .WaitFor(jenkinsController)
+    // The artifact-reconcile loop polls Nexus as soon as it starts — gate on the repositories existing.
+    .WaitForCompletion(nexusProvision)
     .WithEnvironment("Database__AutoMigrate", "true")
-    .WithEnvironment("Jenkins__ApiToken", jenkinsToken)
-    .WithEnvironment("Jenkins__Url", jenkinsUrl)
+    .WithEnvironment("Jenkins__ApiToken", jenkinsPassword)
+    .WithEnvironment("Jenkins__Url", jenkinsController.GetEndpoint("http"))
     // Nexus reconcile (option b): attaches each build's pushed docker image as a publication.
-    .WithEnvironment("Nexus__Url", nexusUrl)
+    // Url is the HOST-process view (localhost) — this service runs as a process, not a container,
+    // so it cannot resolve the "nexus" hostname. DockerRegistryHost stays "nexus:8082" because it
+    // is a recorded pull reference for agents/clusters, not an address this service dials.
+    .WithEnvironment("Nexus__Url", nexus.GetEndpoint("http"))
+    .WithEnvironment("Nexus__User", nexusUsername)
     .WithEnvironment("Nexus__Password", nexusPassword)
     .WithEnvironment("Nexus__DockerRegistryHost", nexusDockerHost)
     .WithEnvironment("Nexus__DockerRepository", nexusDockerRepo);
@@ -106,7 +226,6 @@ var aspirateKubeconfig = NexusParam("AspirateKubeconfig", "");
 // image digests for provenance-pinning Aspire deploys. Empty => digest-pinning disabled (floating tag).
 //   dotnet user-secrets set Parameters:NexusRegistryV2Url http://localhost:8082
 var nexusRegistryV2Url = NexusParam("NexusRegistryV2Url", "");
-var nexusUsername = NexusParam("NexusUsername", "admin");
 
 var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     // Pin the http endpoint's (proxy) port so Aspire binds + injects a reachable URL. Without this, an
@@ -158,10 +277,12 @@ builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WithEnvironment("Metering__Api__BaseUrl", metering.GetEndpoint("http"))
     // Anthropic API key (empty => AI features disabled, app still runs).
     .WithEnvironment("Ai__ApiKey", aiApiKey)
-    .WithEnvironment("Jenkins__ApiToken", jenkinsToken)
-    .WithEnvironment("Jenkins__Url", jenkinsUrl)
-    // Nexus config for the admin UI's Docker/NuGet pages.
-    .WithEnvironment("Nexus__Url", nexusUrl)
+    .WithEnvironment("Jenkins__ApiToken", jenkinsPassword)
+    .WithEnvironment("Jenkins__Url", jenkinsController.GetEndpoint("http"))
+    // Nexus config for the admin UI's Docker/NuGet pages. Url is the host-process view; see the
+    // jenkins-api block above for why DockerRegistryHost stays "nexus:8082".
+    .WithEnvironment("Nexus__Url", nexus.GetEndpoint("http"))
+    .WithEnvironment("Nexus__User", nexusUsername)
     .WithEnvironment("Nexus__Password", nexusPassword)
     .WithEnvironment("Nexus__DockerRegistryHost", nexusDockerHost)
     .WithEnvironment("Nexus__DockerHostedRepository", nexusDockerRepo);
