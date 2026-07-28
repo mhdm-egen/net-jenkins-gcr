@@ -218,9 +218,24 @@ var dockerConfigDir = NexusParam("DockerConfigDir", "");
 // empty deploys the manifests as generated. Override via the AppHost's user-secrets:
 //   dotnet user-secrets set Parameters:AspiratePullRegistry host.docker.internal:8082
 var aspirateExecutable = NexusParam("AspirateExecutable", "aspirate");
-var aspiratePullRegistry = NexusParam("AspiratePullRegistry", "");
+// Defaults to the same host CI pushes to, so a generated manifest is pullable by the cluster with no
+// extra configuration. The node resolves it exactly like the docker daemon does — verified against
+// Docker Desktop's Kubernetes: `crictl pull host.docker.internal:8082/apiservice:latest` succeeds
+// once containerd trusts the registry (see docs/getting-started.md).
+var aspiratePullRegistry = NexusParam("AspiratePullRegistry", "host.docker.internal:8082");
 // Optional kubeconfig for non-default/remote clusters; empty => the service's default ~/.kube/config.
 var aspirateKubeconfig = NexusParam("AspirateKubeconfig", "");
+// The Nexus registry needs auth, so the target namespace needs an image-pull secret. Let the service
+// provision it (Deployment:Aspirate:PullSecretName, default "nexus-pull") from the Nexus credentials
+// it already has, rather than making every developer run `kubectl create secret docker-registry`.
+var aspirateEnsurePullSecret = NexusParam("AspirateEnsurePullSecret", "true");
+// Manifest archive the demo-catalog seed registers its Aspire app against. Must be reachable by this
+// service, which runs as a HOST PROCESS — so localhost, not "nexus" and not host.docker.internal
+// (verified: host.docker.internal:8081 answers from a container but NOT from the Windows host).
+// Point it at a version cicd-aspire-publish has actually published:
+//   dotnet user-secrets set Parameters:SeedAspireManifestSource http://localhost:8081/repository/raw-hosted/sampleapp/<version>/aspirate-output.tar.gz
+var seedAspireManifest = NexusParam("SeedAspireManifestSource",
+    "http://localhost:8081/repository/raw-hosted/sampleapp/1.0.0/aspirate-output.tar.gz");
 
 // Nexus docker-v2 endpoint the deployment SERVICE can reach (e.g. http://localhost:8082) to resolve
 // image digests for provenance-pinning Aspire deploys. Empty => digest-pinning disabled (floating tag).
@@ -242,6 +257,8 @@ var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithEnvironment("Deployment__Aspirate__Executable", aspirateExecutable)
     .WithEnvironment("Deployment__Aspirate__PullRegistry", aspiratePullRegistry)
     .WithEnvironment("Deployment__Aspirate__Kubeconfig", aspirateKubeconfig)
+    .WithEnvironment("Deployment__Aspirate__EnsurePullSecret", aspirateEnsurePullSecret)
+    .WithEnvironment("Deployment__Seed__AspireManifestSource", seedAspireManifest)
     .WithEnvironment("Deployment__Nexus__RegistryV2Url", nexusRegistryV2Url)
     .WithEnvironment("Deployment__Nexus__Username", nexusUsername)
     .WithEnvironment("Deployment__Nexus__Password", nexusPassword);

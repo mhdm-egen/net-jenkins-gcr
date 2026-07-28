@@ -1,3 +1,4 @@
+using Deployment.Contracts.Seed;
 using System.Text.Json.Serialization;
 using Cicd.Messaging;
 using Cicd.Notifications;
@@ -132,6 +133,41 @@ if (builder.Configuration.GetValue<bool>("Database:AutoMigrate"))
         }
     }
 }
+
+// Seed the demo deployment catalog on a brand-new system, so a freshly brought-up stack has a
+// Kubernetes environment and an Aspire application to deploy instead of empty dropdowns. Mirrors the
+// CI-side repository seed in Jenkins.Api. Creating config raises only config events with no
+// consumers, so this never kicks off a deploy.
+//
+// Guarded the same two ways: skipped once ANY environment exists (so it cannot resurrect something an
+// operator deleted, and never touches an established install), and Deployment:SeedDemoCatalog=false
+// opts out. Runs after ApplicationStarted so the bus is up when SaveChanges dispatches events.
+app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+{
+    if (!app.Configuration.GetValue("Deployment:SeedDemoCatalog", true)) return;
+
+    using var scope = app.Services.CreateScope();
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<DeploymentDbContext>();
+        if (await db.Environments.AnyAsync()) return;
+
+        var result = await scope.ServiceProvider.GetRequiredService<Deployment.Api.Endpoints.SeedDemoHandler>()
+            .HandleAsync(new SeedDemoRequest(
+                AspireAutoDeploy: true,
+                BlueGreenK8s: false,
+                CloudRun: false,
+                K8sAdmin: false), CancellationToken.None);
+
+        app.Logger.LogInformation(
+            "Seeded demo deployment catalog on first run: {Created} created, {Skipped} skipped.",
+            result.Created, result.Skipped);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Demo deployment catalog seed skipped.");
+    }
+}));
 
 if (app.Environment.IsDevelopment()) app.MapOpenApi();
 if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
