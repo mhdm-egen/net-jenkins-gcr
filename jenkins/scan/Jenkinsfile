@@ -95,8 +95,8 @@ pipeline {
                     if (!GIT_URL?.trim()) {
                         error "build-info.json has no gitUrl — cannot fetch the source to scan. Re-run cicd-build to produce a gitUrl."
                     }
-                    // Clone the exact repo + commit cicd-build built. build-info.json (untracked)
-                    // survives the checkout.
+                    // Clone the exact repo + commit cicd-build built. NOTE this checkout REMOVES
+                    // the build-info.json copied in above — it is re-fetched in the Archive stage.
                     def remote = [url: GIT_URL.trim()]
                     if (params.GIT_CREDENTIALS_ID?.trim()) {
                         remote.credentialsId = params.GIT_CREDENTIALS_ID.trim()
@@ -256,6 +256,22 @@ pipeline {
             steps {
                 // Re-archive build-info.json together with the SBOMs so downstream publish
                 // jobs (whose upstream is cicd-scan) pull everything as a unit.
+                //
+                // build-info.json has to be fetched AGAIN here. The copy taken in "Resolve build"
+                // lands in the workspace root and does NOT survive the app-repo checkout that
+                // follows — verified: after a green scan the workspace held bom.json and
+                // bom-vex.json but no build-info.json. Combined with allowEmptyArchive it failed
+                // silently, and every downstream publish job then died with
+                // "Failed to copy artifacts from cicd-scan with filter: build-info.json".
+                copyArtifacts(
+                    projectName: params.SOURCE_BUILD_JOB,
+                    selector: SOURCE_BUILD_NUM
+                        ? [$class: 'SpecificBuildSelector', buildNumber: "${SOURCE_BUILD_NUM}"]
+                        : [$class: 'StatusBuildSelector'],
+                    filter: 'build-info.json',
+                    fingerprintArtifacts: true
+                )
+
                 archiveArtifacts(
                     artifacts: 'build-info.json,bom.json,vulnerabilities.json,bom-vex.json',
                     fingerprint: true,
