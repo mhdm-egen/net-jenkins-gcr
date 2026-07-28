@@ -1,5 +1,11 @@
 <Project>
 
+  <!-- MSBuild stops at the nearest Directory.Build.props, so chain to src/ explicitly to
+       inherit the shared settings there (missing ProjectReference => error). Conditional
+       because a container build context may not include src/ above this directory. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))"
+          Condition="'$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))' != ''" />
+
   <!--
     Container opt-in contract for CI.
 

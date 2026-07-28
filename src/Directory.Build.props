@@ -1,0 +1,26 @@
+<Project>
+
+  <!--
+    Treat a missing <ProjectReference> target as a build error, not a warning.
+
+    By default MSBuild only warns (MSB9008) when a referenced .csproj is absent and
+    carries on, so the build reports "Build succeeded / 0 Error(s)" and then fails much
+    later with a confusing CS0246 on whatever type lived in the missing project.
+
+    That matters here because every service image builds with context = src/ and copies
+    in only the subtrees it needs. When a project gains a reference (e.g. shared/Cicd.*)
+    and the service's Dockerfile isn't updated to COPY it, the project is missing *inside
+    the container* while present on a dev box — so `dotnet build` stays green locally and
+    only `docker compose build` breaks, pointing at the wrong file. This has bitten
+    jenkins-api, web-admin (twice) and metering-api.
+
+    Promoting MSB9008 makes the Docker build stop at the real cause and name the missing
+    project reference. It does not fire on a normal local build, where all referenced
+    projects exist. Note this is MSBuildWarningsAsErrors (for MSB#### warnings raised by
+    MSBuild itself), not WarningsAsErrors (which only covers compiler diagnostics).
+  -->
+  <PropertyGroup>
+    <MSBuildWarningsAsErrors>$(MSBuildWarningsAsErrors);MSB9008</MSBuildWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>
