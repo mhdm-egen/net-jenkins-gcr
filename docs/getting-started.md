@@ -116,6 +116,14 @@ dotnet user-secrets list --project src/Aspire/Cicd.Aspire.Host
 > so the next run cannot log in. If you ever *do* need to reset one, delete the matching volume too
 > (`docker volume rm nexus-data`, or the `*-sql-data` volume).
 
+**Optional — AI features.** The one credential the platform can't generate for itself is an
+Anthropic API key. Without it the app runs normally and AI actions simply don't appear; with it you
+get "Explain this CVE" on the SBOM pages and the AI half of the usage ledger. See [ai.md](ai.md).
+
+```bash
+dotnet user-secrets set Parameters:AiApiKey <key> --project src/Aspire/Cicd.Aspire.Host
+```
+
 Remaining manual step, once per machine: start the **`build-agent-image`** resource from the
 dashboard. It builds `netsdk10:latest` (~5 min), which every `cicd-*` job runs its stages in.
 `nexus-provision` warns on every start until it exists.

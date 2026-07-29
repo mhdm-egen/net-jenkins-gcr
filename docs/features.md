@@ -133,7 +133,21 @@ A **Kubernetes** section in web-admin — see [k8s-admin-demo.md](demos/k8s-admi
 | Deployed-apps overview | Consolidated live health of all Aspire apps + active previews (with URLs), aggregated from existing endpoints | #57 |
 | Lifecycle actions | Rolling-restart a Deployment, scale replicas, delete a pod — each behind a confirm | #58 |
 
+## 15. AI & cost metering
+
+An optional AI layer on the Anthropic SDK, plus a usage ledger that rates every model call. No API
+key ⇒ AI actions simply don't appear. See [ai.md](ai.md).
+
+| Feature | What it does | PR |
+| --- | --- | --- |
+| AI foundation | One SDK call site behind `IAiInsightService`; token usage captured at the boundary and fanned out to an OTel meter + the ledger; soft-fails with no key | `feat/ai-integration` |
+| Explain this CVE | Grounded, Redis-cached explanation of a CVE in the context of the affected package, on every SBOM vulnerability row | `feat/ai-integration` |
+| Metering service | `metering-api` — a general usage ledger with per-direction AI token rows, idempotent ingest, and a versioned rate table | `feat/ai-integration` |
+| Build & deploy meters | `ci.events` / `deployment.events` subscriptions meter pipeline runs and deploys into the same ledger (counts, not costed) | `feat/ai-integration` |
+| Usage & cost page | Token spend, estimated cost, cache-hit rate, by model / by feature, plus build & deploy activity | `feat/ai-integration` |
+
 ---
 
 *Docs added along the way: architecture-diagram rewrite (#22), `kind`-to-Nexus setup script (#38), the
-deploy-safety / preview / README / feature-catalog docs, and the demo runbooks under [demos/](demos/).*
+deploy-safety / preview / README / feature-catalog docs, the demo runbooks under [demos/](demos/), and
+the [AI features](ai.md) guide.*
