@@ -47,6 +47,16 @@ else
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">@reason</MudAlert>
     }
 
+    @* A run can SUCCEED while the URL it produced is unreachable (e.g. no ingress controller), so
+       surface those advisories here rather than leaving them buried in the log pane below. *@
+    @foreach (var advisory in DeploymentAdvisories.Extract(r.Log))
+    {
+        <MudAlert Severity="@(advisory.Level == AdvisoryLevel.Warning ? Severity.Warning : Severity.Info)"
+                  Variant="Variant.Outlined" Class="mb-4">
+            @advisory.Message
+        </MudAlert>
+    }
+
     <MudGrid>
         <MudItem xs="12" md="6">
             <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
