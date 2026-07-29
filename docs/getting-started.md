@@ -58,6 +58,44 @@ Verify with `docker info | grep -A3 'Insecure Registries'`.
 > [deployment/aspire-k8s-local-runbook.md](deployment/aspire-k8s-local-runbook.md). The
 > `NEXUS_SDK_HOST` job parameter exists to split the two if your setup ever needs it.
 
+#### One-time: Kubernetes, for the deploy half
+
+Only needed for Aspire→K8s deploys and preview environments; CI works without a cluster.
+
+**1. A cluster.** Enable Kubernetes in Docker Desktop (context `docker-desktop`), or use kind.
+
+**2. Let the nodes pull from Nexus.** The registry is authenticated and plain HTTP, so the node's
+container runtime has to trust it — the image-pull secret alone is not enough. On Docker Desktop's
+Kubernetes:
+
+```bash
+docker exec desktop-control-plane sh -c 'mkdir -p "/etc/containerd/certs.d/host.docker.internal:8082" && cat > "/etc/containerd/certs.d/host.docker.internal:8082/hosts.toml" <<EOF
+[host."http://host.docker.internal:8082"]
+  capabilities = ["pull", "resolve"]
+  skip_verify = true
+EOF'
+```
+
+Verify with `docker exec desktop-control-plane crictl pull --creds admin:<nexus-password> host.docker.internal:8082/apiservice:latest`.
+For kind, `samples/aspire-sample/kind-nexus-setup.sh` does the equivalent across all nodes. The
+image-pull secret itself is provisioned for you (`Deployment:Aspirate:EnsurePullSecret`, on by default).
+
+**3. An ingress controller**, or deployed apps have no reachable URL:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.13.9/deploy/static/provider/cloud/deploy.yaml
+kubectl wait -n ingress-nginx --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=controller --timeout=300s
+```
+
+> **Symptom if you skip it:** the app URL fails with `ERR_CONNECTION_REFUSED` even though the deploy
+> succeeded and the pods are `Running`. The tell is that `kubectl get ingress -A` shows the Ingress
+> with an **empty ADDRESS**, and `kubectl get ingressclass` returns *no resources* — the Ingress
+> objects exist but nothing implements `class: nginx`, so nothing is listening on :80.
+> `*.localtest.me` resolves to 127.0.0.1, which Docker Desktop maps to the controller's
+> LoadBalancer. A bare `http://localhost/` returning 404 afterwards is normal: the controller has no
+> default backend and only serves the named hosts.
+
 ### First-run secrets: none
 
 Nothing to set up. On first run the AppHost generates `sql-password`, `jenkins-password` and
