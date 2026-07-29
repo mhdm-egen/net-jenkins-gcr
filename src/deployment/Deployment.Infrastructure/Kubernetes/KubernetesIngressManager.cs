@@ -91,6 +91,54 @@ internal sealed class KubernetesIngressManager : IIngressManager
         catch { return null; }
     }
 
+    public async Task<string?> DescribeUnbackedIngressAsync(string? context, string @namespace, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(@namespace)) return null;
+
+        try
+        {
+            using var client = _factory.Create(context);
+
+            // No IngressClass at all means nothing implements ingress on this cluster — the decisive,
+            // single-call signal, and the one that produced a refused URL on a real bring-up.
+            var classes = await client.NetworkingV1
+                .ListIngressClassAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (classes?.Items is null || classes.Items.Count == 0)
+            {
+                return "WARNING: the cluster has no IngressClass, so no ingress controller is installed. " +
+                       "The Ingress was created and the URL above is correct, but nothing serves it yet — " +
+                       "browsing it fails with ERR_CONNECTION_REFUSED. Install one, e.g. ingress-nginx " +
+                       "(see docs/getting-started.md), then re-check; no redeploy is needed.";
+            }
+
+            // A class exists but no controller has claimed this Ingress. Normal for a few seconds after
+            // a deploy, so this is reported as informational rather than a hard warning.
+            var ing = await client.NetworkingV1
+                .ReadNamespacedIngressAsync(IngressName, @namespace, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            var addresses = ing?.Status?.LoadBalancer?.Ingress;
+            if (addresses is null || addresses.Count == 0)
+            {
+                return "NOTE: the Ingress has no address yet — the controller has not claimed it. This usually " +
+                       "settles within a few seconds; if it persists, check the ingress controller is running " +
+                       $"and that its IngressClass matches ({string.Join(", ", classes.Items.Select(c => c.Metadata?.Name))}).";
+            }
+
+            return null;
+        }
+        catch (HttpOperationException http) when ((int)http.Response.StatusCode == 404)
+        {
+            return null; // no ingress stamped (disabled, or no frontend Service) — nothing to warn about
+        }
+        catch (Exception ex)
+        {
+            // Never let a diagnostic break a deploy that already succeeded.
+            _logger.LogDebug(ex, "[ingress] readiness check failed for {Namespace}; skipping the diagnostic.", @namespace);
+            return null;
+        }
+    }
+
     public async Task DeleteIngressAsync(string? context, string @namespace, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(@namespace)) return;

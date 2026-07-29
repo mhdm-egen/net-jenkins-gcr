@@ -69,9 +69,22 @@ public sealed class AspireApplicationRunExecutor
         {
             var images = await SnapshotImagesAsync(clusterStatus, run.KubeContext, targetNamespace, run.Id, logger, ct).ConfigureAwait(false);
             // Stamp a browsable Ingress for the app's frontend (best-effort; host = {namespace}.{app-domain}).
-            try { await ingress.EnsureAppIngressAsync(run.KubeContext, targetNamespace, targetNamespace, ct).ConfigureAwait(false); }
+            var runLog = result.Log;
+            try
+            {
+                await ingress.EnsureAppIngressAsync(run.KubeContext, targetNamespace, targetNamespace, ct).ConfigureAwait(false);
+
+                // Record on the RUN when nothing backs that Ingress — a succeeded run whose URL refuses
+                // connections otherwise looks like a broken app rather than a missing prerequisite.
+                if (await ingress.DescribeUnbackedIngressAsync(run.KubeContext, targetNamespace, ct).ConfigureAwait(false)
+                        is { Length: > 0 } warning)
+                {
+                    runLog = string.IsNullOrEmpty(runLog) ? warning : $"{runLog}{Environment.NewLine}{warning}";
+                    logger.LogWarning("[aspire] Run {Run}: {Warning}", run.Id, warning);
+                }
+            }
             catch (Exception ex) { logger.LogWarning(ex, "[aspire] Run {Run} ingress stamp failed; app reachable via port-forward.", run.Id); }
-            run.Succeed(result.Log, images, now);
+            run.Succeed(runLog, images, now);
         }
         else
         {

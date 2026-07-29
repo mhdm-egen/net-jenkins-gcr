@@ -22,4 +22,16 @@ public interface IIngressManager
 
     /// <summary>Delete the Ingress this manager creates (namespace teardown handles the rest). Idempotent.</summary>
     Task DeleteIngressAsync(string? context, string @namespace, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a human-readable warning when the URL this manager just handed out cannot actually
+    /// serve — i.e. the Ingress exists but no controller backs it — or <c>null</c> when all is well.
+    ///
+    /// Stamping an Ingress always "succeeds": the object is accepted by the API server whether or not
+    /// anything implements its class. On a cluster with no ingress controller the deploy therefore
+    /// reports success, the pods run, and the URL fails with ERR_CONNECTION_REFUSED, which looks like
+    /// a broken app rather than a missing prerequisite. Callers surface this on the run/preview log so
+    /// the cause is visible where the URL is.
+    /// </summary>
+    Task<string?> DescribeUnbackedIngressAsync(string? context, string @namespace, CancellationToken cancellationToken = default);
 }
