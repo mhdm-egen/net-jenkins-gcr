@@ -4,12 +4,14 @@ The platform has an AI layer built on the official Anthropic SDK, plus a **meter
 turns every model call into a rated, queryable cost ledger. Both are optional: with no API key the
 app runs exactly as before, AI actions simply don't appear.
 
-Three things ship today:
+What ships today:
 
 | Feature | Where | What it does |
 | --- | --- | --- |
 | **Explain this CVE** | SCA → SBOM / Aspire SBOM, vulnerability rows | Grounded, cached explanation of a CVE *in the context of the affected package* |
-| **Explain this failure** | Pipeline run detail (`/jenkins/runs/{id}`), failed runs only | Grounded, cached triage of *why* a pipeline run failed, from the failing job's console output |
+| **Explain this failure** (pipeline) | `/jenkins/runs/{id}`, failed runs | Triage of *why* a pipeline run failed, from the failing job's console output |
+| **Explain this failure** (deploy) | `/deployment/runs/{id}`, failed runs | Turns the typed step-failure category into a specific fix |
+| **Explain this deploy** (Aspire) | `/deployment/aspire-runs/{id}`, any run with a log | Explains the aspirate log — the failure, or the warnings behind an unreachable app |
 | **Usage & cost** | AI → Usage & cost (`/ai/usage`) | Token spend, estimated cost, cache-hit rate, by model / by feature — plus build & deploy activity |
 
 Everything else in this document is the plumbing those sit on, which is deliberately built as a
@@ -67,14 +69,26 @@ Four properties this shape buys:
 | `src/web-admin/.../Services/Ai/AiModels.cs` | `AiInsightRequest` / `AiInsight` / `AiUsage` |
 | `src/web-admin/.../Services/Ai/MeterAiUsageRecorder.cs` | OTel meter sink |
 | `src/web-admin/.../Services/Metering/MeteringUsageRecorder.cs` | HTTP ingest sink |
-| `src/web-admin/.../Services/Sca/CveExplainer.cs` | The CVE-explain feature (prompt + cache) |
-| `src/web-admin/.../Services/Ci/PipelineFailureExplainer.cs` | The failure-triage feature (prompt + cache) |
+| `src/web-admin/.../Services/Ai/AiExplanationRunner.cs` | The cache→call→cache half every feature shares |
+| `src/web-admin/.../Services/Sca/CveExplainer.cs` | CVE explain |
+| `src/web-admin/.../Services/Ci/PipelineFailureExplainer.cs` | Pipeline failure triage |
+| `src/web-admin/.../Services/Deployment/DeployRunExplainer.cs` | Service-deploy failure triage |
+| `src/web-admin/.../Services/Deployment/AspireRunExplainer.cs` | Aspire deploy-log explanation |
 | `src/web-admin/.../Components/Shared/AiExplanationDialog.razor` | Generic dialog every AI panel reuses |
 | `src/metering/` | The metering service (ledger, rating, endpoints) |
 
 ---
 
-## 2. Explain this CVE
+## 2. The explanation features
+
+All four share one shape, factored into `AiExplanationRunner`: check the distributed cache, else run
+one grounded request and cache the answer. Each feature owns only what is genuinely its own — the
+prompt, the model tier, the cache key, and the attribution dimensions. Empty answers are never
+cached, so a transient blank doesn't pin itself for the whole TTL.
+
+They all render through the same `AiExplanationDialog`, and all hide themselves when no key is set.
+
+### Explain this CVE
 
 On any vulnerability row in the SBOM panels (`SbomAnalysis.razor`, shared by `/sca/sbom` and
 `/sca/aspire-sbom`) a ✨ button opens a dialog with a plain-language explanation of the CVE **as it
@@ -96,7 +110,7 @@ Runs on the **Interactive** tier and reports as feature key `explain_cve` on the
 
 ---
 
-## 3. Explain this failure
+### Explain this pipeline failure
 
 On a **failed** pipeline run (`/jenkins/runs/{id}`) an *Explain this failure* button appears beside
 the failure banner — above the console pane, because the console is both the richest failure signal
@@ -124,17 +138,58 @@ re-opening is free and marked `(cached)`.
 **Attribution.** First feature to populate `Dimensions` — it tags usage with the run's
 `repository`, which turns on per-repo showback in the ledger.
 
+### Explain this deploy failure
+
+On a **failed** per-service deployment run (`/deployment/runs/{id}`).
+
+**Why this one is cheap.** A deployment run has *no log* — only the typed per-step record. The deploy
+pipeline already classified the failure into a `StepFailureKind` (`ToolMissing`, `RegistryAuth`,
+`RegistryError`, `CloudRunAuth`, `CloudRunNotFound`, `Timeout`, `Config`), so the hard part —
+categorising — is done before the model sees anything. That makes the whole prompt a short structured
+record, which is why this runs on **Interactive** while pipeline triage runs on Synthesis. Paying
+Opus rates to explain an already-classified failure would be waste.
+
+The prompt carries a **legend for only the categories present on that run**, mirroring the comments
+on `StepFailureKind`, so the model uses the platform's vocabulary instead of re-deriving it from the
+free-text detail. It also states the deploy target explicitly (Cloud Run service vs. Kubernetes
+resource) rather than letting the model infer it from which fields happen to be populated — the
+target changes the remediation entirely.
+
+Reports as `explain_deploy_failure`; tags the `service` dimension.
+
+### Explain this Aspire deploy
+
+On an Aspire application run (`/deployment/aspire-runs/{id}`) with a log — **including succeeded
+runs**, which is the point. A run can succeed and still leave the app unreachable; that's what the
+advisory alerts on that page exist to surface. So on a failure the button reads *Explain this
+failure*, and on a success *Explain this deploy*, with the prompt instructed not to manufacture a
+problem but to summarise what was deployed and explain any warnings.
+
+Grounded in the aspirate log (tail-trimmed to 12k, and the prompt says whether it was truncated),
+plus the manifest source, cluster/namespace, version, and the images the run reported deploying.
+**Synthesis** tier — a long noisy CLI log is the same synthesis problem as pipeline triage.
+
+Reports as `explain_aspire_deploy`; tags `service` and `environment`.
+
+> Both deploy explainers put **run status in the cache key**. A run parked in `AwaitingPromotion` can
+> later be promoted or rolled back, and the old explanation would no longer describe it — including
+> status makes the entry self-invalidating on that transition.
+
 ---
 
-## 4. Model tiers
+## 3. Model tiers
 
 Features pick a *tier*, not a model id, so the concrete model can be re-pointed in config without
 touching feature code:
 
 | Tier | Config key | Default | Used by |
 | --- | --- | --- | --- |
-| `Interactive` | `Ai:InteractiveModel` | `claude-sonnet-5` | Latency-sensitive UI panels — CVE explain |
-| `Synthesis` | `Ai:SynthesisModel` | `claude-opus-5` | Deep synthesis — pipeline failure triage |
+| `Interactive` | `Ai:InteractiveModel` | `claude-sonnet-5` | CVE explain, deploy-failure explain — small or pre-classified inputs |
+| `Synthesis` | `Ai:SynthesisModel` | `claude-opus-5` | Pipeline triage, Aspire deploy — long noisy logs |
+
+The split is about **input shape, not importance**: a feature goes to Synthesis when it has to reason
+backwards from a long, noisy log, and stays on Interactive when the platform already did the
+structuring. Both failure-triage features are equally important; only one of them is hard.
 
 > **Re-pointing either model needs a matching row in `UsageRater`**, or its cost falls through to
 > the table's Opus-tier default rate.
@@ -145,7 +200,7 @@ the Redis layer in front of the call, not from prompt caching (see Known gaps).
 
 ---
 
-## 5. Metering & cost
+## 4. Metering & cost
 
 `metering-api` is a general usage ledger, not an AI-only one. AI tokens are the first meter; build
 and deploy activity ride the same tables.
@@ -233,7 +288,7 @@ Independent of the persisted ledger, two OpenTelemetry meters export to the Aspi
 
 ---
 
-## 6. Configuration
+## 5. Configuration
 
 ### The API key
 
@@ -271,13 +326,16 @@ only the API key is yours to supply.
 4. Open a **failed** pipeline run (`/jenkins/runs/{id}`) — an *Explain this failure* button should
    appear beside the failure banner, and its answer should name the actual failing job. A succeeded
    run shows no button.
-5. Open **AI → Usage & cost** — two calls, non-zero tokens, a cost, and both `explain_cve` and
-   `explain_pipeline_failure` under *By feature* (the latter against `claude-opus-5`).
-6. Re-open either one: the footer should now read `(cached)`, and the ledger should be unchanged.
+5. Open a **failed** deploy run (`/deployment/runs/{id}`) and an Aspire run with a log
+   (`/deployment/aspire-runs/{id}`) — both should offer a button; the Aspire one offers it on
+   *succeeded* runs too, worded *Explain this deploy*.
+6. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
+   across `claude-sonnet-5` and `claude-opus-5` under *By model* per the tier table above.
+7. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
 
 ---
 
-## 7. Known gaps
+## 6. Known gaps
 
 Recorded here so they aren't rediscovered as bugs:
 
@@ -297,19 +355,24 @@ Recorded here so they aren't rediscovered as bugs:
 
 ---
 
-## 8. Extending it
+## 7. Extending it
 
-To add an AI feature, don't reach for the SDK — inject `IAiInsightService` and:
+To add an explanation feature, don't reach for the SDK or for `IDistributedCache` — inject
+`AiExplanationRunner` and write only the parts that are yours:
 
-1. Build a **grounded** prompt from structured data you can cite. Say explicitly what is *not* in the
-   data so the model doesn't fill the gap.
-2. Pick a tier (`Interactive` or `Synthesis`) rather than a model id.
-3. Choose a stable `Feature` key — it's the attribution key on the usage page.
-4. Pass `Dimensions` (`repository` / `service` / `environment`) if the work is attributable.
-5. Cache in `IDistributedCache` when the inputs are stable, keyed so the key changes when they do.
-6. Check `IsConfigured` and hide the action when false — never throw at the user.
+1. A **grounded** prompt built from structured data you can cite. Say explicitly what is *not* in the
+   data, so the model reports a gap instead of filling it.
+2. A tier — `Synthesis` if it must reason backwards from a long noisy log, `Interactive` otherwise.
+3. A stable `feature` key. It's the attribution key on the usage page, so don't rename it casually.
+4. A cache key covering **everything the answer depends on**, including any status that can change
+   later (see the deploy explainers).
+5. `dimensions` (`repository` / `service` / `environment`) when the work is attributable.
+6. An `IsConfigured` check at the call site so the affordance hides rather than throws.
 
-Metering, telemetry, and cost attribution then come for free; that is the point of the seam.
+Then render it with `AiExplanationDialog` — pass a `Loader` and a `LoadingMessage`; no new dialog.
+Caching, metering, telemetry, and cost attribution all come for free. That is the point of the seam.
+
+For anything that isn't an explanation panel, drop one level and use `IAiInsightService` directly.
 
 ---
 

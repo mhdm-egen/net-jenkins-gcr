@@ -1,6 +1,5 @@
 using System.Text;
 using Cicd.Web.Admin.Services.Ai;
-using Microsoft.Extensions.Caching.Distributed;
 
 namespace Cicd.Web.Admin.Services.Ci;
 
@@ -15,10 +14,8 @@ namespace Cicd.Web.Admin.Services.Ci;
 /// </summary>
 public sealed class PipelineFailureExplainer : IPipelineFailureExplainer
 {
-    private static readonly DistributedCacheEntryOptions CacheOptions = new()
-    {
-        AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7),
-    };
+    /// <summary>A settled run is immutable, so its triage stays valid for as long as we keep it.</summary>
+    private static readonly TimeSpan CacheFor = TimeSpan.FromDays(7);
 
     private const string SystemPrompt =
         "You are a CI/CD engineer helping a .NET developer triage a failed Jenkins pipeline run. " +
@@ -30,42 +27,31 @@ public sealed class PipelineFailureExplainer : IPipelineFailureExplainer
         "can see it. Structure the answer as: (1) what failed, (2) the most likely cause, " +
         "(3) what to try first, (4) anything the log does not show that would confirm the diagnosis.";
 
-    private readonly IAiInsightService _ai;
-    private readonly IDistributedCache _cache;
+    private readonly AiExplanationRunner _runner;
 
-    public PipelineFailureExplainer(IAiInsightService ai, IDistributedCache cache)
-    {
-        _ai = ai;
-        _cache = cache;
-    }
+    public PipelineFailureExplainer(AiExplanationRunner runner) => _runner = runner;
 
-    public bool IsConfigured => _ai.IsConfigured;
+    public bool IsConfigured => _runner.IsConfigured;
 
     public async Task<PipelineFailureExplanation> ExplainAsync(
         PipelineFailureExplainRequest request, CancellationToken ct = default)
     {
-        var cacheKey = $"pipeline-explain:v1:{request.RunId}";
-
-        var cached = await _cache.GetStringAsync(cacheKey, ct);
-        if (cached is { Length: > 0 })
-            return new PipelineFailureExplanation(cached, FromCache: true, ModelUsed: "cache");
-
         // Attribute the spend to the repository so per-repo showback works in the ledger.
         var dimensions = request.RepositoryId is { } repoId
             ? new Dictionary<string, string> { ["repository"] = repoId.ToString() }
             : null;
 
-        var insight = await _ai.GetInsightAsync(new AiInsightRequest(
-            Feature: "explain_pipeline_failure",
-            SystemPrompt: SystemPrompt,
-            GroundedPrompt: BuildPrompt(request),
-            Model: AiModelKind.Synthesis,
-            Dimensions: dimensions), ct);
+        var outcome = await _runner.RunAsync(
+            cacheKey: $"pipeline-explain:v1:{request.RunId}",
+            feature: "explain_pipeline_failure",
+            tier: AiModelKind.Synthesis,
+            systemPrompt: SystemPrompt,
+            groundedPrompt: BuildPrompt(request),
+            ttl: CacheFor,
+            dimensions: dimensions,
+            ct: ct);
 
-        if (!string.IsNullOrWhiteSpace(insight.Text))
-            await _cache.SetStringAsync(cacheKey, insight.Text, CacheOptions, ct);
-
-        return new PipelineFailureExplanation(insight.Text, FromCache: false, ModelUsed: insight.ModelUsed);
+        return new PipelineFailureExplanation(outcome.Text, outcome.FromCache, outcome.ModelUsed);
     }
 
     private static string BuildPrompt(PipelineFailureExplainRequest r)

@@ -3,7 +3,7 @@
 Where the AI layer is going, and why in this order. Companion to [ai.md](ai.md), which documents
 what exists today.
 
-**Status: slice 1 of 9 done.**
+**Status: slices 1–2 of 9 done.**
 
 ---
 
@@ -23,8 +23,8 @@ describes**, and several features had infrastructure provisioned *by name* and w
 | # | Slice | Status |
 | --- | --- | --- |
 | 1 | **Pipeline failure triage** — "why did this run fail" on a failed run's page | ✅ Done |
-| 2 | Deploy failure explainer + Aspire deploy-log summarizer | Next |
-| 3 | Weekly DORA digest — scheduled, pushed over the existing Slack/SMTP senders | Planned |
+| 2 | **Deploy failure explainer + Aspire deploy-log explainer** — plus `AiExplanationRunner`, the shared cache→call→cache half all features now use | ✅ Done |
+| 3 | Weekly DORA digest — scheduled, pushed over the existing Slack/SMTP senders | Next |
 | 4 | License risk narrative + drift explainer + release notes | Planned |
 | 5 | SBOM diff — "what changed in my dependencies between two builds" | Planned |
 | 6 | **"Ask the platform"** — agentic, read-only tool use across every surface | Planned |

@@ -143,7 +143,9 @@ key ⇒ AI actions simply don't appear. See [ai.md](ai.md) for what exists and
 | --- | --- | --- |
 | AI foundation | One SDK call site behind `IAiInsightService`; token usage captured at the boundary and fanned out to an OTel meter + the ledger; soft-fails with no key | `feat/ai-integration` |
 | Explain this CVE | Grounded, Redis-cached explanation of a CVE in the context of the affected package, on every SBOM vulnerability row | `feat/ai-integration` |
-| Explain this failure | Grounded, Redis-cached triage of a failed pipeline run from the failing job's console output — picks the failing job from the step record and sends only the log tail | `feat/ai-integration` |
+| Explain this failure (pipeline) | Grounded, Redis-cached triage of a failed pipeline run from the failing job's console output — picks the failing job from the step record and sends only the log tail | `feat/ai-integration` |
+| Explain this failure (deploy) | Turns a deploy run's typed `StepFailureKind` into a specific fix, grounded in the step record and the deploy target | `feat/ai-integration` |
+| Explain this deploy (Aspire) | Explains an aspirate deploy log — the failure on a failed run, or the warnings behind an unreachable app on a succeeded one | `feat/ai-integration` |
 | Metering service | `metering-api` — a general usage ledger with per-direction AI token rows, idempotent ingest, and a versioned rate table | `feat/ai-integration` |
 | Build & deploy meters | `ci.events` / `deployment.events` subscriptions meter pipeline runs and deploys into the same ledger (counts, not costed) | `feat/ai-integration` |
 | Usage & cost page | Token spend, estimated cost, cache-hit rate, by model / by feature, plus build & deploy activity | `feat/ai-integration` |

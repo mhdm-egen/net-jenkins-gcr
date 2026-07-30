@@ -2,6 +2,8 @@
 @inject DeploymentApiClient Api
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
+@inject IDeployRunExplainer Explainer
+@inject IDialogService DialogService
 
 <PageTitle>Deployment — Run</PageTitle>
 
@@ -42,6 +44,15 @@ else
     @if (r.FailureReason is { Length: > 0 } reason)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">@reason</MudAlert>
+    }
+
+    @* The step record below already carries a typed failure category; this turns that category
+       into a fix. Hidden entirely when AI is unconfigured. *@
+    @if (r.Status == DeploymentRunStatusDto.Failed && Explainer.IsConfigured)
+    {
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="mb-4"
+                   StartIcon="@Icons.Material.Filled.AutoAwesome"
+                   OnClick="OpenExplanationAsync">Explain this failure</MudButton>
     }
 
     <MudGrid>
@@ -121,6 +132,24 @@ else
         try { _run = await Api.GetRunAsync(Id); }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; StateHasChanged(); }
+    }
+
+    private async Task OpenExplanationAsync()
+    {
+        if (_run is not { } run) return;
+        var request = DeployRunExplainRequest.FromRun(run);
+
+        var parameters = new DialogParameters
+        {
+            ["Loader"] = new Func<Task<AiExplanationDialog.AiExplanationResult>>(async () =>
+            {
+                var e = await Explainer.ExplainAsync(request);
+                return new AiExplanationDialog.AiExplanationResult(e.Text, e.FromCache, e.ModelUsed);
+            }),
+            ["LoadingMessage"] = $"Reading the step record for {run.ServiceName}…",
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<AiExplanationDialog>($"Why the {run.ServiceName} deploy failed", parameters, options);
     }
 
     private async Task PromoteAsync()

@@ -1,6 +1,5 @@
 using System.Text;
 using Cicd.Web.Admin.Services.Ai;
-using Microsoft.Extensions.Caching.Distributed;
 
 namespace Cicd.Web.Admin.Services.Sca;
 
@@ -12,10 +11,7 @@ namespace Cicd.Web.Admin.Services.Sca;
 /// </summary>
 public sealed class CveExplainer : ICveExplainer
 {
-    private static readonly DistributedCacheEntryOptions CacheOptions = new()
-    {
-        AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7),
-    };
+    private static readonly TimeSpan CacheFor = TimeSpan.FromDays(7);
 
     private const string SystemPrompt =
         "You are a security analyst helping a .NET/DevOps engineer triage a dependency vulnerability. " +
@@ -26,35 +22,24 @@ public sealed class CveExplainer : ICveExplainer
         "affects the listed package, (3) severity in plain terms, (4) recommended direction — usually upgrading " +
         "the affected package, noting the exact fixed version must be confirmed against the advisory.";
 
-    private readonly IAiInsightService _ai;
-    private readonly IDistributedCache _cache;
+    private readonly AiExplanationRunner _runner;
 
-    public CveExplainer(IAiInsightService ai, IDistributedCache cache)
-    {
-        _ai = ai;
-        _cache = cache;
-    }
+    public CveExplainer(AiExplanationRunner runner) => _runner = runner;
 
-    public bool IsConfigured => _ai.IsConfigured;
+    public bool IsConfigured => _runner.IsConfigured;
 
     public async Task<CveExplanation> ExplainAsync(CveExplainRequest request, CancellationToken ct = default)
     {
-        var cacheKey = BuildCacheKey(request);
+        var outcome = await _runner.RunAsync(
+            cacheKey: BuildCacheKey(request),
+            feature: "explain_cve",
+            tier: AiModelKind.Interactive,
+            systemPrompt: SystemPrompt,
+            groundedPrompt: BuildPrompt(request),
+            ttl: CacheFor,
+            ct: ct);
 
-        var cached = await _cache.GetStringAsync(cacheKey, ct);
-        if (cached is { Length: > 0 })
-            return new CveExplanation(cached, FromCache: true, ModelUsed: "cache");
-
-        var insight = await _ai.GetInsightAsync(new AiInsightRequest(
-            Feature: "explain_cve",
-            SystemPrompt: SystemPrompt,
-            GroundedPrompt: BuildPrompt(request),
-            Model: AiModelKind.Interactive), ct);
-
-        if (!string.IsNullOrWhiteSpace(insight.Text))
-            await _cache.SetStringAsync(cacheKey, insight.Text, CacheOptions, ct);
-
-        return new CveExplanation(insight.Text, FromCache: false, ModelUsed: insight.ModelUsed);
+        return new CveExplanation(outcome.Text, outcome.FromCache, outcome.ModelUsed);
     }
 
     private static string BuildCacheKey(CveExplainRequest r)

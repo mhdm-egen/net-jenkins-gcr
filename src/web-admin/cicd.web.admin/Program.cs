@@ -132,12 +132,18 @@ builder.Services.AddSingleton<IAiUsageRecorder>(sp => new CompositeAiUsageRecord
     sp.GetRequiredService<MeteringUsageRecorder>()));
 builder.Services.AddSingleton<IAiInsightService, AiClient>();
 
-// CVE-explain feature (Phase 1) — grounded, Redis-cached CVE explanations on the SBOM pages.
-builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ICveExplainer, Cicd.Web.Admin.Services.Sca.CveExplainer>();
+// The cache-then-call half every AI explanation feature shares (see AiExplanationRunner).
+builder.Services.AddScoped<AiExplanationRunner>();
 
-// Pipeline-failure triage — grounded, Redis-cached "why did this run fail" on the run detail page.
-// First caller of the Synthesis model tier.
+// Grounded, Redis-cached explanation features. Each owns only its prompt, tier and cache key.
+//   explain_cve              — SBOM vulnerability rows          (Interactive)
+//   explain_pipeline_failure — a failed pipeline run's console   (Synthesis)
+//   explain_deploy_failure   — a failed service deploy's steps   (Interactive: input is pre-classified)
+//   explain_aspire_deploy    — an Aspire deploy's aspirate log    (Synthesis)
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ICveExplainer, Cicd.Web.Admin.Services.Sca.CveExplainer>();
 builder.Services.AddScoped<IPipelineFailureExplainer, PipelineFailureExplainer>();
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IDeployRunExplainer, Cicd.Web.Admin.Services.Deployment.DeployRunExplainer>();
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IAspireRunExplainer, Cicd.Web.Admin.Services.Deployment.AspireRunExplainer>();
 
 // Read-side metering client for the AI Usage page (GET usage/summary).
 builder.Services.AddHttpClient<MeteringApiClient>(c =>
