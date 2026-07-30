@@ -123,7 +123,8 @@ internal sealed class EfRunReader : IRunReader
         (DeploymentTriggerDto)(int)r.Trigger, r.TriggeredBy, (DeploymentRunStatusDto)(int)r.Status,
         r.RemoteImageRef, r.CloudRunRevision, r.KubernetesResource, r.FailureReason,
         r.Steps.Select(s => new RunStepResultDto(s.Order, s.Kind.ToString(), s.Status, s.Detail, s.FailureKind?.ToString())).ToList(),
-        r.RequestedAtUtc, r.CompletedAtUtc, r.RolloutGreenSlot, r.RolloutActiveSlot, r.DecisionBy, r.RolloutCanaryWeight);
+        r.RequestedAtUtc, r.CompletedAtUtc, r.RolloutGreenSlot, r.RolloutActiveSlot, r.DecisionBy, r.RolloutCanaryWeight,
+        r.CommitSha, r.CommittedAtUtc);
 }
 
 internal sealed class EfAspireApplicationReader : IAspireApplicationReader

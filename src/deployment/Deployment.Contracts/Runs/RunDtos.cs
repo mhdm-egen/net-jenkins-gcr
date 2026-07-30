@@ -30,7 +30,11 @@ public sealed record DeploymentRunDto(
     string? RolloutGreenSlot = null,
     string? RolloutActiveSlot = null,
     string? DecisionBy = null,
-    int? RolloutCanaryWeight = null);
+    int? RolloutCanaryWeight = null,
+    /// <summary>Commit behind the deployed image, snapshotted at request time.</summary>
+    string? CommitSha = null,
+    /// <summary>When that commit was authored — the start of commit→production lead time.</summary>
+    DateTimeOffset? CommittedAtUtc = null);
 
 /// <summary>Manually trigger a deployment for a mapping. Version optional — defaults to the latest known container.</summary>
 public sealed record TriggerDeploymentRequest(string? Version, string? TriggeredBy);

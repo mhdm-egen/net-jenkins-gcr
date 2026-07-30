@@ -52,6 +52,10 @@ public static class DependencyInjection
         services.AddScoped<RollbackDeploymentRunHandler>();
         services.AddScoped<ListRunsHandler>();
         services.AddScoped<GetRunByIdHandler>();
+
+        // Delivery metrics (DORA) — computed here so the metrics page, the home tile and the
+        // weekly digest all read one implementation.
+        services.AddScoped<Features.Metrics.GetDoraSummaryHandler>();
         services.AddScoped<ListKnownContainersHandler>();
         services.AddScoped<AddKnownContainerHandler>();
 

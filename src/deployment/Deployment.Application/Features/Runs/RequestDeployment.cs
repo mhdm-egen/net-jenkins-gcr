@@ -82,7 +82,12 @@ public sealed class RequestDeploymentHandler
             kubernetesSpec: mapping.Kubernetes,
             trigger: cmd.Trigger,
             triggeredBy: cmd.TriggeredBy ?? (cmd.Trigger == DeploymentTrigger.Auto ? "auto" : "manual"),
-            requestedAtUtc: _clock.GetUtcNow());
+            requestedAtUtc: _clock.GetUtcNow(),
+            // Snapshot the commit provenance alongside sourceRef. The inventory row is keyed by
+            // container name and the next push overwrites it, so this is the only moment the run
+            // can record which commit it actually deployed.
+            commitSha: container.CommitSha,
+            committedAtUtc: container.CommittedAtUtc);
 
         await _runs.AddAsync(run, ct).ConfigureAwait(false);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);

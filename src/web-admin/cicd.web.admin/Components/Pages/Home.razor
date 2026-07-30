@@ -42,21 +42,21 @@
     <MudItem xs="6" md="2">
         <MudPaper Elevation="1" Class="pa-4">
             <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Deploys / day</MudText>
-            <MudText Typo="Typo.h4">@_dora.FrequencyPerDay.ToString("0.0")</MudText>
-            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">7-day avg</MudText>
+            <MudText Typo="Typo.h4">@((_dora?.DeploymentFrequencyPerDay ?? 0).ToString("0.0"))</MudText>
+            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">30-day avg</MudText>
         </MudPaper>
     </MudItem>
     <MudItem xs="6" md="2">
         <MudPaper Elevation="1" Class="pa-4">
             <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Success rate</MudText>
-            <MudText Typo="Typo.h4" Style="@RateStyle(_dora.SuccessRate, true)">@_dora.SuccessRate.ToString("P0")</MudText>
-            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">@_dora.Succeeded of @_dora.Total</MudText>
+            <MudText Typo="Typo.h4" Style="@RateStyle(_dora?.SuccessRate ?? 0, true)">@((_dora?.SuccessRate ?? 0).ToString("P0"))</MudText>
+            <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">@(_dora?.Succeeded ?? 0) of @(_dora?.Total ?? 0)</MudText>
         </MudPaper>
     </MudItem>
     <MudItem xs="6" md="2">
         <MudPaper Elevation="1" Class="pa-4">
             <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Change-failure</MudText>
-            <MudText Typo="Typo.h4" Style="@RateStyle(_dora.ChangeFailureRate, false)">@_dora.ChangeFailureRate.ToString("P0")</MudText>
+            <MudText Typo="Typo.h4" Style="@RateStyle(_dora?.ChangeFailureRate ?? 0, false)">@((_dora?.ChangeFailureRate ?? 0).ToString("P0"))</MudText>
             <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">failed + rolled back</MudText>
         </MudPaper>
     </MudItem>
@@ -181,7 +181,7 @@
     private IReadOnlyList<PreviewEnvironmentDto>? _previews;
     private List<PendingItem> _pending = new();
     private IReadOnlyList<ActivityRow>? _activity;
-    private DoraSummary _dora = new(0, 0, 0, 0, 0, 0, 0, 0);
+    private DoraSummaryDto? _dora;
     private int _healthy, _degraded, _down;
 
     private bool _loading, _busy, _autoOn;
@@ -219,7 +219,8 @@
             var deployRunsTask = Api.ListRunsAsync(ct: ct);
             var aspireRunsTask = Api.ListAspireRunsAsync(ct: ct);
             var pipelineRunsTask = Jenkins.ListPipelineRunsAsync(take: 15, ct: ct);
-            await Task.WhenAll(statusesTask, previewsTask, deployRunsTask, aspireRunsTask, pipelineRunsTask);
+            var doraTask = Api.GetDoraSummaryAsync(days: 30, ct);
+            await Task.WhenAll(statusesTask, previewsTask, deployRunsTask, aspireRunsTask, pipelineRunsTask, doraTask);
 
             var byId = statusesTask.Result.ToDictionary(x => x.Id, x => x.Status);
             _apps = apps.Select(a => new AppRow(a, byId.GetValueOrDefault(a.Id))).ToList();
@@ -232,10 +233,9 @@
             var aspireRuns = aspireRunsTask.Result;
             var pipelineRuns = pipelineRunsTask.Result;
 
-            // DORA (deployment + aspire terminal runs) — same computation as the Metrics page.
-            _dora = DoraMetrics.Compute(
-                deployRuns.Select(r => (r.RequestedAtUtc, r.CompletedAtUtc, r.Status.ToString()))
-                    .Concat(aspireRuns.Select(r => (r.RequestedAtUtc, r.CompletedAtUtc, r.Status.ToString()))));
+            // DORA comes from the deployment service, not recomputed here — one implementation
+            // shared with the Metrics page and the weekly digest.
+            _dora = doraTask.Result;
 
             // Needs-your-attention.
             var pending = new List<PendingItem>();

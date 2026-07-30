@@ -112,6 +112,7 @@ public sealed class KnownContainerConfiguration : IEntityTypeConfiguration<Known
         b.Property(c => c.Version).HasMaxLength(200).IsRequired();
         b.Property(c => c.ImageDigest).HasMaxLength(200);
         b.Property(c => c.NexusRef).HasMaxLength(1000).IsRequired();
+        b.Property(c => c.CommitSha).HasMaxLength(64);
         b.Property(c => c.FirstSeenAtUtc).IsRequired();
         b.Property(c => c.LastSeenAtUtc).IsRequired();
         b.HasIndex(c => c.ContainerName).IsUnique();
@@ -132,6 +133,7 @@ public sealed class RunConfiguration : IEntityTypeConfiguration<DeploymentRun>
         b.Property(r => r.ContainerName).HasMaxLength(300).IsRequired();
         b.Property(r => r.Version).HasMaxLength(200).IsRequired();
         b.Property(r => r.SourceRef).HasMaxLength(1000).IsRequired();
+        b.Property(r => r.CommitSha).HasMaxLength(64);
         b.Property(r => r.GcpProject).HasMaxLength(200).IsRequired();
         b.Property(r => r.Region).HasMaxLength(100).IsRequired();
         b.Property(r => r.GarRepository).HasMaxLength(200).IsRequired();

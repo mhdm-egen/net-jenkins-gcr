@@ -5,6 +5,7 @@ using Deployment.Contracts.AspireApps;
 using Deployment.Contracts.Catalog;
 using Deployment.Contracts.Kubernetes;
 using Deployment.Contracts.Mappings;
+using Deployment.Contracts.Metrics;
 using Deployment.Contracts.Previews;
 using Deployment.Contracts.Reset;
 using Deployment.Contracts.Runs;
@@ -152,6 +153,13 @@ public sealed class DeploymentApiClient
         var url = applicationId is { } a ? $"api/deployment/aspire-runs?applicationId={a}" : "api/deployment/aspire-runs";
         return await ReadAsync<List<AspireApplicationRunDto>>(url, ct).ConfigureAwait(false) ?? new();
     }
+    /// <summary>
+    /// The DORA four over a trailing window, computed server-side. Prefer this over aggregating runs
+    /// client-side so every surface (metrics page, home tile, weekly digest) reports one number.
+    /// </summary>
+    public async Task<DoraSummaryDto?> GetDoraSummaryAsync(int days = 30, CancellationToken ct = default)
+        => await ReadAsync<DoraSummaryDto>($"api/deployment/metrics/dora?days={days}", ct).ConfigureAwait(false);
+
     public async Task<AspireApplicationRunDto?> GetAspireRunByIdAsync(Guid id, CancellationToken ct = default)
     {
         using var r = await _http.GetAsync($"api/deployment/aspire-runs/{id}", ct).ConfigureAwait(false);

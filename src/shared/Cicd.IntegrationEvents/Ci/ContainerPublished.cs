@@ -12,4 +12,11 @@ public sealed record ContainerPublished(
     string ContainerName,
     string ArtifactUri,
     string Version,
-    string CommitSha) : IIntegrationEvent;
+    string CommitSha,
+    /// <summary>
+    /// When the commit behind this image was authored — the start of commit→production lead time.
+    /// Nullable on purpose, twice over: the CI side's <c>SourceRevision.CommittedAtUtc</c> is
+    /// best-effort, and an optional trailing member keeps messages already sitting in the outbox
+    /// (published before this field existed) deserializable.
+    /// </summary>
+    DateTimeOffset? CommittedAtUtc = null) : IIntegrationEvent;
