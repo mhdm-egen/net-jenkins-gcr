@@ -157,6 +157,9 @@ key ⇒ AI actions simply don't appear. See [ai.md](ai.md) for what exists and
 | Ask the platform | Agentic assistant that answers questions by calling 15 read-only tools over live platform data, showing which tools it used. No write tool exists; tool turns and result sizes are capped | `feat/ai-integration` |
 | Prompt caching | The agent's tool definitions + system prompt are cached as one stable prefix (measured 3,087 tokens written then read), which is what makes the cache-hit-rate tile meaningful | `feat/ai-integration` |
 | Suggest-and-apply | The agent proposes an action validated against the same status guard that renders the real button; the proposal is a link to that button, never a shortcut around it | `feat/ai-integration` |
+| Storage gauges | A scheduled collector samples Nexus NuGet and Docker repository sizes into the ledger, using the asset listing so shared blob layers are counted | `feat/ai-integration` |
+| Gauge-aware rollups | Gauges roll up as the latest sample per series rather than a sum, so a level doesn't appear to grow each time the collector runs; the UI labels them and shows when they were sampled | `feat/ai-integration` |
+| AI budget | Optional advisory month-to-date spend bar with a warning threshold. Never blocks or disables anything | `feat/ai-integration` |
 | Weekly delivery digest | Narrates the DORA four to Slack/email on a Wolverine self-rescheduling schedule, plus a manual "send now" button. Opt-in, off by default | `feat/ai-integration` |
 | Full DORA four, server-side | Lead time (commit→production) and time-to-restore added; computed in deployment-api so the metrics page, home tile and digest cannot drift | `feat/ai-integration` |
 | Usage & cost page | Token spend, estimated cost, cache-hit rate, by model / by feature, plus build & deploy activity | `feat/ai-integration` |

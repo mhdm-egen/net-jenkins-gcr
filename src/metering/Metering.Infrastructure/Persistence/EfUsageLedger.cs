@@ -84,17 +84,44 @@ public sealed class EfUsageLedger : IUsageLedger
         if (toUtc is { } t) q = q.Where(r => r.OccurredAtUtc <= t);
 
         var rows = await q
-            .Select(r => new { r.Meter, r.Quantity, r.Unit, r.CostUsd })
+            .Select(r => new
+            {
+                r.Meter, r.MeterType, r.Quantity, r.Unit, r.CostUsd,
+                r.Repository, r.Service, r.Environment, r.OccurredAtUtc,
+            })
             .ToListAsync(ct);
 
         return rows
             .GroupBy(r => r.Meter)
-            .Select(g => new MeterTotalDto(
-                g.Key.ToString(),
-                g.Count(),
-                g.Sum(r => r.Quantity),
-                g.Select(r => r.Unit).FirstOrDefault() ?? string.Empty,
-                g.Sum(r => r.CostUsd)))
+            .Select(g =>
+            {
+                var unit = g.Select(r => r.Unit).FirstOrDefault() ?? string.Empty;
+                var isGauge = g.Any(r => r.MeterType == MeterType.Gauge);
+
+                if (!isGauge)
+                {
+                    return new MeterTotalDto(
+                        g.Key.ToString(), g.Count(), g.Sum(r => r.Quantity), unit, g.Sum(r => r.CostUsd));
+                }
+
+                // A gauge is a level, not a flow. Summing every sample would make "Nexus storage"
+                // climb every time the collector ran, which looks like growth and is really just
+                // repetition. Take the newest sample PER SERIES, then add the series together —
+                // two Nexus repositories genuinely do sum; two samples of one repository do not.
+                var latestPerSeries = g
+                    .GroupBy(r => (r.Repository ?? "", r.Service ?? "", r.Environment ?? ""))
+                    .Select(s => s.OrderByDescending(r => r.OccurredAtUtc).First())
+                    .ToList();
+
+                return new MeterTotalDto(
+                    Meter:    g.Key.ToString(),
+                    Records:  g.Count(),
+                    Quantity: latestPerSeries.Sum(r => r.Quantity),
+                    Unit:     unit,
+                    CostUsd:  latestPerSeries.Sum(r => r.CostUsd),
+                    IsGauge:  true,
+                    AsOfUtc:  latestPerSeries.Max(r => r.OccurredAtUtc));
+            })
             .OrderByDescending(m => m.Records)
             .ToList();
     }

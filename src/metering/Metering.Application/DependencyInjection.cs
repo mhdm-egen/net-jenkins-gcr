@@ -14,6 +14,7 @@ public static class DependencyInjection
         services.AddSingleton<MeteringTelemetry>();
 
         services.AddScoped<IngestAiUsageHandler>();
+        services.AddScoped<IngestGaugeHandler>();
         services.AddScoped<GetUsageSummaryHandler>();
         services.AddScoped<GetMeterTotalsHandler>();
 

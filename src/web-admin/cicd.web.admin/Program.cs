@@ -149,6 +149,22 @@ builder.Services.AddHttpClient<MeteringApiClient>(c =>
     c.Timeout = TimeSpan.FromSeconds(30);
 });
 
+// Scheduled storage-gauge collector — the piece MeterType.Gauge and the storage MeterKind values
+// were reserved for and never got. Samples Nexus repository sizes and posts them as gauges. Runs
+// here rather than in metering-api because INexusClient lives here; metering-api stays a pure
+// ledger with no Nexus client and no credentials.
+var storageGaugeOptions = builder.Configuration.GetSection(StorageGaugeOptions.SectionName)
+                              .Get<StorageGaugeOptions>()
+                          ?? new StorageGaugeOptions();
+builder.Services.AddSingleton(storageGaugeOptions);
+builder.Services.AddHostedService<StorageGaugeCollector>();
+
+// Advisory monthly AI budget. Unset by default, in which case the usage page shows no budget UI
+// at all — a zero budget would render as permanently over.
+builder.Services.AddSingleton(
+    builder.Configuration.GetSection(BudgetOptions.SectionName).Get<BudgetOptions>()
+    ?? new BudgetOptions());
+
 // Export the AI usage meter through the OpenTelemetry pipeline set up by AddServiceDefaults.
 builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddMeter(MeterAiUsageRecorder.MeterName));
 

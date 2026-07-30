@@ -2,6 +2,7 @@
 @using Cicd.Web.Admin.Services.Metering
 @using Metering.Contracts.Usage
 @inject MeteringApiClient Metering
+@inject BudgetOptions Budget
 
 <PageTitle>Usage &amp; cost</PageTitle>
 
@@ -48,6 +49,45 @@ else
         }
 
         @* ---------- By meter (all meter kinds) ---------- *@
+        @* Budget is month-to-date regardless of the window selector above: a monthly budget
+           compared against a rolling 7-day spend would be meaningless. *@
+        @if (Budget.IsConfigured && _monthToDateCost is { } spent)
+        {
+            var limit = Budget.MonthlyUsd!.Value;
+            var fraction = limit <= 0m ? 0d : (double)(spent / limit);
+            var over = spent > limit;
+            var warn = fraction >= Budget.WarnAtFraction;
+
+            <MudPaper Elevation="1" Class="pa-4 mb-4">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.Savings"
+                             Color="@(over ? Color.Error : warn ? Color.Warning : Color.Success)" />
+                    <MudText Typo="Typo.h6">AI budget — this month</MudText>
+                    <MudSpacer />
+                    <MudText Typo="Typo.body2" Style="font-family: ui-monospace, monospace;">
+                        @spent.ToString("C2") of @limit.ToString("C2")
+                    </MudText>
+                </MudStack>
+
+                <MudProgressLinear Value="@(Math.Min(100d, fraction * 100d))" Size="Size.Large"
+                                   Color="@(over ? Color.Error : warn ? Color.Warning : Color.Success)" />
+
+                <MudText Typo="Typo.caption" Class="mt-2" Style="color:var(--mud-palette-text-secondary)">
+                    @if (over)
+                    {
+                        <text><b>Over budget</b> by @((spent - limit).ToString("C2")).</text>
+                    }
+                    else
+                    {
+                        <text>@((limit - spent).ToString("C2")) remaining (@fraction.ToString("P0") used).</text>
+                    }
+                    Advisory only — nothing is blocked or disabled when this is exceeded, and the AI
+                    features do not consult it. Covers AI token spend from
+                    @_monthStart.ToString("d") onward; storage and build/deploy meters are not costed.
+                </MudText>
+            </MudPaper>
+        }
+
         @if (_meters is { Count: > 0 })
         {
             <MudPaper Elevation="1" Class="pa-4 mb-4">
@@ -65,16 +105,26 @@ else
                         @foreach (var m in _meters!)
                         {
                             <tr>
-                                <td>@FriendlyMeter(m.Meter)</td>
+                                <td>
+                                    @FriendlyMeter(m.Meter)
+                                    @if (m.IsGauge)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                                 Color="Color.Info" Class="ml-2">level</MudChip>
+                                    }
+                                </td>
                                 <td style="text-align:right">@m.Records</td>
-                                <td style="text-align:right">@Fmt((long)m.Quantity) @m.Unit</td>
-                                <td style="text-align:right">@m.CostUsd.ToString("C2")</td>
+                                <td style="text-align:right">@Quantity(m)</td>
+                                <td style="text-align:right">@(m.CostUsd == 0m ? "—" : m.CostUsd.ToString("C2"))</td>
                             </tr>
                         }
                     </tbody>
                 </MudSimpleTable>
                 <MudText Typo="Typo.caption" Class="mt-2" Style="color:var(--mud-palette-text-secondary)">
                     Build/deploy meters are counts (jobs, runs) — the events carry no duration, so they aren't costed.
+                    Rows marked <b>level</b> are gauges: the quantity is the most recent sample per series, not a sum
+                    over the window, because storage is a level rather than a flow. Storage is not costed — the
+                    platform has no configured price per byte, and a made-up one would be worse than none.
                 </MudText>
             </MudPaper>
         }
@@ -189,6 +239,9 @@ else
     private string? _error;
     private string _window = "30";
 
+    private decimal? _monthToDateCost;
+    private DateTimeOffset _monthStart;
+
     protected override Task OnInitializedAsync() => LoadAsync();
 
     private async Task OnWindowChanged(string value)
@@ -213,6 +266,15 @@ else
             };
             _meters = await Metering.GetMeterTotalsAsync(from, null);
             _summary = await Metering.GetUsageSummaryAsync(from, null);
+
+            // A separate month-to-date query: the budget is monthly, so it cannot be read off the
+            // window the user happens to have selected.
+            if (Budget.IsConfigured)
+            {
+                var now = DateTimeOffset.UtcNow;
+                _monthStart = new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, TimeSpan.Zero);
+                _monthToDateCost = (await Metering.GetUsageSummaryAsync(_monthStart, null))?.CostUsd;
+            }
         }
         catch (Exception ex)
         {
@@ -223,6 +285,26 @@ else
             _loading = false;
             StateHasChanged();
         }
+    }
+
+    /// <summary>
+    /// Bytes get human units; everything else keeps its own. A gauge also carries when it was
+    /// sampled — without that, a stale storage figure is indistinguishable from a current one.
+    /// </summary>
+    private static string Quantity(MeterTotalDto m)
+    {
+        var value = m.Unit == "byte" ? Bytes(m.Quantity) : $"{Fmt((long)m.Quantity)} {m.Unit}";
+        return m is { IsGauge: true, AsOfUtc: { } asOf }
+            ? $"{value} (as of {asOf.LocalDateTime:g})"
+            : value;
+    }
+
+    private static string Bytes(double bytes)
+    {
+        string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
+        var i = 0;
+        while (bytes >= 1024 && i < units.Length - 1) { bytes /= 1024; i++; }
+        return $"{bytes:0.##} {units[i]}";
     }
 
     private static string FriendlyMeter(string meter) => meter switch

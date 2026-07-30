@@ -38,6 +38,24 @@ public static class UsageEndpoints
             return Results.Ok(ack);
         });
 
+        // Gauge ingest, from scheduled collectors. Separate from the AI route because a level
+        // sample and a token count are different measurements, not one shape with null fields.
+        g.MapPost("gauge", async (
+            IngestGaugeRequest body,
+            IngestGaugeHandler handler,
+            CancellationToken ct) =>
+        {
+            if (body.EventId == Guid.Empty)
+                return Results.BadRequest("EventId is required.");
+
+            var ack = await handler.HandleAsync(body, ct);
+            return ack is null
+                ? Results.BadRequest(
+                    $"'{body.Meter}' is not a gauge meter. Valid: NexusStorage, DockerStorage, " +
+                    "CloudRunCompute, K8sResource.")
+                : Results.Ok(ack);
+        });
+
         return app;
     }
 }

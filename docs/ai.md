@@ -501,16 +501,71 @@ produced its cost and can be repriced later without guesswork.
 
 ### Meters
 
-| Meter | Fed by | Quantity | Costed? |
-| --- | --- | --- | --- |
-| `AiTokens` | web-admin, HTTP ingest | tokens | **yes** |
-| `BuildCompute` | `PipelineCompleted` on `ci.events` | jobs in the run | no |
-| `DeployRun` | `ServiceDeployed` on `deployment.events` | 1 per deploy | no |
-| `NexusStorage`, `DockerStorage`, `CloudRunCompute`, `K8sResource` | — | — | placeholders, not yet fed |
+| Meter | Type | Fed by | Quantity | Costed? |
+| --- | --- | --- | --- | --- |
+| `AiTokens` | counter | web-admin, HTTP ingest | tokens | **yes** |
+| `BuildCompute` | counter | `PipelineCompleted` on `ci.events` | jobs in the run | no |
+| `DeployRun` | counter | `ServiceDeployed` on `deployment.events` | 1 per deploy | no |
+| `NexusStorage` | **gauge** | `StorageGaugeCollector` in web-admin | bytes in the NuGet repository | no |
+| `DockerStorage` | **gauge** | `StorageGaugeCollector` in web-admin | bytes in the Docker repository | no |
+| `CloudRunCompute`, `K8sResource` | — | — | — | not fed — see [Known gaps](#6-known-gaps) |
 
 Build and deploy meters are **counts, not compute-seconds** — those integration events carry no
 duration — so they are recorded at zero cost. The usage page says so under the table rather than
-showing a misleading `$0.00`.
+showing a misleading `$0.00`. Storage is likewise **not costed**: there is no configured price per
+byte, and inventing one would put a confident dollar figure on the page that nothing backs.
+
+### Gauges are not counters, and the ledger now knows it
+
+`MeterType` has had a `Gauge` value since the ledger was written, with a doc-comment promising
+samples are "recorded per-sample so summaries can treat them right". They weren't:
+`GetMeterTotalsAsync` summed `Quantity` across every row regardless of type. That is correct for a
+counter and **wrong for a gauge** — storage is a level, not a flow, so summing successive samples of
+one repository would make it appear to grow every time the collector ran.
+
+The rollup now branches: counters sum over the window; gauges take the **newest sample per series**
+and add the series together. Two repositories genuinely do sum; two samples of one repository do
+not. `MeterTotalDto` carries `IsGauge` and `AsOfUtc` so the UI can label the row **level** and show
+when it was sampled — without that, a stale figure is indistinguishable from a current one.
+
+This was fixed *before* any gauge data existed, which is the only comfortable time to fix it: the
+first storage numbers would otherwise have been silently wrong rather than obviously wrong.
+
+### The storage collector
+
+`StorageGaugeCollector` is the scheduled gauge collector the design reserved from the start — both
+`AppHost.cs` and web-admin's `Program.cs` name it in comments about the Redis cache. It samples
+every 6 hours by default; a gauge sampled more often produces more rows, not more insight.
+
+Two decisions worth knowing:
+
+- **Docker bytes come from the asset listing, not the image listing.** `DockerImage.SizeBytes` is
+  documented in its own model as mostly the manifest, with shared blob layers living as separate
+  components it does not count — so summing images under-reports badly. Assets include the blobs,
+  deduplicated by path so a layer shared between manifests is counted once.
+- **It runs in web-admin, not metering-api.** `INexusClient` lives in web-admin; metering-api has no
+  Nexus client, no HTTP client and no credentials. Moving it would be a bigger change than the meter
+  is worth, and this keeps metering-api a pure ledger. It resolves scoped services through
+  `IServiceScopeFactory` — a `BackgroundService` is a singleton, and holding a scoped dependency
+  fails host startup under `ValidateScopes`.
+
+Measured on this platform on first run: `docker-private` 147,495,699 bytes (140.66 MiB),
+`nuget-hosted` 1,597,748 bytes (1.52 MiB).
+
+### Budgets
+
+`Metering:Budget:MonthlyUsd` turns on a month-to-date budget bar on the usage page, warning at 80%
+by default. Unset — the default — shows nothing at all, because a zero budget would render as
+permanently over.
+
+It is **advisory only**, deliberately: nothing is blocked, and the AI features never consult it. A
+budget that silently disabled features would turn a cost question into an availability incident, and
+the person who set the number is not necessarily the person mid-way through triaging a failed
+deploy. It is also config rather than storage — one number per environment, no entity, no migration,
+no admin screen to keep in sync.
+
+It is computed month-to-date regardless of the window selector, since a monthly budget compared
+against a rolling 7-day spend would mean nothing.
 
 The build/deploy path is a genuine bus subscription: `metering-api` runs Wolverine with a SQL
 outbox/inbox in its own database and subscribes to `ci.events` and `deployment.events`. If no
@@ -595,6 +650,10 @@ prompts and never blocks a headless `dotnet run`.
 | `Ai:MaxOutputTokens` | `Ai__MaxOutputTokens` | `4096` | |
 | `Ai:BaseUrl` | `Ai__BaseUrl` | *(empty)* | **Declared but not yet honoured** — see gaps below |
 | `Metering:Api:BaseUrl` | `Metering__Api__BaseUrl` | *(empty)* | Empty ⇒ no ledger, OTel meter only |
+| `Metering:Budget:MonthlyUsd` | `Metering__Budget__MonthlyUsd` | *(unset)* | Unset ⇒ no budget UI. Advisory only — never blocks |
+| `Metering:Budget:WarnAtFraction` | `Metering__Budget__WarnAtFraction` | `0.8` | Where the bar turns to a warning |
+| `Metering:Gauges:Enabled` | `Metering__Gauges__Enabled` | `true` | Storage collector; idle anyway without Nexus |
+| `Metering:Gauges:IntervalMinutes` | `Metering__Gauges__IntervalMinutes` | `360` | A gauge sampled more often gives more rows, not more insight |
 | `ConnectionStrings:redis` | `ConnectionStrings__redis` | *(empty)* | Falls back to an in-process cache |
 
 Under the Aspire host, `Metering__Api__BaseUrl` and the Redis connection string are injected for you;
@@ -649,6 +708,16 @@ only the API key is yours to supply.
 
 Recorded here so they aren't rediscovered as bugs:
 
+- **`CloudRunCompute` and `K8sResource` are still unfed, for different reasons.**
+  `CloudRunCompute` has **no usable data source**: `GcpClient.ListCloudRunServicesAsync` returns
+  name, URL, revision and status — no CPU, memory, instance count or billable time. Feeding it needs
+  the Cloud Monitoring API or the GCP billing export, neither of which is referenced anywhere in the
+  repo. That is also what `UsageRater`'s "a later slice" comment defers, so **GCP billing
+  reconciliation and this meter are the same piece of work**, not two.
+  `K8sResource` *could* be fed with counts — namespaces, workloads, pods are all readable through
+  the deployment API — but counts alone can't be costed, and no DTO carries CPU/memory requests.
+  A pod count in a **cost** ledger invites being read as spend. It stays unfed until resource
+  requests are surfaced; the operational count already exists on the Kubernetes pages.
 - ~~**The cache-hit-rate tile is always 0%.**~~ **Fixed by the agentic slice.** It was inert because
   no feature set `cache_control`, so Anthropic never returned cached-token counts — the metric, its
   rating rows and its tile were all structurally zero. *Ask the platform* enables caching on its

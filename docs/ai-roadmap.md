@@ -3,7 +3,7 @@
 Where the AI layer is going, and why in this order. Companion to [ai.md](ai.md), which documents
 what exists today.
 
-**Status: slices 1–7 of 9 done.**
+**Status: slices 1–8 of 9 done.**
 
 > **Release notes was cut from slice 4 and delivered in slice 5 — the deferral was right.** The stated
 > reason was that `BuildSummaryDto` carried no commit message or author. Building it properly showed
@@ -40,8 +40,8 @@ describes**, and several features had infrastructure provisioned *by name* and w
 | 5 | **Commit-range capability**: SBOM diff between two builds + commit provenance + release notes over the range | ✅ Done |
 | 6 | **"Ask the platform"** — agentic, read-only tool use across every surface; carried prompt caching | ✅ Done |
 | 7 | **Suggest-and-apply** — the agent proposes a validated action, a human applies it behind the existing gate | ✅ Done |
-| 8 | Metering completion — gauge collectors, storage/cloud meters, GCP billing reconciliation, budgets | Next |
-| 9 | The blocked features, once their prerequisites land | Blocked |
+| 8 | **Metering completion** — gauge collectors, Nexus/Docker storage meters, budgets. Cloud-compute metering + GCP billing reconciliation are one deferred piece, not two — see below | ✅ Done |
+| 9 | The blocked features, once their prerequisites land | Next (still blocked) |
 
 Ordering rationale: slices 1–2 attack the biggest real toil (failure triage) and establish the
 reusable explain-a-run pattern; slice 3 closes the original plan and is the one that reaches
@@ -73,6 +73,8 @@ Each of these is a good feature whose data does not exist yet. The prerequisite 
 | Bus-driven failure digest | No `PipelineFailed` / `BuildFailed` integration event — the bus only ever learns about success and cancellation |
 | ~~Lead-time / MTTR insight~~ | **Unblocked in slice 3.** `ContainerPublished` now carries the commit timestamp and the run snapshots it, so lead time is genuinely commit→production. It reports unavailable until the first post-change deploy — there is no honest substitute (see `LeadTimeBasisDto`) |
 | Build-failure triage from `Build` | `Build.MarkFailed` records no reason. Slice 1 uses `PipelineRun` instead, which does have `FailureReason` |
+| Cloud-compute metering (`CloudRunCompute`) **and** GCP billing reconciliation | The same blocker, so the same work: `ListCloudRunServicesAsync` returns name/URL/revision/status and nothing billable — no CPU, memory, instance count or time. Needs the Cloud Monitoring API or the billing export; neither client is referenced anywhere in the repo. Deferred out of slice 8 for this reason |
+| `K8sResource` metering | Counts (namespaces, workloads, pods) are readable today, but no DTO carries CPU/memory **requests**, so nothing can be costed. A pod count in a cost ledger invites being read as spend — the operational count already lives on the Kubernetes pages |
 
 ---
 
