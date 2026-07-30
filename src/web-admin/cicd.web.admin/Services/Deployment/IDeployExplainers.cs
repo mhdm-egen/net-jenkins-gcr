@@ -21,3 +21,14 @@ public interface IAspireRunExplainer
 
     Task<DeployExplanation> ExplainAsync(AspireRunExplainRequest request, CancellationToken ct = default);
 }
+
+/// <summary>
+/// Explains configuration drift on a deployed app — what the cluster is running versus what the
+/// platform deployed. Soft-fails like the others.
+/// </summary>
+public interface IDriftExplainer
+{
+    bool IsConfigured { get; }
+
+    Task<DeployExplanation> ExplainAsync(DriftExplainRequest request, CancellationToken ct = default);
+}

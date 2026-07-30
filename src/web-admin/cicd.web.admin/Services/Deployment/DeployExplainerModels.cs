@@ -116,3 +116,60 @@ public sealed record AspireRunExplainRequest(
     /// <summary>True when the log was long enough that the prompt only carries its tail.</summary>
     public bool IsTruncated => LogTail.Length >= LogTailChars;
 }
+
+/// <summary>
+/// Grounding for a drift explanation — the platform's view of what it deployed against what the
+/// cluster is actually running.
+/// </summary>
+public sealed record DriftExplainRequest(
+    Guid ApplicationId,
+    string ApplicationName,
+    string EnvironmentName,
+    string KubeContext,
+    string Namespace,
+    string OverallHealth,
+    string? CurrentVersion,
+    string? LastDeployedVersion,
+    bool HasUndeployedChanges,
+    bool HasImageDrift,
+    IReadOnlyList<DriftWorkload> Workloads)
+{
+    /// <summary>
+    /// Identifies the observed state, so the cache key changes the moment the cluster does. Drift is
+    /// live state — an explanation of a drift that has since been corrected would be worse than none.
+    /// </summary>
+    public string StateFingerprint()
+    {
+        var w = string.Join("|", Workloads
+            .Select(x => $"{x.Name}={x.Image}/{x.ExpectedImage}/{x.Drifted}")
+            .OrderBy(x => x, StringComparer.Ordinal));
+        return $"{HasImageDrift}:{HasUndeployedChanges}:{w}".GetHashCode().ToString("x8");
+    }
+
+    public static DriftExplainRequest FromStatus(AspireAppStatusDto status) => new(
+        ApplicationId: status.ApplicationId,
+        ApplicationName: status.ApplicationName,
+        EnvironmentName: status.EnvironmentName,
+        KubeContext: status.KubeContext ?? "(not recorded)",
+        Namespace: status.Namespace ?? "(not recorded)",
+        OverallHealth: status.OverallHealth.ToString(),
+        CurrentVersion: status.CurrentVersion,
+        LastDeployedVersion: status.LastDeployedVersion,
+        HasUndeployedChanges: status.HasUndeployedChanges,
+        HasImageDrift: status.HasImageDrift,
+        Workloads: status.Workloads
+            .Select(w => new DriftWorkload(
+                w.Name, w.Image, w.ExpectedImage, w.Drifted,
+                w.Health.ToString(), w.DesiredReplicas, w.ReadyReplicas))
+            .ToList());
+}
+
+/// <summary>One workload's running-vs-expected comparison as the prompt sees it.</summary>
+public sealed record DriftWorkload(
+    string Name,
+    string? Image,
+    string? ExpectedImage,
+    bool Drifted,
+    string Health,
+    int DesiredReplicas,
+    int ReadyReplicas);

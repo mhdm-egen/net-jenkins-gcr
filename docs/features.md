@@ -148,6 +148,8 @@ key ⇒ AI actions simply don't appear. See [ai.md](ai.md) for what exists and
 | Explain this deploy (Aspire) | Explains an aspirate deploy log — the failure on a failed run, or the warnings behind an unreachable app on a succeeded one | `feat/ai-integration` |
 | Metering service | `metering-api` — a general usage ledger with per-direction AI token rows, idempotent ingest, and a versioned rate table | `feat/ai-integration` |
 | Build & deploy meters | `ci.events` / `deployment.events` subscriptions meter pipeline runs and deploys into the same ledger (counts, not costed) | `feat/ai-integration` |
+| Assess licenses | Turns `LicenseAnalyzer` findings into a ship / don't-ship call in priority order, on the SBOM visualizer | `feat/ai-integration` |
+| Explain what changed (drift) | Explains running-vs-deployed image drift, separating "not rolled out yet" from "changed out of band", and whether redeploying overwrites work | `feat/ai-integration` |
 | Weekly delivery digest | Narrates the DORA four to Slack/email on a Wolverine self-rescheduling schedule, plus a manual "send now" button. Opt-in, off by default | `feat/ai-integration` |
 | Full DORA four, server-side | Lead time (commit→production) and time-to-restore added; computed in deployment-api so the metrics page, home tile and digest cannot drift | `feat/ai-integration` |
 | Usage & cost page | Token spend, estimated cost, cache-hit rate, by model / by feature, plus build & deploy activity | `feat/ai-integration` |

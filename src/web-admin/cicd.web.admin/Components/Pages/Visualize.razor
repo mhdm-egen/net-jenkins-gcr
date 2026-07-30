@@ -3,6 +3,8 @@
 @inject IBuildStore Store
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject ILicenseExplainer LicenseExplainer
+@inject IDialogService DialogService
 @implements IAsyncDisposable
 
 <PageTitle>Visualize SBOM — Build #@Number</PageTitle>
@@ -314,6 +316,18 @@
                     Clear highlight
                 </MudButton>
             }
+            @* The analyzer states each finding; this turns the set of them into a ship/don't-ship
+               call and an order to work in. Hidden when AI is unconfigured. *@
+            @if (LicenseExplainer.IsConfigured)
+            {
+                <MudButton StartIcon="@Icons.Material.Filled.AutoAwesome"
+                           Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           OnClick="@(() => OpenLicenseExplanationAsync(la))">
+                    Assess licenses
+                </MudButton>
+            }
         </MudStack>
 
         <DetailRow Label="Root project category" Value="@LicenseAnalyzer.Display(la.RootCategory)" />
@@ -591,6 +605,26 @@
     private LicenseAnalysis? _licenseAnalysis;
 
     private bool IsGraphView => _view == GraphView;
+
+    private async Task OpenLicenseExplanationAsync(LicenseAnalysis analysis)
+    {
+        if (_graph is not { } graph) return;
+
+        var subject = IsAspire ? $"{Image} (build #{Number})" : $"build #{Number}";
+        var request = LicenseExplainRequest.FromAnalysis(subject, graph, analysis);
+
+        var parameters = new DialogParameters
+        {
+            ["Loader"] = new Func<Task<AiExplanationDialog.AiExplanationResult>>(async () =>
+            {
+                var e = await LicenseExplainer.ExplainAsync(request);
+                return new AiExplanationDialog.AiExplanationResult(e.Text, e.FromCache, e.ModelUsed);
+            }),
+            ["LoadingMessage"] = "Assessing the license posture of this dependency graph…",
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<AiExplanationDialog>($"License assessment — {subject}", parameters, options);
+    }
 
     protected override void OnInitialized()
     {

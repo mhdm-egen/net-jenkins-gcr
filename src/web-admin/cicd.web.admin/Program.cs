@@ -128,6 +128,10 @@ builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ICveExplainer, Cicd.Web.A
 builder.Services.AddScoped<IPipelineFailureExplainer, PipelineFailureExplainer>();
 builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IDeployRunExplainer, Cicd.Web.Admin.Services.Deployment.DeployRunExplainer>();
 builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IAspireRunExplainer, Cicd.Web.Admin.Services.Deployment.AspireRunExplainer>();
+//   explain_licenses         — LicenseAnalyzer findings → ship/don't-ship  (Interactive)
+//   explain_drift            — running vs deployed images                  (Interactive)
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ILicenseExplainer, Cicd.Web.Admin.Services.Sca.LicenseExplainer>();
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IDriftExplainer, Cicd.Web.Admin.Services.Deployment.DriftExplainer>();
 
 // Read-side metering client for the AI Usage page (GET usage/summary).
 builder.Services.AddHttpClient<MeteringApiClient>(c =>

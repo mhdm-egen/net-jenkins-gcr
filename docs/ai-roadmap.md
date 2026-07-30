@@ -3,7 +3,16 @@
 Where the AI layer is going, and why in this order. Companion to [ai.md](ai.md), which documents
 what exists today.
 
-**Status: slices 1–3 of 9 done.**
+**Status: slices 1–4 of 9 done.**
+
+> **Release notes was cut from slice 4 deliberately.** `BuildSummaryDto` / `BuildDetailDto` expose
+> `CommitShort` and `Branch` but **no commit message and no author** — `SourceRevision` holds both, but
+> neither crosses into the contract. A narrative over what's left could only paraphrase the table
+> already on the build page: an AI feature that adds nothing and costs tokens per click.
+>
+> It moves to slice 5, which has to build commit-range plumbing for the SBOM diff anyway. Release notes
+> *over a range* is the version anyone actually wants; a single-build summary was always the weaker
+> half. Slice 5 will need `Author` + `Message` on the build contract regardless.
 
 ---
 
@@ -25,8 +34,8 @@ describes**, and several features had infrastructure provisioned *by name* and w
 | 1 | **Pipeline failure triage** — "why did this run fail" on a failed run's page | ✅ Done |
 | 2 | **Deploy failure explainer + Aspire deploy-log explainer** — plus `AiExplanationRunner`, the shared cache→call→cache half all features now use | ✅ Done |
 | 3 | **Weekly DORA digest** — Wolverine self-rescheduling chain + manual trigger, pushed over the existing Slack/SMTP senders. Included extracting `Cicd.Ai` so a second host could use it, and moving the DORA computation server-side with lead time + MTTR added | ✅ Done |
-| 4 | License risk narrative + drift explainer + release notes | Next |
-| 5 | SBOM diff — "what changed in my dependencies between two builds" | Planned |
+| 4 | **License assessment + drift explainer.** Release notes was dropped — see below | ✅ Done |
+| 5 | **Commit-range capability**: SBOM diff between two builds + release notes over the range | Next |
 | 6 | **"Ask the platform"** — agentic, read-only tool use across every surface | Planned |
 | 7 | Suggest-and-apply — the agent proposes an action, a human applies it | Planned |
 | 8 | Metering completion — gauge collectors, storage/cloud meters, GCP billing reconciliation, budgets | Planned |

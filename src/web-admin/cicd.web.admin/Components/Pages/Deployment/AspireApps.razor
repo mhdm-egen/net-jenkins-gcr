@@ -3,6 +3,8 @@
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject RunEventsService Events
+@inject IDriftExplainer DriftExplainer
+@inject IDialogService DialogService
 @implements IDisposable
 
 <PageTitle>Deployment — Aspire apps</PageTitle>
@@ -252,6 +254,15 @@
                 </MudAlert>
             }
 
+            @* Offered whenever there is something to explain. Redeploying to "reconcile" drift
+               overwrites whatever was applied out of band, so it is worth understanding first. *@
+            @if ((_status.HasImageDrift || _status.HasUndeployedChanges) && DriftExplainer.IsConfigured)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="my-2"
+                           StartIcon="@Icons.Material.Filled.AutoAwesome"
+                           OnClick="OpenDriftExplanationAsync">Explain what changed</MudButton>
+            }
+
             <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">
                 Last deployed: @(_status.LastDeployedAtUtc is { } t ? t.LocalDateTime.ToString("g") : "never")
                 @(_status.LastDeployedVersion is { Length: > 0 } v ? $" · {v}" : "")
@@ -485,6 +496,28 @@
         try { _status = await Api.GetAspireAppStatusAsync(_statusAppId); }
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
         finally { _statusLoading = false; StateHasChanged(); }
+    }
+
+    private async Task OpenDriftExplanationAsync()
+    {
+        if (_status is not { } status) return;
+
+        // Snapshot the request now: the status panel can refresh underneath the open dialog, and the
+        // explanation should describe the state the user was looking at when they asked.
+        var request = DriftExplainRequest.FromStatus(status);
+
+        var parameters = new DialogParameters
+        {
+            ["Loader"] = new Func<Task<AiExplanationDialog.AiExplanationResult>>(async () =>
+            {
+                var e = await DriftExplainer.ExplainAsync(request);
+                return new AiExplanationDialog.AiExplanationResult(e.Text, e.FromCache, e.ModelUsed);
+            }),
+            ["LoadingMessage"] = $"Comparing what {status.ApplicationName} is running against what was deployed…",
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<AiExplanationDialog>(
+            $"What changed on {status.ApplicationName}", parameters, options);
     }
 
     private static Color HealthColor(WorkloadHealthDto h) => h switch

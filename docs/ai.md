@@ -12,6 +12,8 @@ What ships today:
 | **Explain this failure** (pipeline) | `/jenkins/runs/{id}`, failed runs | Triage of *why* a pipeline run failed, from the failing job's console output |
 | **Explain this failure** (deploy) | `/deployment/runs/{id}`, failed runs | Turns the typed step-failure category into a specific fix |
 | **Explain this deploy** (Aspire) | `/deployment/aspire-runs/{id}`, any run with a log | Explains the aspirate log — the failure, or the warnings behind an unreachable app |
+| **Assess licenses** | SCA → Visualize (`/sca/visualize/{n}`) | Turns the analyzer's license findings into a ship / don't-ship call, in priority order |
+| **Explain what changed** | Aspire apps status panel, when drifted | Running-vs-deployed images: what differs, why, and whether redeploying overwrites something |
 | **Weekly delivery digest** | Scheduled → Slack / email, or on demand from `/deployment/metrics` | Narrates the DORA four for the week. Opt-in; off by default |
 | **Usage & cost** | AI → Usage & cost (`/ai/usage`) | Token spend, estimated cost, cache-hit rate, by model / by feature — plus build & deploy activity |
 
@@ -75,6 +77,9 @@ Four properties this shape buys:
 | `src/web-admin/.../Services/Ci/PipelineFailureExplainer.cs` | Pipeline failure triage |
 | `src/web-admin/.../Services/Deployment/DeployRunExplainer.cs` | Service-deploy failure triage |
 | `src/web-admin/.../Services/Deployment/AspireRunExplainer.cs` | Aspire deploy-log explanation |
+| `src/web-admin/.../Services/Sca/LicenseExplainer.cs` | License ship/don't-ship assessment |
+| `src/web-admin/.../Services/Deployment/DriftExplainer.cs` | Running-vs-deployed drift explanation |
+| `src/deployment/.../Features/Metrics/WeeklyDoraDigest.cs` | The scheduled delivery digest |
 | `src/web-admin/.../Components/Shared/AiExplanationDialog.razor` | Generic dialog every AI panel reuses |
 | `src/metering/` | The metering service (ledger, rating, endpoints) |
 
@@ -82,7 +87,7 @@ Four properties this shape buys:
 
 ## 2. The explanation features
 
-All four share one shape, factored into `AiExplanationRunner`: check the distributed cache, else run
+All of them share one shape, factored into `AiExplanationRunner`: check the distributed cache, else run
 one grounded request and cache the answer. Each feature owns only what is genuinely its own — the
 prompt, the model tier, the cache key, and the attribution dimensions. Empty answers are never
 cached, so a transient blank doesn't pin itself for the whole TTL.
@@ -176,6 +181,42 @@ Reports as `explain_aspire_deploy`; tags `service` and `environment`.
 > later be promoted or rolled back, and the old explanation would no longer describe it — including
 > status makes the entry self-invalidating on that transition.
 
+### Assess licenses
+
+On `/sca/visualize/{buildNumber}` (and the Aspire per-image variant), beside the license panel —
+**not** `/sca/sbom`, because that's where `LicenseAnalyzer` actually runs.
+
+`LicenseAnalyzer` has already categorised every component and written a reason per conflict, so this
+is a rollup, not an analysis: which findings block or constrain shipping, which are routine, and what
+order to work in. **Interactive** tier for that reason. Reports as `explain_licenses`.
+
+**Cached on a fingerprint of the analysis, not the build number** — root category, per-category
+counts, and the sorted finding set, hashed to bound the key. Rebuilds of an unchanged dependency set
+have identical license posture and should share one answer.
+
+The prompt is told three things it would otherwise get wrong: it is not a lawyer and must say so for
+anything consequential; an **undeclared** licence is missing information, not evidence of a permissive
+one; and the analyzer deliberately does not model classpath exceptions, LGPL static-vs-dynamic
+linking, or commercial dual-licensing, so it must not imply those were considered. With zero conflicts
+it is told to say so briefly rather than manufacture concerns.
+
+### Explain what changed (drift)
+
+On the Aspire apps status panel, when there is image drift or an undeployed change.
+
+The prompt is made to separate two states that need **opposite** responses: an *undeployed change*
+means the platform holds something newer that hasn't rolled out, while *image drift* means the cluster
+is running something the platform doesn't know about — and only the second gets silently overwritten
+by the next deploy. It's asked to say explicitly whether redeploying would destroy work.
+
+**Cached on observed cluster state, 6-hour TTL.** Drift is live: keyed by app id alone, this would
+keep serving an explanation of drift you'd since corrected, which is worse than none. The key includes
+the running-vs-expected image set, so it changes the moment the cluster does. `explain_drift`,
+Interactive tier, tagged with `service` + `environment`.
+
+Also told what the check *doesn't* cover — image references only, not environment variables, config
+maps, replica counts set outside the platform, or anything another tool applied.
+
 ### Weekly delivery digest
 
 The first AI feature that isn't a panel: it runs on a schedule in **deployment-api** and pushes to
@@ -230,7 +271,7 @@ touching feature code:
 
 | Tier | Config key | Default | Used by |
 | --- | --- | --- | --- |
-| `Interactive` | `Ai:InteractiveModel` | `claude-sonnet-5` | CVE explain, deploy-failure explain — small or pre-classified inputs |
+| `Interactive` | `Ai:InteractiveModel` | `claude-sonnet-5` | CVE explain, deploy-failure explain, licenses, drift, digest — small or pre-classified inputs |
 | `Synthesis` | `Ai:SynthesisModel` | `claude-opus-5` | Pipeline triage, Aspire deploy — long noisy logs |
 
 The split is about **input shape, not importance**: a feature goes to Synthesis when it has to reason
@@ -375,9 +416,14 @@ only the API key is yours to supply.
 5. Open a **failed** deploy run (`/deployment/runs/{id}`) and an Aspire run with a log
    (`/deployment/aspire-runs/{id}`) — both should offer a button; the Aspire one offers it on
    *succeeded* runs too, worded *Explain this deploy*.
-6. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
+6. Open **SCA → Visualize** for a build (`/sca/visualize/{n}`) — *Assess licenses* sits beside the
+   license panel. It appears even with zero conflicts; the answer should then say so briefly.
+7. Open **Deployment → Aspire apps** and run a live status check. *Explain what changed* appears
+   **only** when that check reports image drift or an undeployed change — no drift, no button, which
+   is the intended behaviour rather than a missing registration.
+8. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
    across `claude-sonnet-5` and `claude-opus-5` under *By model* per the tier table above.
-7. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
+9. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
 
 ---
 
