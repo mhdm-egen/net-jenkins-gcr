@@ -136,6 +136,10 @@ builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IDriftExplainer, C
 builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ISbomDiffExplainer, Cicd.Web.Admin.Services.Sca.SbomDiffExplainer>();
 //   release_notes            — what shipped across a build range           (Interactive)
 builder.Services.AddScoped<IReleaseNotesWriter, ReleaseNotesWriter>();
+//   ask_platform             — agentic, read-only tool use                 (Synthesis)
+// Scoped: the tool registry wraps the scoped API clients it reads through.
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Ai.PlatformToolRegistry>();
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Ai.IPlatformAgent, Cicd.Web.Admin.Services.Ai.PlatformAgent>();
 
 // Read-side metering client for the AI Usage page (GET usage/summary).
 builder.Services.AddHttpClient<MeteringApiClient>(c =>

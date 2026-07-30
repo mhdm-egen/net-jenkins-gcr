@@ -16,6 +16,7 @@ What ships today:
 | **Explain what changed** | Aspire apps status panel, when drifted | Running-vs-deployed images: what differs, why, and whether redeploying overwrites something |
 | **Explain the changes** | SCA → Dependency diff (`/sca/diff`) | What moved in the dependency set between two builds, and whether it needs a look before shipping |
 | **Release notes** | CI → a repository's Builds page | What shipped across a range of builds, grouped by theme |
+| **Ask the platform** | AI → Ask the platform (`/ai/ask`) | Agentic: answers questions by calling read-only tools over live platform data |
 | **Weekly delivery digest** | Scheduled → Slack / email, or on demand from `/deployment/metrics` | Narrates the DORA four for the week. Opt-in; off by default |
 | **Usage & cost** | AI → Usage & cost (`/ai/usage`) | Token spend, estimated cost, cache-hit rate, by model / by feature — plus build & deploy activity |
 
@@ -82,6 +83,10 @@ Four properties this shape buys:
 | `src/web-admin/.../Services/Sca/LicenseExplainer.cs` | License ship/don't-ship assessment |
 | `src/web-admin/.../Services/Sca/SbomDiff.cs` | The dependency differ (pure, no AI) |
 | `src/web-admin/.../Services/Sca/SbomDiffExplainer.cs` | Narrative over that diff |
+| `src/web-admin/.../Services/Ci/ReleaseNotesWriter.cs` | Release notes over a build range |
+| `src/web-admin/.../Services/Ai/PlatformToolRegistry.cs` | The 15 read-only agent tools |
+| `src/web-admin/.../Services/Ai/PlatformAgent.cs` | The agent's frozen system prompt |
+| `src/shared/Cicd.Ai/AiClient.cs` (`RunAgentAsync`) | The tool-use loop + cache breakpoint |
 | `src/web-admin/.../Services/Deployment/DriftExplainer.cs` | Running-vs-deployed drift explanation |
 | `src/deployment/.../Features/Metrics/WeeklyDoraDigest.cs` | The scheduled delivery digest |
 | `src/web-admin/.../Components/Shared/AiExplanationDialog.razor` | Generic dialog every AI panel reuses |
@@ -97,6 +102,11 @@ prompt, the model tier, the cache key, and the attribution dimensions. Empty ans
 cached, so a transient blank doesn't pin itself for the whole TTL.
 
 They all render through the same `AiExplanationDialog`, and all hide themselves when no key is set.
+
+**One exception, and it is a real one:** *Ask the platform* does not use `AiExplanationRunner` at all.
+It is not a cache→call→cache shape — it is a tool-use loop where the model chooses its own inputs, so
+there is nothing to key a cache on and no prompt assembled in advance. It shares the SDK call site
+and the usage recorder, and nothing else.
 
 ### Explain this CVE
 
@@ -287,6 +297,65 @@ appeared on a failure isn't listed as shipped.
 If **no** build in the range has a commit message, the page refuses rather than calling the model —
 release notes written from nothing but SHAs would be confident-sounding fiction.
 
+### Ask the platform (agentic)
+
+`/ai/ask`. Every other feature here assembles its prompt in advance from data the page already had.
+This one doesn't: the model gets a **read-only tool surface** and decides what to look at.
+
+**Fifteen tools, all reads**, each wrapping a method the admin UI already calls — repositories,
+builds, pipelines and their runs and console output, services, environments, deployment runs, Aspire
+apps and runs, previews, and the DORA summary. Because they wrap existing client methods, the agent
+can never see more than a human with the same page open: no new endpoints, no elevated access.
+
+**There is no write tool, and adding one is not a small change.** Deploys, rollbacks, approvals and
+deletions sit behind confirm gates for reasons that don't stop applying because the caller is a
+model. The system prompt also tells it to say where an action lives in the UI rather than imply it
+performed one. The test harness asserts the invariant rather than trusting it — no tool name may
+begin with a write verb.
+
+**Bounded, because a read-only agent is still a cost problem if it can't stop.** Tool turns are
+capped at 8 and the UI says so explicitly when the cap is hit, rather than presenting a truncated
+investigation as a finished answer. Each tool result is capped at 6,000 characters and each list at
+40 rows, both truncated with a marker the model can see — it is told never to present a truncated
+list as complete.
+
+A failing tool does not fail the turn: the error becomes a tool result, so the model can try another
+route instead of the user getting an exception because one of fifteen read endpoints blipped.
+
+The UI shows **which tools ran** for each answer. A grounded answer is only worth trusting if you can
+see what grounded it.
+
+#### Prompt caching lands here
+
+This is the first feature with a large stable prompt prefix, which is why caching is enabled here and
+not before. Render order is tools → system → messages, so a single `cache_control` breakpoint on the
+system block caches **the tool definitions and the system prompt together** — the entire fixed prefix
+of every request the agent ever makes.
+
+Two things keep that working, and both are easy to break later:
+
+- **The system prompt is frozen.** No date, no user name, no conditional sections. It sits at the
+  front of the prefix, so interpolating anything per-request would invalidate the cache on every
+  call and make the whole exercise pointless.
+- **Tool definitions are sorted by name before rendering.** Tools are at position 0 of the prompt,
+  so their *order* is part of the cache key. Sorting makes the prefix byte-identical regardless of
+  what order the registry produced.
+
+Measured on the real tool surface: the first call wrote **3,087** cache tokens and the second read
+back **3,087**, with the uncached remainder at 84 tokens both times.
+
+> **This is what makes the cache-hit-rate tile real.** It read a structural zero until now — see
+> [Known gaps](#6-known-gaps) — because no feature set `cache_control` at all. A short prompt still
+> won't cache: a two-tool fixture measured 0 cache tokens because tools+system fell under
+> `claude-opus-5`'s 512-token minimum. Caching pays off *because* the tool surface is large.
+
+`ask_platform`, **Synthesis** tier. Usage is recorded **per turn**, not once per question — each turn
+is a separate billable call, and the ledger should show what happened rather than an aggregate. A
+question needing three tool round-trips is three rows.
+
+Conversation history is kept as collapsed text: earlier tool calls are not replayed. The model can
+call a tool again if it needs the data, which is cheaper than growing the context without bound.
+
 ### Weekly delivery digest
 
 The first AI feature that isn't a panel: it runs on a schedule in **deployment-api** and pushes to
@@ -342,7 +411,7 @@ touching feature code:
 | Tier | Config key | Default | Used by |
 | --- | --- | --- | --- |
 | `Interactive` | `Ai:InteractiveModel` | `claude-sonnet-5` | CVE explain, deploy-failure explain, licenses, drift, digest, release notes — small or pre-classified inputs |
-| `Synthesis` | `Ai:SynthesisModel` | `claude-opus-5` | Pipeline triage, Aspire deploy — long noisy logs; SBOM diff — a large structured set |
+| `Synthesis` | `Ai:SynthesisModel` | `claude-opus-5` | Pipeline triage, Aspire deploy — long noisy logs; SBOM diff — a large structured set; Ask the platform — open-ended, multi-step |
 
 The split is about **input shape, not importance**: a feature goes to Synthesis when it has to reason
 backwards from a long, noisy log, and stays on Interactive when the platform already did the
@@ -502,9 +571,15 @@ only the API key is yours to supply.
    nothing to explain — pick a wider pair. *Explain the changes* appears once a non-empty diff loads.
 9. Open a repository's **Builds** page. *Release notes* needs at least one build in the chosen range
    to carry a commit message — see the note below if every row's Message column reads `—`.
-10. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
+10. Open **AI → Ask the platform** and ask something that needs a lookup — *"what failed most
+    recently, and why?"*. Expand **Looked at N things**: the tools it actually called are listed. An
+    answer with no tool calls means it answered from assumption, which the system prompt forbids.
+11. Ask a second question in the same session, then check **Usage & cost**: `ask_platform` should
+    show *several* rows per question (one per turn) and a **non-zero cache-hit rate** — the first
+    question writes the tools+system prefix, every later one reads it.
+12. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
     across `claude-sonnet-5` and `claude-opus-5` under *By model* per the tier table above.
-11. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
+13. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
 
 > **Release notes needs one CI run before it does anything.** Commit author and subject are captured
 > by `jenkins/build/Jenkinsfile`, so builds ingested before that change have them as `null` for good
@@ -519,12 +594,14 @@ only the API key is yours to supply.
 
 Recorded here so they aren't rediscovered as bugs:
 
-- **The cache-hit-rate tile is currently always 0%.** `/ai/usage` computes
-  `cache_read / (input + cache_read)` and `UsageRater` prices both cache directions — but `AiClient`
-  sets no `cache_control`, so Anthropic never returns cached-token counts. The metric, its rating
-  rows, and its dashboard tile are all inert until prompt caching is enabled (planned with the
-  agentic slice, which is where a large stable prefix makes it worth having). Note this is unrelated
-  to the Redis cache, which prevents calls outright rather than producing cached tokens.
+- ~~**The cache-hit-rate tile is always 0%.**~~ **Fixed by the agentic slice.** It was inert because
+  no feature set `cache_control`, so Anthropic never returned cached-token counts — the metric, its
+  rating rows and its tile were all structurally zero. *Ask the platform* enables caching on its
+  tools+system prefix (measured: 3,087 tokens written, then read back), so the tile now reflects
+  real activity. **Every other feature still contributes zero to it**, and correctly so: their
+  prompts differ from the first token, so there is no reusable prefix and a `cache_control` marker
+  would only buy the write premium. Expect the tile to track agent usage alone. Note this remains
+  unrelated to the Redis cache, which prevents calls outright rather than producing cached tokens.
 - **`Ai:BaseUrl` is not wired.** `AiOptions` declares it for gateway/proxy use, but `AiClient`
   constructs `new AnthropicClient { ApiKey = … }` without it. Setting it today has no effect.
 - **`Dimensions` are only partly populated.** The failure-triage feature tags `repository`;

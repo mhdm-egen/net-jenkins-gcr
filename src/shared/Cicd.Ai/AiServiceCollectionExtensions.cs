@@ -46,7 +46,11 @@ public static class AiServiceCollectionExtensions
             sp.GetRequiredService<MeterAiUsageRecorder>(),
             sp.GetRequiredService<MeteringUsageRecorder>()));
 
-        services.AddSingleton<IAiInsightService, AiClient>();
+        // One AiClient instance behind both interfaces — registering them separately would create
+        // two, each with its own AnthropicClient and connection pool, for no benefit.
+        services.AddSingleton<AiClient>();
+        services.AddSingleton<IAiInsightService>(sp => sp.GetRequiredService<AiClient>());
+        services.AddSingleton<IAiAgentService>(sp => sp.GetRequiredService<AiClient>());
         services.AddScoped<AiExplanationRunner>();
 
         return services;

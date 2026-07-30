@@ -3,7 +3,7 @@
 Where the AI layer is going, and why in this order. Companion to [ai.md](ai.md), which documents
 what exists today.
 
-**Status: slices 1–5 of 9 done.**
+**Status: slices 1–6 of 9 done.**
 
 > **Release notes was cut from slice 4 and delivered in slice 5 — the deferral was right.** The stated
 > reason was that `BuildSummaryDto` carried no commit message or author. Building it properly showed
@@ -38,8 +38,8 @@ describes**, and several features had infrastructure provisioned *by name* and w
 | 3 | **Weekly DORA digest** — Wolverine self-rescheduling chain + manual trigger, pushed over the existing Slack/SMTP senders. Included extracting `Cicd.Ai` so a second host could use it, and moving the DORA computation server-side with lead time + MTTR added | ✅ Done |
 | 4 | **License assessment + drift explainer.** Release notes was dropped — see below | ✅ Done |
 | 5 | **Commit-range capability**: SBOM diff between two builds + commit provenance + release notes over the range | ✅ Done |
-| 6 | **"Ask the platform"** — agentic, read-only tool use across every surface | Next |
-| 7 | Suggest-and-apply — the agent proposes an action, a human applies it | Planned |
+| 6 | **"Ask the platform"** — agentic, read-only tool use across every surface; carried prompt caching | ✅ Done |
+| 7 | Suggest-and-apply — the agent proposes an action, a human applies it | Next |
 | 8 | Metering completion — gauge collectors, storage/cloud meters, GCP billing reconciliation, budgets | Planned |
 | 9 | The blocked features, once their prerequisites land | Blocked |
 
@@ -56,8 +56,9 @@ independent; 9 waits on prerequisites.
 - **Read-only tools.** For any agentic slice the model gets read tools and never a write tool.
   Writes go through the existing endpoints behind the existing confirm gates.
 - **Soft-fail.** No API key means the affordance is hidden, never broken.
-- **One call site.** Everything goes through `IAiInsightService`, so metering and attribution
-  can't be bypassed.
+- **One call site.** Everything goes through `IAiInsightService` or — since slice 6 — the agentic
+  `IAiAgentService`. Both are implemented by the same `AiClient` instance, so there is still exactly
+  one place the SDK is touched and metering and attribution can't be bypassed.
 
 ---
 

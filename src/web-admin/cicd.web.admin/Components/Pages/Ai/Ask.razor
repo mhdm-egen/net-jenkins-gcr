@@ -1,0 +1,188 @@
+@page "/ai/ask"
+@using Cicd.Ai
+@using Cicd.Web.Admin.Services.Ai
+@inject IPlatformAgent Agent
+
+<PageTitle>AI — Ask the platform</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Ask the platform</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+        Read-only. Answers come from live platform data.
+    </MudText>
+    <MudSpacer />
+    @if (_turns.Count > 0)
+    {
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh"
+                   Disabled="@_busy" OnClick="Reset">New conversation</MudButton>
+    }
+</MudStack>
+
+@if (!Agent.IsConfigured)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        No Anthropic API key is configured, so this page has nothing to ask. Set <code>Ai__ApiKey</code>
+        and restart.
+    </MudAlert>
+}
+else
+{
+    @if (_turns.Count == 0)
+    {
+        <MudPaper Elevation="0" Class="pa-4 mb-4" Style="border: 1px dashed var(--mud-palette-divider);">
+            <MudText Typo="Typo.body2" Class="mb-2">
+                Ask about builds, pipeline runs, deployments, Aspire apps, previews or delivery metrics.
+                The assistant looks things up as it goes and shows which tools it used.
+            </MudText>
+            <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                @foreach (var example in Examples)
+                {
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                             OnClick="@(() => Use(example))">@example</MudChip>
+                }
+            </MudStack>
+        </MudPaper>
+    }
+
+    @foreach (var turn in _turns)
+    {
+        <MudPaper Elevation="1" Class="pa-4 mb-3">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                <MudIcon Icon="@(turn.FromUser ? Icons.Material.Filled.Person : Icons.Material.Filled.AutoAwesome)"
+                         Color="@(turn.FromUser ? Color.Default : Color.Primary)" Size="Size.Small" />
+                <MudText Typo="Typo.subtitle2">@(turn.FromUser ? "You" : "Platform assistant")</MudText>
+            </MudStack>
+            <MudText Typo="Typo.body2" Style="white-space: pre-wrap;">@turn.Text</MudText>
+        </MudPaper>
+    }
+
+    @* "Show your work": which tools ran for the most recent answer. Without this the agent is a
+       black box, and a grounded answer is only trustworthy if you can see what grounded it. *@
+    @if (_lastResult is { ToolCalls.Count: > 0 } last)
+    {
+        <MudExpansionPanels Elevation="0" Class="mb-3">
+            <MudExpansionPanel Text="@($"Looked at {last.ToolCalls.Count} thing{(last.ToolCalls.Count == 1 ? "" : "s")}")">
+                <MudStack Spacing="1">
+                    @foreach (var call in last.ToolCalls)
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudIcon Size="Size.Small"
+                                     Color="@(call.IsError ? Color.Error : Color.Success)"
+                                     Icon="@(call.IsError ? Icons.Material.Filled.ErrorOutline : Icons.Material.Filled.Check)" />
+                            <MudText Typo="Typo.caption" Style="font-family: ui-monospace, monospace;">
+                                @call.Name@(string.IsNullOrEmpty(call.Arguments) ? "" : $"({call.Arguments})")
+                            </MudText>
+                        </MudStack>
+                    }
+                </MudStack>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+    }
+
+    @if (_lastResult is { HitTurnLimit: true })
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
+            The assistant reached its tool-call limit before finishing, so this answer may be
+            incomplete. Try asking something narrower.
+        </MudAlert>
+    }
+
+    @if (_error is { Length: > 0 })
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3">@_error</MudAlert>
+    }
+
+    @if (_busy)
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-3">
+            <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+            <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                Looking it up…
+            </MudText>
+        </MudStack>
+    }
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudTextField @bind-Value="_question" Label="Ask a question" Variant="Variant.Outlined"
+                      Immediate="true" Disabled="@_busy" OnKeyDown="OnKeyDown" AutoFocus="true" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Send"
+                   Disabled="@(_busy || string.IsNullOrWhiteSpace(_question))"
+                   OnClick="AskAsync">Ask</MudButton>
+    </MudStack>
+
+    <MudText Typo="Typo.caption" Class="mt-2" Style="color: var(--mud-palette-text-secondary);">
+        AI-generated and advisory. The assistant can read platform data but cannot deploy, roll back,
+        approve or change anything.
+    </MudText>
+}
+
+@code {
+    private static readonly string[] Examples =
+    [
+        "What failed most recently, and why?",
+        "How is delivery going this month?",
+        "Which Aspire apps are deployed, and to where?",
+        "Are there any preview environments still running?",
+    ];
+
+    private readonly List<AiAgentTurn> _turns = [];
+    private string _question = string.Empty;
+    private bool _busy;
+    private string? _error;
+    private AiAgentResult? _lastResult;
+
+    private void Use(string example) => _question = example;
+
+    private void Reset()
+    {
+        _turns.Clear();
+        _lastResult = null;
+        _error = null;
+        _question = string.Empty;
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !_busy && !string.IsNullOrWhiteSpace(_question))
+        {
+            await AskAsync();
+        }
+    }
+
+    private async Task AskAsync()
+    {
+        var question = _question.Trim();
+        if (question.Length == 0 || _busy) return;
+
+        _busy = true;
+        _error = null;
+        _lastResult = null;
+        _question = string.Empty;
+
+        // The prior conversation is snapshotted before the new question is appended — the agent
+        // takes history and question separately.
+        var history = _turns.ToList();
+        _turns.Add(new AiAgentTurn(FromUser: true, question));
+        StateHasChanged();
+
+        try
+        {
+            var result = await Agent.AskAsync(question, history);
+            _lastResult = result;
+
+            _turns.Add(new AiAgentTurn(
+                FromUser: false,
+                string.IsNullOrWhiteSpace(result.Text)
+                    ? "(The assistant returned no answer.)"
+                    : result.Text));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

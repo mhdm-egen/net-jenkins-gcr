@@ -67,6 +67,7 @@ public static class NavModel
         ], []),
         new("ai", "AI", Icons.Material.Filled.AutoAwesome,
         [
+            new("Ask the platform", "ai/ask", Icons.Material.Filled.QuestionAnswer),
             new("Usage & cost", "ai/usage", Icons.Material.Filled.Insights),
         ], []),
         new("ci", "CI", Icons.Material.Filled.Hub,
