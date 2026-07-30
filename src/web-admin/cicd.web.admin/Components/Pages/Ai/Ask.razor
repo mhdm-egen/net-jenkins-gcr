@@ -56,6 +56,50 @@ else
         </MudPaper>
     }
 
+    @* Suggested actions. These are LINKS, never buttons that act — each one opens the page where
+       that action's own confirm gate lives, so the write travels the one audited path it always
+       did. Nothing here can change anything on its own. *@
+    @if (_proposals.Count > 0)
+    {
+        <MudPaper Elevation="1" Class="pa-4 mb-3">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.TipsAndUpdates" Color="Color.Primary" />
+                <MudText Typo="Typo.subtitle1">Suggested — you decide</MudText>
+            </MudStack>
+
+            @foreach (var p in _proposals)
+            {
+                <MudPaper Elevation="0" Class="pa-3 mb-2"
+                          Style="border: 1px solid var(--mud-palette-divider);">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-1">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                                 Color="@(p.IsDestructive ? Color.Warning : Color.Primary)">
+                            @p.Verb
+                        </MudChip>
+                        <MudText Typo="Typo.body2" Style="font-family: ui-monospace, monospace;">
+                            @p.TargetLabel
+                        </MudText>
+                        <MudSpacer />
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                   Color="@(p.IsDestructive ? Color.Warning : Color.Primary)"
+                                   EndIcon="@Icons.Material.Filled.OpenInNew"
+                                   Href="@p.Href">
+                            Review it
+                        </MudButton>
+                    </MudStack>
+                    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                        @p.Reason
+                    </MudText>
+                </MudPaper>
+            }
+
+            <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">
+                Nothing has been done. Each link opens the page where you can carry the action out
+                yourself, with the usual confirmation.
+            </MudText>
+        </MudPaper>
+    }
+
     @* "Show your work": which tools ran for the most recent answer. Without this the agent is a
        black box, and a grounded answer is only trustworthy if you can see what grounded it. *@
     @if (_lastResult is { ToolCalls.Count: > 0 } last)
@@ -126,6 +170,7 @@ else
     ];
 
     private readonly List<AiAgentTurn> _turns = [];
+    private List<ActionProposal> _proposals = [];
     private string _question = string.Empty;
     private bool _busy;
     private string? _error;
@@ -136,6 +181,7 @@ else
     private void Reset()
     {
         _turns.Clear();
+        _proposals = [];
         _lastResult = null;
         _error = null;
         _question = string.Empty;
@@ -157,6 +203,9 @@ else
         _busy = true;
         _error = null;
         _lastResult = null;
+        // Proposals belong to the answer they came with — a stale card next to a new answer would
+        // read as a suggestion the assistant just made.
+        _proposals = [];
         _question = string.Empty;
 
         // The prior conversation is snapshotted before the new question is appended — the agent
@@ -167,14 +216,15 @@ else
 
         try
         {
-            var result = await Agent.AskAsync(question, history);
-            _lastResult = result;
+            var answer = await Agent.AskAsync(question, history);
+            _lastResult = answer.Result;
+            _proposals = answer.Proposals.ToList();
 
             _turns.Add(new AiAgentTurn(
                 FromUser: false,
-                string.IsNullOrWhiteSpace(result.Text)
+                string.IsNullOrWhiteSpace(answer.Result.Text)
                     ? "(The assistant returned no answer.)"
-                    : result.Text));
+                    : answer.Result.Text));
         }
         catch (Exception ex)
         {

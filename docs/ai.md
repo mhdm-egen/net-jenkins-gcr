@@ -17,6 +17,7 @@ What ships today:
 | **Explain the changes** | SCA → Dependency diff (`/sca/diff`) | What moved in the dependency set between two builds, and whether it needs a look before shipping |
 | **Release notes** | CI → a repository's Builds page | What shipped across a range of builds, grouped by theme |
 | **Ask the platform** | AI → Ask the platform (`/ai/ask`) | Agentic: answers questions by calling read-only tools over live platform data |
+| **Suggest-and-apply** | Proposal cards on `/ai/ask` | The agent suggests a validated action; you carry it out behind the existing confirm gate |
 | **Weekly delivery digest** | Scheduled → Slack / email, or on demand from `/deployment/metrics` | Narrates the DORA four for the week. Opt-in; off by default |
 | **Usage & cost** | AI → Usage & cost (`/ai/usage`) | Token spend, estimated cost, cache-hit rate, by model / by feature — plus build & deploy activity |
 
@@ -84,7 +85,8 @@ Four properties this shape buys:
 | `src/web-admin/.../Services/Sca/SbomDiff.cs` | The dependency differ (pure, no AI) |
 | `src/web-admin/.../Services/Sca/SbomDiffExplainer.cs` | Narrative over that diff |
 | `src/web-admin/.../Services/Ci/ReleaseNotesWriter.cs` | Release notes over a build range |
-| `src/web-admin/.../Services/Ai/PlatformToolRegistry.cs` | The 15 read-only agent tools |
+| `src/web-admin/.../Services/Ai/PlatformToolRegistry.cs` | The 16 agent tools + proposal validation |
+| `src/web-admin/.../Services/Ai/ActionProposal.cs` | A suggested action — a record with a link, not a capability |
 | `src/web-admin/.../Services/Ai/PlatformAgent.cs` | The agent's frozen system prompt |
 | `src/shared/Cicd.Ai/AiClient.cs` (`RunAgentAsync`) | The tool-use loop + cache breakpoint |
 | `src/web-admin/.../Services/Deployment/DriftExplainer.cs` | Running-vs-deployed drift explanation |
@@ -356,6 +358,54 @@ question needing three tool round-trips is three rows.
 Conversation history is kept as collapsed text: earlier tool calls are not replayed. The model can
 call a tool again if it needs the data, which is cheaper than growing the context without bound.
 
+### Suggest-and-apply
+
+The agent can now propose a concrete action — and still cannot perform one. That is the whole design
+problem of this feature, and it is solved by making the proposal a **record with a link**, not a
+capability.
+
+`propose_action` is in the tool list, but it is not a write tool:
+
+1. It **performs nothing**. The platform is untouched whether the call succeeds or is refused.
+2. It **validates against the same condition that renders the button**. `RunDetail.razor` shows
+   Promote/Rollback only while a run is `AwaitingPromotion`; `AspireRunDetail.razor` shows
+   Approve/Reject while `AwaitingApproval` and Promote/Rollback while `AwaitingPromotion`. The
+   validator re-fetches the run and applies exactly those rules. **If the button wouldn't render,
+   the proposal is refused.**
+3. It **requires a reason**, and the refusal for a missing one says so. A suggestion with no
+   grounding isn't a suggestion.
+4. The refusal comes back **as text the model can act on**, so it learns immediately rather than the
+   user discovering it by following a link to a page with no button on it.
+
+Validation deliberately lives in the tool, not the UI. The alternative — render whatever the model
+proposed and let the page sort it out — produces confident suggestions the platform would reject.
+
+> **Tool results use relaxed JSON escaping**, found while testing this. `System.Text.Json`'s default
+> encoder escapes quotes, ampersands and every non-ASCII character to `\uXXXX` — so a refusal reading
+> `not 'AwaitingPromotion'` reached the model with each quote as a `'` escape. It is still
+> valid JSON, but it is harder to read and costs tokens to say the same thing, and it would have hit
+> every commit message and service name too. Relaxed escaping is safe on this path because nothing
+> here is rendered as HTML: the UI shows tool names and arguments only, through Blazor, which escapes
+> them itself.
+
+**The UI renders proposals as links, never as buttons that act.** Each opens the page where that
+action's own confirm gate lives, so the write still travels the one audited path it always did. The
+card says plainly that nothing has been done. Destructive suggestions (rollback, reject, teardown)
+are coloured differently — an agent suggesting a rollback deserves more scrutiny than one suggesting
+an approval.
+
+The system prompt tells it to say "I suggest", never "I have" or "I will"; to propose one action
+rather than a menu; and — the failure mode worth naming — **not to retry with a different action
+when one is refused**, nor to describe a refused proposal as recorded.
+
+Proposals are cleared when a new question starts. The registry is scoped to the Blazor circuit
+rather than to one question, so without that a card from three questions ago would sit next to a new
+answer, reading as something the assistant had just suggested.
+
+> **What this is not.** There is no "apply" button that calls the deployment API from the proposal
+> card. That would duplicate gate logic and let the two drift apart. One mutating code path, and it
+> is the one that was already there.
+
 ### Weekly delivery digest
 
 The first AI feature that isn't a panel: it runs on a schedule in **deployment-api** and pushes to
@@ -577,9 +627,14 @@ only the API key is yours to supply.
 11. Ask a second question in the same session, then check **Usage & cost**: `ask_platform` should
     show *several* rows per question (one per turn) and a **non-zero cache-hit rate** — the first
     question writes the tools+system prefix, every later one reads it.
-12. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
+12. Ask *"should I roll anything back?"*. With no run parked in `AwaitingPromotion` there is nothing
+    to propose, and the right answer says so — a proposal card appearing here would mean the status
+    guard is not being enforced. To see a card, park a run awaiting promotion first. **The card's
+    button is a link**: it opens the run's own page, and nothing has happened until you press the
+    button there.
+13. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
     across `claude-sonnet-5` and `claude-opus-5` under *By model* per the tier table above.
-13. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
+14. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
 
 > **Release notes needs one CI run before it does anything.** Commit author and subject are captured
 > by `jenkins/build/Jenkinsfile`, so builds ingested before that change have them as `null` for good

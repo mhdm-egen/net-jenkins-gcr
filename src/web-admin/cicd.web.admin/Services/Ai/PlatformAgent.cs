@@ -7,9 +7,15 @@ public interface IPlatformAgent
     /// <summary>False when no API key is configured — callers hide the affordance rather than fail.</summary>
     bool IsConfigured { get; }
 
-    Task<AiAgentResult> AskAsync(
+    Task<PlatformAnswer> AskAsync(
         string question, IReadOnlyList<AiAgentTurn> history, CancellationToken ct = default);
 }
+
+/// <summary>
+/// The agent's answer plus any actions it suggested. Proposals are carried separately from the
+/// text because they are rendered as links to real confirm gates, not as prose.
+/// </summary>
+public sealed record PlatformAnswer(AiAgentResult Result, IReadOnlyList<ActionProposal> Proposals);
 
 /// <summary>
 /// "Ask the platform" — the agentic slice. Unlike every other AI feature here, the prompt is not
@@ -66,7 +72,17 @@ public sealed class PlatformAgent : IPlatformAgent
 
         "What you cannot do: you have no ability to deploy, roll back, approve, cancel, or change " +
         "anything. If the user asks you to, explain what you found and tell them where in the UI " +
-        "the action lives — do not imply you performed it.";
+        "the action lives — do not imply you performed it.\n\n" +
+
+        "Proposing an action: when the evidence supports a specific action on a deployment run, you " +
+        "may call propose_action. Be clear about what that does and does not mean. It does NOT " +
+        "carry the action out — it records a suggestion, and the user sees a link to the page where " +
+        "they can do it themselves after the usual confirmation. Say 'I suggest' and never 'I have' " +
+        "or 'I will'. Propose only when you have specific evidence, name that evidence in the " +
+        "reason, and propose one action rather than a menu. If the call is refused because the " +
+        "run's status does not offer that action, accept the refusal and tell the user plainly — do " +
+        "not retry with a different action hoping one sticks, and never describe a refused proposal " +
+        "as if it had been recorded.";
 
     private readonly IAiAgentService _ai;
     private readonly PlatformToolRegistry _tools;
@@ -79,9 +95,13 @@ public sealed class PlatformAgent : IPlatformAgent
 
     public bool IsConfigured => _ai.IsConfigured;
 
-    public Task<AiAgentResult> AskAsync(
-        string question, IReadOnlyList<AiAgentTurn> history, CancellationToken ct = default) =>
-        _ai.RunAgentAsync(new AiAgentRequest(
+    public async Task<PlatformAnswer> AskAsync(
+        string question, IReadOnlyList<AiAgentTurn> history, CancellationToken ct = default)
+    {
+        // The registry lives for the whole circuit; proposals belong to one question.
+        _tools.ResetProposals();
+
+        var result = await _ai.RunAgentAsync(new AiAgentRequest(
             Feature: "ask_platform",
             SystemPrompt: SystemPrompt,
             History: history,
@@ -89,4 +109,7 @@ public sealed class PlatformAgent : IPlatformAgent
             Tools: _tools.Definitions,
             ToolExecutor: _tools.ExecuteAsync,
             Model: AiModelKind.Synthesis), ct);
+
+        return new PlatformAnswer(result, _tools.Proposals.ToList());
+    }
 }

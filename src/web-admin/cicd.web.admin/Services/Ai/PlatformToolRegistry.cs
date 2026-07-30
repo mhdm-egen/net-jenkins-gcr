@@ -1,7 +1,10 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Cicd.Ai;
 using Cicd.Web.Admin.Services.Ci;
 using Cicd.Web.Admin.Services.Deployment;
+using Deployment.Contracts.AspireApps;
+using Deployment.Contracts.Runs;
 
 namespace Cicd.Web.Admin.Services.Ai;
 
@@ -21,6 +24,13 @@ public sealed class PlatformToolRegistry
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = false,
+
+        // Tool results are read by a model as text, not embedded in a page. The default encoder
+        // escapes quotes, ampersands and every non-ASCII character to \uXXXX, which makes a commit
+        // message or a service name harder to read and costs tokens to say the same thing. Relaxed
+        // escaping is safe here because nothing on this path is rendered as HTML — the UI shows tool
+        // names and arguments only, through Blazor, which escapes them itself.
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
     /// <summary>
@@ -84,7 +94,139 @@ public sealed class PlatformToolRegistry
 
             ["get_dora_summary"] = async (a, ct) =>
                 await _deployment.GetDoraSummaryAsync(Days(a), ct),
+
+            // Not a write. See ProposeActionAsync — this records a suggestion and returns it to
+            // the model; the platform is not touched.
+            ["propose_action"] = async (a, ct) =>
+                await ProposeActionAsync(a, ct),
         };
+    }
+
+    /// <summary>
+    /// Proposals the agent made during this request, in order. The UI renders them as links to the
+    /// pages where the real confirm gates live.
+    /// </summary>
+    public IReadOnlyList<ActionProposal> Proposals => _proposals;
+
+    private readonly List<ActionProposal> _proposals = [];
+
+    /// <summary>
+    /// Clears proposals from a previous question. The registry is scoped to the Blazor circuit, not
+    /// to one question, so without this a proposal from three questions ago would still be on
+    /// screen — attached to an answer that never made it.
+    /// </summary>
+    public void ResetProposals() => _proposals.Clear();
+
+    /// <summary>
+    /// Records a suggested action after checking it is actually applicable.
+    ///
+    /// **This does not perform the action and cannot.** It re-fetches the target and tests the same
+    /// status condition that decides whether the button renders on the page at all — so the agent
+    /// cannot propose promoting a run that already succeeded, or approving one that was never
+    /// waiting for approval. A refusal comes back as text the model can act on, which is what stops
+    /// it inventing a plausible-sounding action the platform would reject.
+    ///
+    /// Keeping validation here rather than in the UI means the model learns immediately that a
+    /// proposal was rejected, instead of the user discovering it by clicking through to a page with
+    /// no button on it.
+    /// </summary>
+    private async Task<object> ProposeActionAsync(
+        IReadOnlyDictionary<string, JsonElement> a, CancellationToken ct)
+    {
+        var rawAction = Str(a, "action");
+        var reason = Str(a, "reason");
+        var runId = Guid(a, "run_id");
+
+        if (!Enum.TryParse<ProposedActionKind>(rawAction, ignoreCase: true, out var kind)
+            || kind == ProposedActionKind.TeardownPreview)
+        {
+            return new ProposalOutcome(false,
+                $"'{rawAction}' is not a proposable action. Valid actions are: promote, rollback, " +
+                "approve, reject.");
+        }
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return new ProposalOutcome(false,
+                "A proposal needs a reason explaining why, grounded in what you found.");
+        }
+
+        // Try the service-deploy side first, then the Aspire side. A run id belongs to exactly one.
+        var outcome = await ValidateServiceRunAsync(kind, runId, reason, ct)
+                      ?? await ValidateAspireRunAsync(kind, runId, reason, ct)
+                      ?? new ProposalOutcome(false,
+                          $"No deployment run or Aspire run exists with id {runId}.");
+
+        if (outcome is { Accepted: true, Proposal: { } proposal })
+        {
+            _proposals.Add(proposal);
+        }
+
+        return outcome;
+    }
+
+    private async Task<ProposalOutcome?> ValidateServiceRunAsync(
+        ProposedActionKind kind, Guid runId, string reason, CancellationToken ct)
+    {
+        var run = await _deployment.GetRunAsync(runId, ct);
+        if (run is null) return null;
+
+        var label = $"{run.ServiceName} {run.Version} (deployment run)";
+
+        // Mirrors the guard on RunDetail.razor: Promote and Rollback exist only while a run is
+        // parked awaiting promotion.
+        if (run.Status != DeploymentRunStatusDto.AwaitingPromotion)
+        {
+            return new ProposalOutcome(false,
+                $"Deployment run {runId} is '{run.Status}', not 'AwaitingPromotion', so it offers " +
+                "no promote or rollback action. Do not propose one.");
+        }
+
+        if (kind is not (ProposedActionKind.Promote or ProposedActionKind.Rollback))
+        {
+            return new ProposalOutcome(false,
+                $"A service deployment run supports promote and rollback only, not '{kind}'. " +
+                "Approve and reject apply to Aspire runs awaiting approval.");
+        }
+
+        return new ProposalOutcome(true,
+            $"Proposal recorded: {kind} {label}. The user must carry it out; you have not.",
+            new ActionProposal(kind, label, reason, $"/deployment/runs/{runId}"));
+    }
+
+    private async Task<ProposalOutcome?> ValidateAspireRunAsync(
+        ProposedActionKind kind, Guid runId, string reason, CancellationToken ct)
+    {
+        var run = await _deployment.GetAspireRunByIdAsync(runId, ct);
+        if (run is null) return null;
+
+        var label = $"{run.ApplicationName} → {run.EnvironmentName} (Aspire run)";
+
+        // Mirrors the guard on AspireRunDetail.razor, which splits by status: approve/reject while
+        // awaiting approval, promote/rollback while awaiting promotion.
+        var allowed = run.Status switch
+        {
+            AspireRunStatusDto.AwaitingApproval  => new[] { ProposedActionKind.Approve, ProposedActionKind.Reject },
+            AspireRunStatusDto.AwaitingPromotion => [ProposedActionKind.Promote, ProposedActionKind.Rollback],
+            _                                    => [],
+        };
+
+        if (allowed.Length == 0)
+        {
+            return new ProposalOutcome(false,
+                $"Aspire run {runId} is '{run.Status}', which offers no action. Do not propose one.");
+        }
+
+        if (!allowed.Contains(kind))
+        {
+            return new ProposalOutcome(false,
+                $"Aspire run {runId} is '{run.Status}', which allows only " +
+                $"{string.Join(" or ", allowed).ToLowerInvariant()} — not '{kind}'.");
+        }
+
+        return new ProposalOutcome(true,
+            $"Proposal recorded: {kind} {label}. The user must carry it out; you have not.",
+            new ActionProposal(kind, label, reason, $"/deployment/aspire-runs/{runId}"));
     }
 
     /// <summary>
@@ -168,6 +310,20 @@ public sealed class PlatformToolRegistry
             "(commit to production) and time to restore, each with its sample count. Read the " +
             "sample counts before drawing conclusions — a mean over two samples is not a trend.",
             props: [("days", "integer", "Window length in days. Defaults to 30.")]),
+
+        // NOT a write tool. It records a suggestion for a human and returns whether the suggestion
+        // was even valid; the platform is untouched either way.
+        Tool("propose_action",
+            "Suggest that the user carry out an action on a deployment run. This does NOT perform " +
+            "the action — you cannot perform actions. It records a suggestion, which the user sees " +
+            "as a link to the page where they can do it themselves, and it tells you whether the " +
+            "action was applicable at all. Only propose something you have evidence for, and give " +
+            "the reason you found. If the run's status does not offer the action this call is " +
+            "refused and you must not claim otherwise.",
+            props: [("run_id", "string", "The deployment run or Aspire run to act on."),
+                    ("action", "string", "One of: promote, rollback, approve, reject."),
+                    ("reason", "string", "Why, grounded in what you found. Shown to the user.")],
+            required: ["run_id", "action", "reason"]),
     ];
 
     public async Task<string> ExecuteAsync(
@@ -235,6 +391,11 @@ public sealed class PlatformToolRegistry
              : System.Guid.TryParse(raw, out var parsed) ? parsed
              : throw new ArgumentException($"Argument '{key}' is not a valid GUID: '{raw}'.");
     }
+
+    private static string Str(IReadOnlyDictionary<string, JsonElement> a, string key) =>
+        a.TryGetValue(key, out var value)
+            ? (value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : value.ToString()).Trim()
+            : "";
 
     private static int Take(IReadOnlyDictionary<string, JsonElement> a) => Int(a, "take", 25, MaxRows);
 

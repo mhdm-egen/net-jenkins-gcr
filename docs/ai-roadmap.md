@@ -3,7 +3,7 @@
 Where the AI layer is going, and why in this order. Companion to [ai.md](ai.md), which documents
 what exists today.
 
-**Status: slices 1–6 of 9 done.**
+**Status: slices 1–7 of 9 done.**
 
 > **Release notes was cut from slice 4 and delivered in slice 5 — the deferral was right.** The stated
 > reason was that `BuildSummaryDto` carried no commit message or author. Building it properly showed
@@ -39,8 +39,8 @@ describes**, and several features had infrastructure provisioned *by name* and w
 | 4 | **License assessment + drift explainer.** Release notes was dropped — see below | ✅ Done |
 | 5 | **Commit-range capability**: SBOM diff between two builds + commit provenance + release notes over the range | ✅ Done |
 | 6 | **"Ask the platform"** — agentic, read-only tool use across every surface; carried prompt caching | ✅ Done |
-| 7 | Suggest-and-apply — the agent proposes an action, a human applies it | Next |
-| 8 | Metering completion — gauge collectors, storage/cloud meters, GCP billing reconciliation, budgets | Planned |
+| 7 | **Suggest-and-apply** — the agent proposes a validated action, a human applies it behind the existing gate | ✅ Done |
+| 8 | Metering completion — gauge collectors, storage/cloud meters, GCP billing reconciliation, budgets | Next |
 | 9 | The blocked features, once their prerequisites land | Blocked |
 
 Ordering rationale: slices 1–2 attack the biggest real toil (failure triage) and establish the

@@ -156,6 +156,7 @@ key ⇒ AI actions simply don't appear. See [ai.md](ai.md) for what exists and
 | Release notes | Summarises what shipped across a range of builds, grouped by theme. Refuses rather than inventing when no build in the range has a recorded commit message | `feat/ai-integration` |
 | Ask the platform | Agentic assistant that answers questions by calling 15 read-only tools over live platform data, showing which tools it used. No write tool exists; tool turns and result sizes are capped | `feat/ai-integration` |
 | Prompt caching | The agent's tool definitions + system prompt are cached as one stable prefix (measured 3,087 tokens written then read), which is what makes the cache-hit-rate tile meaningful | `feat/ai-integration` |
+| Suggest-and-apply | The agent proposes an action validated against the same status guard that renders the real button; the proposal is a link to that button, never a shortcut around it | `feat/ai-integration` |
 | Weekly delivery digest | Narrates the DORA four to Slack/email on a Wolverine self-rescheduling schedule, plus a manual "send now" button. Opt-in, off by default | `feat/ai-integration` |
 | Full DORA four, server-side | Lead time (commit→production) and time-to-restore added; computed in deployment-api so the metrics page, home tile and digest cannot drift | `feat/ai-integration` |
 | Usage & cost page | Token spend, estimated cost, cache-hit rate, by model / by feature, plus build & deploy activity | `feat/ai-integration` |
