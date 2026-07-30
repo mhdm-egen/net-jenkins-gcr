@@ -303,6 +303,18 @@ var metering = builder.AddProject<Projects.Metering_Api>("metering-api")
     .WaitFor(rabbit)
     .WithEnvironment("Database__AutoMigrate", "true");
 
+// deployment-api calls AddCicdAi too — the weekly DORA digest narrates its figures. Without a key
+// it falls back to numbers-only, which works but is not the feature. Wired here rather than on the
+// resource above because `metering` is declared after `deployment`, so its endpoint is not
+// resolvable at that point.
+//
+// The metering URL travels WITH the key on purpose. The platform's rule is that every model call is
+// metered; giving deployment-api the ability to spend tokens without the ability to record them
+// would put the digest's cost outside the ledger, where /ai/usage would never show it.
+deployment
+    .WithEnvironment("Ai__ApiKey", aiApiKey)
+    .WithEnvironment("Metering__Api__BaseUrl", metering.GetEndpoint("http"));
+
 builder.AddProject<Projects.cicd_web_admin>("web-admin")
     .WithReference(jenkins)
     .WaitFor(jenkins)

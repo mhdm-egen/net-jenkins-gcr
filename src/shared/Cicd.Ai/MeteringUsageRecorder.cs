@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Net.Http.Json;
 using Metering.Contracts.Usage;
@@ -18,14 +19,24 @@ public sealed class MeteringUsageRecorder : IAiUsageRecorder
     private readonly MeteringApiOptions _options;
     private readonly ILogger<MeteringUsageRecorder> _log;
 
+    /// <summary>
+    /// Which host made the call. Taken from the hosting environment rather than hardcoded: this
+    /// library is shared, and once deployment-api started making its own AI calls (the DORA digest)
+    /// a fixed "web-admin" attributed another service's spend to the wrong one — silently, since a
+    /// wrong label looks exactly like a right one in the ledger.
+    /// </summary>
+    private readonly string _source;
+
     public MeteringUsageRecorder(
         IHttpClientFactory factory,
         MeteringApiOptions options,
+        IHostEnvironment environment,
         ILogger<MeteringUsageRecorder> log)
     {
         _factory = factory;
         _options = options;
         _log = log;
+        _source = environment.ApplicationName;
     }
 
     public void Record(
@@ -43,7 +54,7 @@ public sealed class MeteringUsageRecorder : IAiUsageRecorder
             EventId: Guid.NewGuid(),
             Feature: feature,
             Model: model,
-            Source: "web-admin",
+            Source: _source,
             InputTokens: usage.InputTokens,
             OutputTokens: usage.OutputTokens,
             CacheReadTokens: usage.CacheReadInputTokens,
