@@ -104,6 +104,7 @@ makePipeline('cicd-build',
     stringParam('BUILD_CONTAINER_ARGS', BUILD_ARGS_BUILD, 'Arguments for the build container')
     stringParam('BUILD_FILE', 'src/app/cicd.sln', 'File to build (sln or csproj), relative to the cloned repo root')
     stringParam('BASE_VER', '1.0.0', 'Base version (Major.Minor.Patch) used to derive the build versions')
+    booleanParam('RUN_TESTS', false, 'Run dotnet test and archive a .trx. Off by default: enabling tests changes what a build means, so it is a deliberate choice.')
 }
 
 // ---------------------------------------------------------------------------

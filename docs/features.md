@@ -160,6 +160,9 @@ key ⇒ AI actions simply don't appear. See [ai.md](ai.md) for what exists and
 | Storage gauges | A scheduled collector samples Nexus NuGet and Docker repository sizes into the ledger, using the asset listing so shared blob layers are counted | `feat/ai-integration` |
 | Gauge-aware rollups | Gauges roll up as the latest sample per series rather than a sum, so a level doesn't appear to grow each time the collector runs; the UI labels them and shows when they were sampled | `feat/ai-integration` |
 | AI budget | Optional advisory month-to-date spend bar with a warning threshold. Never blocks or disables anything | `feat/ai-integration` |
+| Pipeline failure on the bus | `Ci.PipelineFailed` carries the pipeline context, the recorded reason and the steps that did complete. The bus previously only ever learned about success and cancellation, which blocked anything failure-driven | `feat/ai-integration` |
+| Failure metering | Failed runs are metered alongside successful ones, so build activity is no longer a success-only series where a bad week looks identical to a clean one | `feat/ai-integration` |
+| Opt-in test results | `RUN_TESTS` runs `dotnet test` and archives a `.trx`, keeping the results even when tests fail. Off by default so enabling tests stays a deliberate choice | `feat/ai-integration` |
 | Weekly delivery digest | Narrates the DORA four to Slack/email on a Wolverine self-rescheduling schedule, plus a manual "send now" button. Opt-in, off by default | `feat/ai-integration` |
 | Full DORA four, server-side | Lead time (commit→production) and time-to-restore added; computed in deployment-api so the metrics page, home tile and digest cannot drift | `feat/ai-integration` |
 | Usage & cost page | Token spend, estimated cost, cache-hit rate, by model / by feature, plus build & deploy activity | `feat/ai-integration` |

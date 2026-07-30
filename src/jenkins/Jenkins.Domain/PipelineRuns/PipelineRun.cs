@@ -79,7 +79,8 @@ public sealed class PipelineRun : AggregateRoot<Guid>
         Status = PipelineRunStatus.Failed;
         CompletedAtUtc = occurredAtUtc;
         FailureReason = string.IsNullOrWhiteSpace(reason) ? "Pipeline failed." : reason.Trim();
-        RaiseEvent(new PipelineRunFailed(Id, FailureReason, occurredAtUtc));
+        RaiseEvent(new PipelineRunFailed(
+            Id, PipelineId, PipelineName, RepositoryId, TriggeredBy, FailureReason, Steps, occurredAtUtc));
     }
 
     public void Cancel(DateTimeOffset occurredAtUtc)

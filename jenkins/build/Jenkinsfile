@@ -7,6 +7,7 @@ pipeline {
         string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0', description: 'Arguments for the build container')
         string(name: 'BUILD_FILE', defaultValue: 'src/app/cicd.sln', description: 'File to build (sln or csproj)')
         string(name: 'BASE_VER', defaultValue: '1.0.0', description: 'Base version (Major.Minor.Patch) used to derive PackageVersion / FileVersion / AssemblyVersion / InformationalVersion in build-info.json')
+        booleanParam(name: 'RUN_TESTS', defaultValue: false, description: 'Run dotnet test and archive a .trx. Off by default so enabling tests is a deliberate choice — a repo with failing or absent tests would otherwise start failing builds that pass today. Archiving the .trx is what makes test results available to the platform at all.')
     }
 
     options {
@@ -107,10 +108,35 @@ pipeline {
             }
         }
 
+        // Tests are OPT-IN, not on by default. Turning them on unconditionally would change what
+        // an existing build means — a repo with failing or absent tests would start failing builds
+        // that pass today — and that is the pipeline owner's call, not a side effect of wanting the
+        // data. RUN_TESTS=true archives a .trx, which is the artifact that unblocks test-failure
+        // analysis; without it there are no test results anywhere in the platform.
         stage ('Test') {
+            when { expression { params.RUN_TESTS } }
             steps {
-                //  sh "dotnet test --no-restore --no-build -c Release ${params.BUILD_FILE} --logger trx"
-                echo "Skipping tests for now"
+                script {
+                    // Keep going on failure so the .trx is still archived — a failed test run is
+                    // exactly the case the results are wanted for, so losing them there would
+                    // defeat the point.
+                    def status = sh(
+                        script: "dotnet test --no-restore --no-build -c Release ${params.BUILD_FILE} " +
+                                "--logger 'trx;LogFileName=test-results.trx' --results-directory TestResults",
+                        returnStatus: true)
+
+                    archiveArtifacts(
+                        artifacts: 'TestResults/*.trx',
+                        allowEmptyArchive: true,
+                        fingerprint: true)
+
+                    if (status != 0) {
+                        // Mark the build unstable rather than failed: the results exist and are
+                        // worth reading, and the downstream scan/publish chain decides for itself.
+                        currentBuild.result = 'UNSTABLE'
+                        echo "Tests reported failures (exit ${status}); results archived to TestResults/."
+                    }
+                }
             }
         }
 

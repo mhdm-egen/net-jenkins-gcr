@@ -3,7 +3,7 @@
 Where the AI layer is going, and why in this order. Companion to [ai.md](ai.md), which documents
 what exists today.
 
-**Status: slices 1–8 of 9 done.**
+**Status: all 9 slices done.**
 
 > **Release notes was cut from slice 4 and delivered in slice 5 — the deferral was right.** The stated
 > reason was that `BuildSummaryDto` carried no commit message or author. Building it properly showed
@@ -41,7 +41,7 @@ describes**, and several features had infrastructure provisioned *by name* and w
 | 6 | **"Ask the platform"** — agentic, read-only tool use across every surface; carried prompt caching | ✅ Done |
 | 7 | **Suggest-and-apply** — the agent proposes a validated action, a human applies it behind the existing gate | ✅ Done |
 | 8 | **Metering completion** — gauge collectors, Nexus/Docker storage meters, budgets. Cloud-compute metering + GCP billing reconciliation are one deferred piece, not two — see below | ✅ Done |
-| 9 | The blocked features, once their prerequisites land | Next (still blocked) |
+| 9 | **The blocked features** — reassessed against current code; the failure event unblocked and consumed, the test-results prerequisite cleared. What remains blocked is recorded with what it needs | ✅ Done |
 
 Ordering rationale: slices 1–2 attack the biggest real toil (failure triage) and establish the
 reusable explain-a-run pattern; slice 3 closes the original plan and is the one that reaches
@@ -62,15 +62,17 @@ independent; 9 waits on prerequisites.
 
 ---
 
-## Slice 9 — blocked, and on what
+## The blocked features — what cleared, and what still hasn't
 
-Each of these is a good feature whose data does not exist yet. The prerequisite is the work.
+Each of these was a good feature whose data did not exist. Slice 9 re-checked every one against the
+current code rather than trusting the original reconstruction — which was worth doing, since one
+citation had already gone stale. Struck-through rows are cleared.
 
 | Feature | Blocker |
 | --- | --- |
-| Test-failure analysis | No test results anywhere — `dotnet test` is commented out at `jenkins/build/Jenkinsfile:96`, and no trx/junit artifact is archived |
+| Test-failure analysis | **Prerequisite cleared in slice 9, feature still to build.** `dotnet test` now runs behind an opt-in `RUN_TESTS` parameter and archives a `.trx`. It is off by default deliberately: turning tests on unconditionally changes what an existing build *means* — a repo with failing or absent tests would start failing builds that pass today — and that is the pipeline owner's call. **No build has produced a `.trx` yet**, so the analysis feature has nothing to read and was not built on unverifiable ground. *(The old citation here said line 96; a slice-5b edit had already moved it to 112 — line numbers in this document are not load-bearing and should be re-checked, not trusted.)* |
 | Pod crashloop diagnosis | Kubernetes Events are never read — there is no `ListNamespacedEvent` call in the codebase; pod-level "why" is limited to phase, restarts, and logs |
-| Bus-driven failure digest | No `PipelineFailed` / `BuildFailed` integration event — the bus only ever learns about success and cancellation |
+| ~~Bus-driven failure digest~~ | **Unblocked in slice 9.** `Ci.PipelineFailed` is now published on `ci.events` with the pipeline context, the recorded failure reason, and the steps that *did* complete. The surprise was how little was missing: the `PipelineRunFailed` **domain** event had been raised all along — it just had no translator and no integration event, so failure never left the CI service. Metering consumes it as the first subscriber |
 | ~~Lead-time / MTTR insight~~ | **Unblocked in slice 3.** `ContainerPublished` now carries the commit timestamp and the run snapshots it, so lead time is genuinely commit→production. It reports unavailable until the first post-change deploy — there is no honest substitute (see `LeadTimeBasisDto`) |
 | Build-failure triage from `Build` | `Build.MarkFailed` records no reason. Slice 1 uses `PipelineRun` instead, which does have `FailureReason` |
 | Cloud-compute metering (`CloudRunCompute`) **and** GCP billing reconciliation | The same blocker, so the same work: `ListCloudRunServicesAsync` returns name/URL/revision/status and nothing billable — no CPU, memory, instance count or time. Needs the Cloud Monitoring API or the billing export; neither client is referenced anywhere in the repo. Deferred out of slice 8 for this reason |
@@ -86,7 +88,7 @@ For the record, since it isn't written down anywhere else.
 | --- | --- | --- |
 | Phase 0 | AI foundation seam; `IAiUsageRecorder` as OTel meter + log, deliberately no messaging dependency in web-admin | ✅ Shipped |
 | Phase 1 | "First Phase-1 AI feature" — grounded, Redis-cached CVE explanations | ✅ Shipped, but it stayed the only one |
-| Phase 2 | "the Phase-2 build/deploy/**storage** meters (fed from ci.events / deployment.events **and scheduled gauge collectors**)" — `Meters.cs:5-6` | ⚠️ Build/deploy counts only; storage meters and gauge collectors are slice 8 |
+| Phase 2 | "the Phase-2 build/deploy/**storage** meters (fed from ci.events / deployment.events **and scheduled gauge collectors**)" — `Meters.cs:5-6` | ✅ Completed in slice 8 — the storage meters and the scheduled gauge collector now exist. Cloud meters remain out (no billable data source) |
 
 **Planned with scaffolding, never built** — these had enum values, config, or infrastructure
 provisioned for them:
@@ -94,8 +96,12 @@ provisioned for them:
 - **DORA digest** — named in `AiModels.cs:6` and `AiOptions.cs:20`; Redis was reserved for it *by
   name* in both `AppHost.cs:81` and `docker-compose.yml:144` ("cached CVE/DORA insights"). Slice 3.
 - **Scheduled gauge collectors** — `MeterType.Gauge` and four storage/cloud `MeterKind` values
-  exist and are unfed; `Program.cs:150` reserves the Redis cache for their snapshots. Slice 8.
-- **GCP billing-export reconciliation** — `UsageRater.cs` calls it "a later slice". Slice 8.
+  existed unfed for the whole life of the ledger. **Built in slice 8** — see `StorageGaugeCollector`.
+  The Redis reservation turned out not to be needed: the collector posts each sample straight to the
+  ledger, and a gauge is a level, so there is nothing worth caching between runs.
+- **GCP billing-export reconciliation** — `UsageRater.cs` calls it "a later slice". Assessed in slice 8
+  and deliberately still deferred: it is the same work as `CloudRunCompute` metering, and neither the
+  Cloud Monitoring nor the billing-export client exists in the repo.
 - **Compute-seconds metering** — commit `ef27cc3`: "compute-seconds needs enriched events later".
   Needs duration on the CI/deploy events first.
 

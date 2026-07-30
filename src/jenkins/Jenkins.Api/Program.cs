@@ -80,6 +80,7 @@ builder.Host.UseWolverine(opts =>
         .Publish<Cicd.IntegrationEvents.Ci.AspireAppPublished>("ci.events")
         .Publish<Cicd.IntegrationEvents.Ci.PipelineStepCompleted>("ci.events")
         .Publish<Cicd.IntegrationEvents.Ci.PipelineCompleted>("ci.events")
+        .Publish<Cicd.IntegrationEvents.Ci.PipelineFailed>("ci.events")
         .Publish<Cicd.IntegrationEvents.Ci.PipelineCancelled>("ci.events")
         .Subscribe("deployment.events", subscriber: "jenkins"));
 });
