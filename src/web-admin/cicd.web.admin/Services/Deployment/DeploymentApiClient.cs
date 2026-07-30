@@ -160,6 +160,19 @@ public sealed class DeploymentApiClient
     public async Task<DoraSummaryDto?> GetDoraSummaryAsync(int days = 30, CancellationToken ct = default)
         => await ReadAsync<DoraSummaryDto>($"api/deployment/metrics/dora?days={days}", ct).ConfigureAwait(false);
 
+    /// <summary>
+    /// Sends the delivery digest now. Returns what the service says will actually happen — a digest
+    /// with no usable channel, or with OnlyFailures set, is generated and then dropped, and the
+    /// caller can't tell that from success without this.
+    /// </summary>
+    public async Task<DigestTriggerResult> SendDigestNowAsync(CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync("api/deployment/metrics/digest", content: null, ct).ConfigureAwait(false);
+        await EnsureOk(resp, ct).ConfigureAwait(false);
+        return await resp.Content.ReadFromJsonAsync<DigestTriggerResult>(Json, ct).ConfigureAwait(false)
+               ?? new DigestTriggerResult(true, Array.Empty<string>(), false, null);
+    }
+
     public async Task<AspireApplicationRunDto?> GetAspireRunByIdAsync(Guid id, CancellationToken ct = default)
     {
         using var r = await _http.GetAsync($"api/deployment/aspire-runs/{id}", ct).ConfigureAwait(false);

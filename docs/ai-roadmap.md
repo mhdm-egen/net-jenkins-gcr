@@ -3,7 +3,7 @@
 Where the AI layer is going, and why in this order. Companion to [ai.md](ai.md), which documents
 what exists today.
 
-**Status: slices 1–2 of 9 done.**
+**Status: slices 1–3 of 9 done.**
 
 ---
 
@@ -24,8 +24,8 @@ describes**, and several features had infrastructure provisioned *by name* and w
 | --- | --- | --- |
 | 1 | **Pipeline failure triage** — "why did this run fail" on a failed run's page | ✅ Done |
 | 2 | **Deploy failure explainer + Aspire deploy-log explainer** — plus `AiExplanationRunner`, the shared cache→call→cache half all features now use | ✅ Done |
-| 3 | Weekly DORA digest — scheduled, pushed over the existing Slack/SMTP senders | Next |
-| 4 | License risk narrative + drift explainer + release notes | Planned |
+| 3 | **Weekly DORA digest** — Wolverine self-rescheduling chain + manual trigger, pushed over the existing Slack/SMTP senders. Included extracting `Cicd.Ai` so a second host could use it, and moving the DORA computation server-side with lead time + MTTR added | ✅ Done |
+| 4 | License risk narrative + drift explainer + release notes | Next |
 | 5 | SBOM diff — "what changed in my dependencies between two builds" | Planned |
 | 6 | **"Ask the platform"** — agentic, read-only tool use across every surface | Planned |
 | 7 | Suggest-and-apply — the agent proposes an action, a human applies it | Planned |
@@ -59,7 +59,7 @@ Each of these is a good feature whose data does not exist yet. The prerequisite 
 | Test-failure analysis | No test results anywhere — `dotnet test` is commented out at `jenkins/build/Jenkinsfile:96`, and no trx/junit artifact is archived |
 | Pod crashloop diagnosis | Kubernetes Events are never read — there is no `ListNamespacedEvent` call in the codebase; pod-level "why" is limited to phase, restarts, and logs |
 | Bus-driven failure digest | No `PipelineFailed` / `BuildFailed` integration event — the bus only ever learns about success and cancellation |
-| Lead-time / MTTR insight | `DoraMetrics` computes neither. Commit timestamps exist (`SourceRevision.CommittedAtUtc`) but are never joined to deploys |
+| ~~Lead-time / MTTR insight~~ | **Unblocked in slice 3.** `ContainerPublished` now carries the commit timestamp and the run snapshots it, so lead time is genuinely commit→production. It reports unavailable until the first post-change deploy — there is no honest substitute (see `LeadTimeBasisDto`) |
 | Build-failure triage from `Build` | `Build.MarkFailed` records no reason. Slice 1 uses `PipelineRun` instead, which does have `FailureReason` |
 
 ---

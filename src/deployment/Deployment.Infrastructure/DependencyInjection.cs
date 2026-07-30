@@ -109,6 +109,12 @@ public static class DependencyInjection
         services.AddOptions<PreviewOptions>().Bind(configuration.GetSection(PreviewOptions.SectionName));
         services.AddHostedService<PreviewEnvironmentSweeper>();
 
+        // Weekly delivery digest. The seeder only starts the chain — the recurrence itself lives in
+        // Wolverine's durable scheduling. Opt-in via Deployment:DoraDigest:Enabled.
+        services.AddOptions<Application.Features.Metrics.DoraDigestOptions>()
+            .Bind(configuration.GetSection(Application.Features.Metrics.DoraDigestOptions.SectionName));
+        services.AddHostedService<Metrics.DoraDigestSeeder>();
+
         return services;
     }
 }

@@ -1,5 +1,6 @@
 using Deployment.Contracts.Seed;
 using System.Text.Json.Serialization;
+using Cicd.Ai;
 using Cicd.Messaging;
 using Cicd.Notifications;
 using Deployment.Api.Endpoints;
@@ -44,6 +45,23 @@ builder.Services.AddScoped<Deployment.Api.Endpoints.SeedDemoHandler>();
 // notification handlers fan out through INotificationDispatcher on the deploy domain events.
 builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Deployment:Notifications"));
 builder.Services.AddCicdNotifications();
+
+// AI layer — same shared registration web-admin uses. Only the weekly delivery digest needs it here;
+// a missing Ai:ApiKey is fine, the digest just sends figures without a narrative.
+builder.Services.AddCicdAi(builder.Configuration);
+
+// The digest's narrative cache and its per-week "already sent" marker both live in the distributed
+// cache. Redis when the connection string is injected (Aspire host / compose), otherwise in-process —
+// note an in-process fallback means the sent-marker does not survive a restart, so a restart inside
+// the send window can re-send. Acceptable weekly; Redis avoids it.
+var deployRedis = builder.Configuration.GetConnectionString("redis");
+if (!string.IsNullOrWhiteSpace(deployRedis))
+    builder.Services.AddStackExchangeRedisCache(o => o.Configuration = deployRedis);
+else
+    builder.Services.AddDistributedMemoryCache();
+
+// Export the AI usage meter so digest spend shows up alongside web-admin's.
+builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddMeter(MeterAiUsageRecorder.MeterName));
 
 // Wolverine: CQRS dispatcher + in-process bus + durable cross-service messaging.
 // Handlers (the ContainerPublished consumer, the run executor, the success translator) are

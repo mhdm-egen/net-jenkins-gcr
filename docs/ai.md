@@ -12,6 +12,7 @@ What ships today:
 | **Explain this failure** (pipeline) | `/jenkins/runs/{id}`, failed runs | Triage of *why* a pipeline run failed, from the failing job's console output |
 | **Explain this failure** (deploy) | `/deployment/runs/{id}`, failed runs | Turns the typed step-failure category into a specific fix |
 | **Explain this deploy** (Aspire) | `/deployment/aspire-runs/{id}`, any run with a log | Explains the aspirate log — the failure, or the warnings behind an unreachable app |
+| **Weekly delivery digest** | Scheduled → Slack / email, or on demand from `/deployment/metrics` | Narrates the DORA four for the week. Opt-in; off by default |
 | **Usage & cost** | AI → Usage & cost (`/ai/usage`) | Token spend, estimated cost, cache-hit rate, by model / by feature — plus build & deploy activity |
 
 Everything else in this document is the plumbing those sit on, which is deliberately built as a
@@ -174,6 +175,51 @@ Reports as `explain_aspire_deploy`; tags `service` and `environment`.
 > Both deploy explainers put **run status in the cache key**. A run parked in `AwaitingPromotion` can
 > later be promoted or rolled back, and the old explanation would no longer describe it — including
 > status makes the entry self-invalidating on that transition.
+
+### Weekly delivery digest
+
+The first AI feature that isn't a panel: it runs on a schedule in **deployment-api** and pushes to
+Slack and email via the existing `INotificationDispatcher`. `/deployment/metrics` also has a **Send
+digest now** button.
+
+**Off by default** — `Deployment:DoraDigest:Enabled` is `false`. This sends mail on a timer; nobody
+should get that from pulling the branch. The manual button works either way.
+
+| Setting | Default | |
+| --- | --- | --- |
+| `Deployment:DoraDigest:Enabled` | `false` | Opt-in |
+| `Deployment:DoraDigest:DayOfWeek` | `Monday` | |
+| `Deployment:DoraDigest:HourUtc` | `8` | |
+| `Deployment:DoraDigest:WindowDays` | `7` | What the digest reports on |
+
+**How "weekly" works.** Wolverine's scheduling is a one-shot delay, not cron, so the recurrence is a
+self-rescheduling chain: the handler sends, then schedules its own successor. Durable via the SQL
+outbox, so it survives restarts — unlike a process-local timer. Two properties stop the chain
+multiplying:
+
+- a **per-ISO-week marker** (`dora-digest:sent:2026-W31`) makes a duplicate fire a no-op;
+- **a run that skips does not reschedule.**
+
+So extra chains seeded by restarts die out on their first week and the steady state is one. A
+`BackgroundService` seeds the first message and then exits — it starts the chain, it doesn't own the
+cadence.
+
+**Known race.** The marker is written *after* a successful send, not claimed atomically before it
+(`IDistributedCache` has no compare-and-set). Two chains firing in the same instant can both send.
+Send-then-mark is deliberate: a duplicate digest is recoverable, a silently skipped one isn't.
+
+**The narrative is optional.** With no key, or on a model error, the digest sends the figures alone —
+arriving without prose beats not arriving. Prompted explicitly against the failure modes this feature
+invites: it has no history, so it's told not to imply direction ("improving", "up from last week"),
+to state unavailable metrics plainly rather than omit or substitute them, and to flag small samples.
+Reports as `dora_digest`; cached per week so a retry doesn't pay twice.
+
+> **Two ways a digest silently goes nowhere.** `INotificationDispatcher` is fire-and-forget and
+> `OnlyFailures` drops anything that isn't a `Failure` — and a digest is `Info`. So the handler logs a
+> warning, and `POST /api/deployment/metrics/digest` returns `suppressed` plus a `note`; the button
+> surfaces it as a warning toast instead of claiming success. It also reports each channel's
+> `IsUsable`, not `Enabled` — a channel switched on without its webhook is enabled and still can't
+> deliver.
 
 ---
 

@@ -1,5 +1,6 @@
 @page "/deployment/metrics"
 @inject DeploymentApiClient Api
+@inject ISnackbar Snackbar
 
 <PageTitle>Deployment — Metrics</PageTitle>
 
@@ -7,6 +8,10 @@
     <MudText Typo="Typo.h4">Deployment metrics</MudText>
     <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">delivery performance across all deploy runs (per-service + Aspire)</MudText>
     <MudSpacer />
+    <MudTooltip Text="Compute the delivery digest now and send it to whichever notification channels are configured. Independent of the weekly schedule.">
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Send"
+                   OnClick="SendDigestAsync" Disabled="_sending">Send digest now</MudButton>
+    </MudTooltip>
     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
 </MudStack>
 
@@ -100,6 +105,7 @@ else if (_points is not null)
 
     private IReadOnlyList<DeployPoint>? _points;
     private bool _loading;
+    private bool _sending;
     private string? _error;
 
     // Scalar figures come from the server (GET metrics/dora) so this page, the home tile and the
@@ -118,6 +124,24 @@ else if (_points is not null)
     private readonly ChartOptions _donutOptions = new() { ChartPalette = new[] { "#1f9d57", "#cf3b26", "#b9740c" } };
 
     protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task SendDigestAsync()
+    {
+        _sending = true;
+        try
+        {
+            var r = await Api.SendDigestNowAsync();
+
+            // Report what will actually happen. The dispatcher is fire-and-forget, so "queued" alone
+            // would look identical to a digest that gets generated and then dropped.
+            if (r.Suppressed || r.Channels.Count == 0)
+                Snackbar.Add(r.Note ?? "Digest queued, but no channel will receive it.", Severity.Warning);
+            else
+                Snackbar.Add($"Digest queued — sending to {string.Join(", ", r.Channels)}.", Severity.Success);
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _sending = false; }
+    }
 
     private async Task LoadAsync()
     {
