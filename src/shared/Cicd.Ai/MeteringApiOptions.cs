@@ -1,4 +1,4 @@
-namespace Cicd.Web.Admin.Services.Metering;
+namespace Cicd.Ai;
 
 /// <summary>
 /// Points web-admin at the metering-api service. Bound from <c>Metering:Api</c>; the

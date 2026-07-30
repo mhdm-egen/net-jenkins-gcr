@@ -1,4 +1,4 @@
-namespace Cicd.Web.Admin.Services.Ai;
+namespace Cicd.Ai;
 
 /// <summary>
 /// The single entry point every AI feature calls. Behind it, one adapter

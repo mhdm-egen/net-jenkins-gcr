@@ -1,10 +1,10 @@
-namespace Cicd.Web.Admin.Services.Ai;
+namespace Cicd.Ai;
 
 /// <summary>
 /// Sink for token usage captured at the <c>AiClient</c> boundary. Two implementations are
 /// registered and fanned out through <see cref="CompositeAiUsageRecorder"/>:
 /// <see cref="MeterAiUsageRecorder"/> (OpenTelemetry meter <c>Cicd.Ai</c> + structured log) and
-/// <see cref="Metering.MeteringUsageRecorder"/> (HTTP ingest into the metering ledger, which is
+/// <see cref="MeteringUsageRecorder"/> (HTTP ingest into the metering ledger, which is
 /// the authoritative record).
 ///
 /// This was originally planned as an <c>AiTokensConsumed</c> integration event over the Wolverine

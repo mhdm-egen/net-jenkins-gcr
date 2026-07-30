@@ -1,4 +1,4 @@
-namespace Cicd.Web.Admin.Services.Ai;
+namespace Cicd.Ai;
 
 /// <summary>Model tier for a feature — interactive (cheap/fast) vs heavy synthesis.</summary>
 public enum AiModelKind

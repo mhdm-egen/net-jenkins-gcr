@@ -1,8 +1,8 @@
+using Microsoft.Extensions.Logging;
 using System.Net.Http.Json;
-using Cicd.Web.Admin.Services.Ai;
 using Metering.Contracts.Usage;
 
-namespace Cicd.Web.Admin.Services.Metering;
+namespace Cicd.Ai;
 
 /// <summary>
 /// Ships AI token usage to the metering-api ledger via fire-and-forget HTTP — web-admin

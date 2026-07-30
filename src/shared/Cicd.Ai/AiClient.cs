@@ -1,14 +1,15 @@
+using Microsoft.Extensions.Logging;
 using Anthropic;
 using Anthropic.Models.Messages;
 
-namespace Cicd.Web.Admin.Services.Ai;
+namespace Cicd.Ai;
 
 /// <summary>
 /// The single chokepoint for every AI call. Wraps the official Anthropic SDK so we get
 /// the raw <c>usage</c> block (including the cache-read/creation breakdown the metering
 /// ledger needs), captures it at this boundary, and hands it to an
-/// <see cref="IAiUsageRecorder"/>. Soft-fails when unconfigured — mirrors
-/// <see cref="Nexus.NexusClient"/>: a missing API key records a
+/// <see cref="IAiUsageRecorder"/>. Soft-fails when unconfigured, the same convention the
+/// platform's other optional integrations use: a missing API key records a
 /// <see cref="ConfigurationError"/> instead of throwing at startup.
 /// </summary>
 public sealed class AiClient : IAiInsightService

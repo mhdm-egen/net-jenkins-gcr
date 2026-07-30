@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Caching.Distributed;
 
-namespace Cicd.Web.Admin.Services.Ai;
+namespace Cicd.Ai;
 
 /// <summary>The result of a cached explanation — text plus where it came from.</summary>
 public sealed record AiExplanationOutcome(string Text, bool FromCache, string ModelUsed);

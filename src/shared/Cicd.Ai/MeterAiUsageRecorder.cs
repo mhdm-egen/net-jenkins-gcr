@@ -1,12 +1,13 @@
+using Microsoft.Extensions.Logging;
 using System.Diagnostics.Metrics;
 
-namespace Cicd.Web.Admin.Services.Ai;
+namespace Cicd.Ai;
 
 /// <summary>
 /// <see cref="IAiUsageRecorder"/> that emits an OpenTelemetry meter (<c>Cicd.Ai</c>, mirroring the
 /// deployment service's <c>Cicd.Deployment</c> meter) plus a structured log. It records at the call
 /// site, so it keeps working with metering entirely unconfigured — the ledger
-/// (<see cref="Metering.MeteringUsageRecorder"/>) is authoritative for cost, this is for live
+/// (<see cref="MeteringUsageRecorder"/>) is authoritative for cost, this is for live
 /// observability. The <c>Cicd.Ai</c> meter must be added to the OTel MeterProvider (see
 /// ServiceDefaults / Program.cs registration).
 /// </summary>

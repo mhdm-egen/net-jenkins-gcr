@@ -1,4 +1,4 @@
-namespace Cicd.Web.Admin.Services.Ai;
+namespace Cicd.Ai;
 
 /// <summary>
 /// Fans usage out to several recorders (the local OTel meter + the metering-api HTTP

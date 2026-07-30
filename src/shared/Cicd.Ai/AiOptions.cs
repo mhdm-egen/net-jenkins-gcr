@@ -1,10 +1,9 @@
-namespace Cicd.Web.Admin.Services.Ai;
+namespace Cicd.Ai;
 
 /// <summary>
-/// Configuration for the AI layer. Bound from the <c>Ai</c> section. Like
-/// <see cref="Nexus.NexusOptions"/>, missing credentials do NOT fail startup — the
-/// <see cref="IAiInsightService"/> records a configuration error and AI features
-/// surface a banner / no-op instead.
+/// Configuration for the AI layer. Bound from the <c>Ai</c> section. Missing credentials do
+/// NOT fail startup — the <see cref="IAiInsightService"/> records a configuration error and
+/// AI features hide themselves / no-op instead.
 /// </summary>
 public sealed record AiOptions
 {

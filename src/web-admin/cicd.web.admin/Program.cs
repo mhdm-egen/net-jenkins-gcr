@@ -4,7 +4,7 @@ using Cicd.Web.Admin.Components;
 using Cicd.Web.Admin.Services;
 using Cicd.Web.Admin.Services.Builds;
 using Cicd.Web.Admin.Services.Ci;
-using Cicd.Web.Admin.Services.Ai;
+using Cicd.Ai;
 using Cicd.Web.Admin.Services.Metering;
 using Cicd.Web.Admin.Services.Gcp;
 using Cicd.Web.Admin.Services.Nexus;
@@ -109,31 +109,15 @@ builder.Services.AddHttpClient<Cicd.Web.Admin.Services.Deployment.DeploymentApiC
     c.Timeout = TimeSpan.FromSeconds(60);
 });
 
-// AI layer — the model call runs on the official Anthropic SDK; token usage is captured at the SDK
-// boundary and recorded via IAiUsageRecorder. A missing Ai:ApiKey does NOT fail startup — AI
-// features hide themselves and no-op (mirrors the Nexus pattern).
-var aiOptions = builder.Configuration.GetSection(AiOptions.SectionName).Get<AiOptions>()
-                ?? new AiOptions();
-builder.Services.AddSingleton(aiOptions);
+// AI layer — options, the two usage sinks, IAiInsightService and AiExplanationRunner, all from the
+// shared Cicd.Ai project (deployment-api registers the same way for the DORA digest). A missing
+// Ai:ApiKey does NOT fail startup: AI features hide themselves and no-op.
+// Still owned here, because they are host concerns: the IDistributedCache below and adding the
+// Cicd.Ai meter to the OTel pipeline.
+builder.Services.AddCicdAi(builder.Configuration);
 
-// Usage recorders — the local OTel meter always runs; the metering-api HTTP ingest runs
-// when Metering:Api:BaseUrl is set (Aspire host / compose inject it). Fanned out via a
-// composite so a metering outage never affects the AI call.
 var meteringApiOptions = builder.Configuration.GetSection(MeteringApiOptions.SectionName).Get<MeteringApiOptions>()
                          ?? new MeteringApiOptions();
-builder.Services.AddSingleton(meteringApiOptions);
-if (!string.IsNullOrWhiteSpace(meteringApiOptions.BaseUrl))
-    builder.Services.AddHttpClient(MeteringUsageRecorder.HttpClientName, c =>
-        c.BaseAddress = new Uri(meteringApiOptions.BaseUrl.EndsWith('/') ? meteringApiOptions.BaseUrl : meteringApiOptions.BaseUrl + "/"));
-builder.Services.AddSingleton<MeterAiUsageRecorder>();
-builder.Services.AddSingleton<MeteringUsageRecorder>();
-builder.Services.AddSingleton<IAiUsageRecorder>(sp => new CompositeAiUsageRecorder(
-    sp.GetRequiredService<MeterAiUsageRecorder>(),
-    sp.GetRequiredService<MeteringUsageRecorder>()));
-builder.Services.AddSingleton<IAiInsightService, AiClient>();
-
-// The cache-then-call half every AI explanation feature shares (see AiExplanationRunner).
-builder.Services.AddScoped<AiExplanationRunner>();
 
 // Grounded, Redis-cached explanation features. Each owns only its prompt, tier and cache key.
 //   explain_cve              — SBOM vulnerability rows          (Interactive)

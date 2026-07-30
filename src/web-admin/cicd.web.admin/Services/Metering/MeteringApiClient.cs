@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using Cicd.Ai;          // MeteringApiOptions lives with the AI layer (it configures the usage sink)
 using Metering.Contracts.Usage;
 
 namespace Cicd.Web.Admin.Services.Metering;

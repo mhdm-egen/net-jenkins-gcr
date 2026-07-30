@@ -1,5 +1,5 @@
 using System.Text;
-using Cicd.Web.Admin.Services.Ai;
+using Cicd.Ai;
 
 namespace Cicd.Web.Admin.Services.Deployment;
 
