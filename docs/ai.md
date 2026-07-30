@@ -433,7 +433,7 @@ should get that from pulling the branch. The manual button works either way.
 
 | Setting | Default | |
 | --- | --- | --- |
-| `Deployment:DoraDigest:Enabled` | `false` | Opt-in |
+| `Deployment:DoraDigest:Enabled` | `false` | Opt-in. Under the Aspire host, turn it on per machine with `dotnet user-secrets set Parameters:DoraDigestEnabled true` — kept out of committed config so a fresh clone never starts mailing on a timer, and never pays for a weekly AI narrative, by merely pulling the branch |
 | `Deployment:DoraDigest:DayOfWeek` | `Monday` | |
 | `Deployment:DoraDigest:HourUtc` | `8` | |
 | `Deployment:DoraDigest:WindowDays` | `7` | What the digest reports on |

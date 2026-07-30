@@ -75,6 +75,17 @@ var aiApiKey = builder.AddParameter("AiApiKey", NexusParam("AiApiKey", ""), secr
 var slackWebhookUrlValue = NexusParam("SlackWebhookUrl", "");
 var slackWebhookUrl = builder.AddParameter("SlackWebhookUrl", slackWebhookUrlValue, secret: true);
 
+// Weekly DORA digest schedule. Opt in per machine:
+//   dotnet user-secrets set Parameters:DoraDigestEnabled true
+//
+// Deliberately NOT flipped to true in committed config. Sending on a timer is an outward-facing
+// side effect, and it now also spends tokens on the AI narrative every week — neither is something
+// anyone should acquire by pulling the branch. Config rather than a literal keeps the default off
+// for a fresh clone while letting an operator turn it on without editing a tracked file.
+//
+// The manual "Send digest now" button is unaffected either way; it forces a send.
+var doraDigestEnabled = NexusParam("DoraDigestEnabled", "false");
+
 // SQL Server (container) + the Jenkins CI database. The sa password is PERSISTED rather than
 // re-generated per run — SQL Server bakes it into the data volume on first init and never updates
 // it, so a drifting value leaves the volume's sa password mismatched ("Login failed for user 'sa'").
@@ -279,7 +290,8 @@ var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithEnvironment("Deployment__Nexus__Password", nexusPassword)
     // Derived, not independently configured — see the SlackWebhookUrl comment above.
     .WithEnvironment("Deployment__Notifications__Slack__Enabled",
-        slackWebhookUrlValue.Length > 0 ? "true" : "false");
+        slackWebhookUrlValue.Length > 0 ? "true" : "false")
+    .WithEnvironment("Deployment__DoraDigest__Enabled", doraDigestEnabled);
 
 // Only pass the webhook when there is one. Binding an empty string would be harmless (IsUsable
 // still fails on it) but it puts an empty secret row on the dashboard, which reads as "configured".
