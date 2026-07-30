@@ -88,6 +88,15 @@ builder.Host.UseWolverine(opts =>
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.Runs.RequestDeploymentHandler>();
     // The completion notifier wraps IHubContext, which the generated handler can't construct inline.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<IDeploymentRunNotifier>();
+    // The deploy-QUEUED notifiers join the DeploymentRunRequested / AspireApplicationRunRequested
+    // chains — the same chains that drive the run executors. A codegen failure there would stop
+    // deployments outright, not just notifications, so every dependency they inject is hatched:
+    // NotificationDispatcher and both senders are internal to Cicd.Notifications, and the Ef*Reader
+    // implementations are internal to Infrastructure.
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<INotificationDispatcher>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.Services.IServiceReader>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.Environments.IEnvironmentReader>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.AspireApps.IAspireApplicationReader>();
     // Aspire-app deploy: the run executor resolves these internal/Infrastructure types — same codegen
     // constraint as above, or the AspireApplicationRunRequested handler leaves runs stuck Pending.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.AspireApps.Runs.IAspireApplicationRunRepository>();

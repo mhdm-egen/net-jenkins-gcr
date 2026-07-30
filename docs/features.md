@@ -29,6 +29,7 @@ depth.
 | Repository management | Register/edit repos; activate/deactivate | #8 |
 | Event bus + server-side runs | RabbitMQ/Wolverine with SQL outbox; live run status over SignalR | #11 |
 | Cancel pipeline runs | Cancellation + `PipelineCancelled` event | #12 |
+| CI notifications | Slack/email on the start and every outcome of both CI builds and orchestrator pipeline runs. Build messages carry commit, author, version, duration and a link straight to the Jenkins console. Opt-in via `Ci:Notifications`; starts separately switchable via `OnStart` | `feat/ai-integration` |
 | Trim built-in pipeline | Chain ends at the Nexus publishes | #4 |
 
 ## 3. Build pipeline & supply-chain security
@@ -72,6 +73,7 @@ Operational features layered on the Aspire-app **run lifecycle**. Detailed in
 | Feature | What it does | PR |
 | --- | --- | --- |
 | Deploy notifications | Slack + email on every deploy outcome (success/failure); per-channel, with a failures-only mute | #44 |
+| Deploy queued notifications | A message when a deploy is *requested*, with service/app and environment names resolved. Says "queued", not "started" — a run targeting a protected environment parks awaiting approval | `feat/ai-integration` |
 | Rollback | Redeploy a previous succeeded run's digest-pinned manifest (identical images, not a rebuild) | #45 |
 | Promotion | Deploy an app's current manifest to another environment, running the same pinned artifacts | #46 |
 | Approval gate | Runs targeting a *protected* environment park as `AwaitingApproval` until approved/rejected | #47 |

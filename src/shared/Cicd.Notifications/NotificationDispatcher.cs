@@ -37,6 +37,11 @@ internal sealed class NotificationDispatcher : INotificationDispatcher
             try
             {
                 await sender.SendAsync(message, cancellationToken).ConfigureAwait(false);
+                // Logged on SUCCESS too, not just failure. Without this the only trace a channel
+                // ever leaves is a warning, so "I configured the webhook and saw nothing" is
+                // indistinguishable from "the notifier never ran" — which is exactly the ambiguity
+                // that made the DORA digest's silent failure hard to pin down.
+                _logger.LogInformation("[notify] {Channel} sent '{Title}'", sender.Channel, message.Title);
             }
             catch (Exception ex)
             {

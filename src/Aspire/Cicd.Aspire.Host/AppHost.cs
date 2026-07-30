@@ -305,6 +305,15 @@ if (dockerConfigDir.Length > 0)
 // teardown endpoint on PR close (jenkins-api → POST /api/deployment/previews/webhook).
 jenkins.WithEnvironment("Deployment__ApiBaseUrl", deployment.GetEndpoint("http"));
 
+// The SAME Slack secret drives CI notifications — one webhook, two config sections, so the two
+// services can be pointed at different channels later without needing a second secret now.
+// Enabled is DERIVED from the URL for the reason given at SlackWebhookUrl: two independent
+// switches produce a state that reads as configured and is not.
+jenkins.WithEnvironment("Ci__Notifications__Slack__Enabled",
+    slackWebhookUrlValue.Length > 0 ? "true" : "false");
+if (slackWebhookUrlValue.Length > 0)
+    jenkins.WithEnvironment("Ci__Notifications__Slack__WebhookUrl", slackWebhookUrl);
+
 // Metering & cost service — general usage ledger; the AI-tokens meter ingests via HTTP
 // from web-admin (build/deploy bus meters come later). Own SQL database.
 var metering = builder.AddProject<Projects.Metering_Api>("metering-api")

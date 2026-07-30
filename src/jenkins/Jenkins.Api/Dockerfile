@@ -22,6 +22,7 @@ COPY jenkins/Jenkins.Api/*.csproj                       jenkins/Jenkins.Api/
 COPY deployment/Deployment.Contracts/*.csproj           deployment/Deployment.Contracts/
 COPY shared/Cicd.IntegrationEvents/*.csproj             shared/Cicd.IntegrationEvents/
 COPY shared/Cicd.Messaging/*.csproj                     shared/Cicd.Messaging/
+COPY shared/Cicd.Notifications/*.csproj                 shared/Cicd.Notifications/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/*.csproj        Aspire/Cicd.Aspire.ServiceDefaults/
 RUN dotnet restore jenkins/Jenkins.Api/Jenkins.Api.csproj
 
@@ -30,6 +31,7 @@ COPY jenkins/ jenkins/
 COPY deployment/Deployment.Contracts/ deployment/Deployment.Contracts/
 COPY shared/Cicd.IntegrationEvents/ shared/Cicd.IntegrationEvents/
 COPY shared/Cicd.Messaging/ shared/Cicd.Messaging/
+COPY shared/Cicd.Notifications/ shared/Cicd.Notifications/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/ Aspire/Cicd.Aspire.ServiceDefaults/
 RUN dotnet publish jenkins/Jenkins.Api/Jenkins.Api.csproj \
     -c Release -o /app/publish --no-restore
