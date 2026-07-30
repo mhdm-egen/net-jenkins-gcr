@@ -66,6 +66,22 @@ pipeline {
                     println "Git commit hash: ${GIT_COMMIT_HASH}"
                     println "Git commit short: ${GIT_COMMIT_SHORT}"
 
+                    // Author, subject and commit time. The domain has carried these on
+                    // SourceRevision (and the DB has had CommitAuthor/CommitMessage columns) since
+                    // the build aggregate was written, but nothing ever populated them because
+                    // build-info.json didn't record them.
+                    //
+                    // %s is the subject line, not %B: the full body is multi-line, and a one-line
+                    // subject per commit is what a release-note summary over a range actually
+                    // wants. %cI is the committer date in strict ISO-8601, which DateTimeOffset
+                    // parses without a format string.
+                    GIT_COMMIT_AUTHOR = sh(script: "git log -n 1 --pretty=format:%an", returnStdout: true).trim()
+                    GIT_COMMIT_MESSAGE = sh(script: "git log -n 1 --pretty=format:%s", returnStdout: true).trim()
+                    GIT_COMMITTED_AT = sh(script: "git log -n 1 --pretty=format:%cI", returnStdout: true).trim()
+                    println "Git commit author: ${GIT_COMMIT_AUTHOR}"
+                    println "Git commit subject: ${GIT_COMMIT_MESSAGE}"
+                    println "Git committed at: ${GIT_COMMITTED_AT}"
+
                     PACKAGE_VERSION  = "${params.BASE_VER}-ci.${env.BUILD_NUMBER}.g${GIT_COMMIT_SHORT}"
                     FILE_VERSION     = "${params.BASE_VER}.${env.BUILD_NUMBER}"
                     ASSEMBLY_VERSION = "${params.BASE_VER}.0"
@@ -161,6 +177,9 @@ pipeline {
                         informationalVersion: INFO_VERSION,
                         gitCommitHash:        GIT_COMMIT_HASH,
                         gitCommitShort:       GIT_COMMIT_SHORT,
+                        gitCommitAuthor:      GIT_COMMIT_AUTHOR,
+                        gitCommitMessage:     GIT_COMMIT_MESSAGE,
+                        gitCommittedAt:       GIT_COMMITTED_AT,
                         buildNumber:          env.BUILD_NUMBER,
                         packVer:              params.BASE_VER,
                         buildFile:            params.BUILD_FILE,

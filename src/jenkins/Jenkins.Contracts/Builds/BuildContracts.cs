@@ -37,7 +37,13 @@ public sealed record BuildSummaryDto(
     string? PackageVersion,
     BuildStatusDto Status,
     DateTimeOffset StartedAtUtc,
-    DateTimeOffset? CompletedAtUtc);
+    DateTimeOffset? CompletedAtUtc,
+    // Commit provenance. Null for builds archived before jenkins/build/Jenkinsfile started
+    // recording them, so consumers must treat absence as normal rather than as an error.
+    // CommitMessage is the SUBJECT LINE only (git's %s), not the full body.
+    string? CommitAuthor = null,
+    string? CommitMessage = null,
+    DateTimeOffset? CommittedAtUtc = null);
 
 public sealed record BuildArtifactDto(
     Guid Id,

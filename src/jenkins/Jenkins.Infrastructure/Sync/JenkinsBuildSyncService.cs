@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Jenkins.Application.Features.Builds;
@@ -168,9 +169,11 @@ public sealed class JenkinsBuildSyncService : BackgroundService
             // The real branch from build-info.json drives per-PR preview routing; fall back to the
             // repo default for older/partial builds that didn't record it.
             Branch: string.IsNullOrWhiteSpace(info.GitBranch) ? repo.DefaultBranch : info.GitBranch.Trim(),
-            Author: null,
-            Message: null,
-            CommittedAtUtc: null,
+            // Null for builds archived before the Jenkinsfile recorded these. SourceRevision
+            // normalizes whitespace-only values to null itself, so no trimming is needed here.
+            Author: info.GitCommitAuthor,
+            Message: info.GitCommitMessage,
+            CommittedAtUtc: ParseCommittedAt(info.GitCommittedAt),
             TriggeredBy: null,
             StartedAtUtc: startedAt), ct).ConfigureAwait(false);
 
@@ -352,6 +355,18 @@ public sealed class JenkinsBuildSyncService : BackgroundService
     private static string Short(string sha) => sha.Length >= 7 ? sha[..7] : sha;
 
     /// <summary>
+    /// The Jenkinsfile writes <c>git log --pretty=format:%cI</c> — strict ISO-8601 with an offset,
+    /// which round-trips without a format string. Anything unparseable is dropped rather than
+    /// guessed at: a wrong commit time would silently corrupt the deploy side's lead-time metric,
+    /// which is worse than reporting it unavailable.
+    /// </summary>
+    private static DateTimeOffset? ParseCommittedAt(string? value) =>
+        DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture,
+                                DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed
+            : null;
+
+    /// <summary>
     /// Local mirror of the <c>build-info.json</c> schema (kept in sync with
     /// <c>jenkins/build/Jenkinsfile</c>). All nullable so partial/older builds
     /// deserialize cleanly.
@@ -363,6 +378,13 @@ public sealed class JenkinsBuildSyncService : BackgroundService
         string? InformationalVersion,
         string? GitCommitHash,
         string? GitCommitShort,
+        // Commit author, subject line and commit time. Added to the Jenkinsfile after the fact —
+        // SourceRevision and the CommitAuthor/CommitMessage columns have always had room for them,
+        // but nothing produced them. Builds archived before that change deserialize these as null,
+        // which is why they stay nullable rather than becoming required.
+        string? GitCommitAuthor,
+        string? GitCommitMessage,
+        string? GitCommittedAt,
         string? GitBranch,
         string? GitUrl,
         string? BuildNumber,

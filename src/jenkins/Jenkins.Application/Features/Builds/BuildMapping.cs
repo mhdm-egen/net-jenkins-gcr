@@ -21,7 +21,10 @@ internal static class BuildMapping
         PackageVersion: b.Versions?.PackageVersion,
         Status: (BuildStatusDto)(int)b.Status,
         StartedAtUtc: b.StartedAtUtc,
-        CompletedAtUtc: b.CompletedAtUtc);
+        CompletedAtUtc: b.CompletedAtUtc,
+        CommitAuthor: b.SourceRevision.Author,
+        CommitMessage: b.SourceRevision.Message,
+        CommittedAtUtc: b.SourceRevision.CommittedAtUtc);
 
     public static BuildDetailDto ToDetailDto(this Build b) => new(
         Head: b.ToSummaryDto(),

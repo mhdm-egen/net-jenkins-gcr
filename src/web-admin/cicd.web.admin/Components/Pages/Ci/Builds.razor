@@ -1,6 +1,8 @@
 @page "/ci/repositories/{RepositoryId:guid}/builds"
 @inject JenkinsApiClient Api
 @inject NavigationManager Nav
+@inject IReleaseNotesWriter ReleaseNotes
+@inject IDialogService DialogService
 
 <PageTitle>CI — Builds</PageTitle>
 
@@ -30,10 +32,46 @@
     }
     else if (_builds is not null)
     {
+        @* Release-notes range picker. Only offered once at least two builds exist — a range of one
+           build has nothing to narrate that its own row doesn't already say. *@
+        @if (ReleaseNotes.IsConfigured && _builds.Count >= 2)
+        {
+            <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center" Class="mb-4">
+                <MudSelect T="int?" @bind-Value="_fromBuild" Label="From build" Dense="true"
+                           Variant="Variant.Outlined" Style="max-width: 10rem;">
+                    @foreach (var b in _builds)
+                    {
+                        <MudSelectItem T="int?" Value="@b.CiBuildNumber">#@b.CiBuildNumber</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="int?" @bind-Value="_toBuild" Label="To build" Dense="true"
+                           Variant="Variant.Outlined" Style="max-width: 10rem;">
+                    @foreach (var b in _builds)
+                    {
+                        <MudSelectItem T="int?" Value="@b.CiBuildNumber">#@b.CiBuildNumber</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.AutoAwesome"
+                           Disabled="@(_fromBuild is null || _toBuild is null)"
+                           OnClick="OpenReleaseNotesAsync">
+                    Release notes
+                </MudButton>
+                @if (_builds.Any(b => string.IsNullOrWhiteSpace(b.CommitMessage)))
+                {
+                    <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">
+                        Commit messages exist only for builds run since the platform started recording them.
+                    </MudText>
+                }
+            </MudStack>
+        }
+
         <MudTable Items="@_builds" Dense="true" Hover="true" Striped="true" T="BuildSummaryDto">
             <HeaderContent>
                 <MudTh Style="width: 6rem;">Build</MudTh>
                 <MudTh Style="width: 8rem;">Commit</MudTh>
+                <MudTh>Message</MudTh>
+                <MudTh Style="width: 10rem;">Author</MudTh>
                 <MudTh>Version</MudTh>
                 <MudTh Style="width: 7rem;">Branch</MudTh>
                 <MudTh Style="width: 7rem;">Status</MudTh>
@@ -44,6 +82,8 @@
                     <MudLink Href="@($"/ci/builds/{context.Id}")">#@context.CiBuildNumber</MudLink>
                 </MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@context.CommitShort</MudTd>
+                <MudTd>@(string.IsNullOrWhiteSpace(context.CommitMessage) ? "—" : context.CommitMessage)</MudTd>
+                <MudTd>@(string.IsNullOrWhiteSpace(context.CommitAuthor) ? "—" : context.CommitAuthor)</MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@(context.PackageVersion ?? "—")</MudTd>
                 <MudTd>@context.Branch</MudTd>
                 <MudTd>
@@ -65,6 +105,9 @@
     private bool _loading;
     private string? _error;
 
+    private int? _fromBuild;
+    private int? _toBuild;
+
     protected override Task OnParametersSetAsync() => LoadAsync();
 
     private async Task LoadAsync()
@@ -75,6 +118,17 @@
             var repo = await Api.GetRepositoryAsync(RepositoryId);
             _repoName = repo?.Name ?? RepositoryId.ToString();
             _builds = await Api.ListBuildsAsync(RepositoryId, 100);
+
+            // Default the range to the newest pair. ListBuildsAsync orders by start time descending,
+            // which is not the same as build-number order for concurrent builds — hence Max/Min over
+            // the numbers rather than indexing [0] and [1].
+            if (_builds is { Count: >= 2 })
+            {
+                _toBuild ??= _builds.Max(b => b.CiBuildNumber);
+                _fromBuild ??= _builds.Where(b => b.CiBuildNumber < _toBuild)
+                                      .Select(b => (int?)b.CiBuildNumber)
+                                      .Max();
+            }
         }
         catch (Exception ex)
         {
@@ -85,6 +139,37 @@
             _loading = false;
             StateHasChanged();
         }
+    }
+
+    private async Task OpenReleaseNotesAsync()
+    {
+        if (_builds is null || _fromBuild is not { } from || _toBuild is not { } to) return;
+
+        var request = ReleaseNotesRequest.FromBuilds(_repoName, _builds, from, to);
+
+        // Refuse rather than ask the model to write release notes out of nothing but SHAs — every
+        // build in the range predating commit capture would produce confident-sounding fiction.
+        if (request.HasNothingToSummarize)
+        {
+            _error = $"No build between #{request.FromBuild} and #{request.ToBuild} has a commit " +
+                     "message recorded, so there is nothing to summarise. Commit messages are " +
+                     "captured from the next CI build onward.";
+            StateHasChanged();
+            return;
+        }
+
+        var parameters = new DialogParameters
+        {
+            ["Loader"] = new Func<Task<AiExplanationDialog.AiExplanationResult>>(async () =>
+            {
+                var n = await ReleaseNotes.WriteAsync(request);
+                return new AiExplanationDialog.AiExplanationResult(n.Text, n.FromCache, n.ModelUsed);
+            }),
+            ["LoadingMessage"] = "Summarising what shipped across these builds…",
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<AiExplanationDialog>(
+            $"Release notes — #{request.FromBuild} → #{request.ToBuild}", parameters, options);
     }
 
     private static Color StatusColor(BuildStatusDto s) => s switch

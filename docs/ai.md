@@ -15,6 +15,7 @@ What ships today:
 | **Assess licenses** | SCA → Visualize (`/sca/visualize/{n}`) | Turns the analyzer's license findings into a ship / don't-ship call, in priority order |
 | **Explain what changed** | Aspire apps status panel, when drifted | Running-vs-deployed images: what differs, why, and whether redeploying overwrites something |
 | **Explain the changes** | SCA → Dependency diff (`/sca/diff`) | What moved in the dependency set between two builds, and whether it needs a look before shipping |
+| **Release notes** | CI → a repository's Builds page | What shipped across a range of builds, grouped by theme |
 | **Weekly delivery digest** | Scheduled → Slack / email, or on demand from `/deployment/metrics` | Narrates the DORA four for the week. Opt-in; off by default |
 | **Usage & cost** | AI → Usage & cost (`/ai/usage`) | Token spend, estimated cost, cache-hit rate, by model / by feature — plus build & deploy activity |
 
@@ -251,6 +252,41 @@ everything. It's also told that the data does **not** distinguish direct from tr
 dependencies, and that it is being shown version numbers rather than the contents of those versions
 — so it must not narrate what a bump contains.
 
+### Release notes
+
+On a repository's Builds page (`/ci/repositories/{id}/builds`): pick a build range, get a summary of
+what shipped. `release_notes`, **Interactive** tier — a bounded list of one-line subjects the
+platform already assembled is not the cross-row reasoning problem the SBOM diff is.
+
+**This feature needed plumbing before it could exist, and that is the interesting part.** It was cut
+from slice 4 because `BuildSummaryDto` carried no commit message or author. The cause turned out not
+to be a missing schema: `SourceRevision` has had `Author`, `Message` and `CommittedAtUtc` since the
+build aggregate was written, and `CommitAuthor` / `CommitMessage` columns have existed since the
+`InitialCi` migration. `RecordBuildRequest` accepted them too. The only missing link was the
+**producer** — `jenkins/build/Jenkinsfile` never recorded them, so the sync service hardcoded all
+three to `null` and the read-side DTO simply never exposed them.
+
+So the fix was a chain, not a schema change: the Jenkinsfile now captures `%an` / `%s` / `%cI`,
+`build-info.json` carries them, `JenkinsBuildSyncService` maps them, and `BuildSummaryDto` exposes
+them. **No migration was required.**
+
+Two deliberate choices in that chain:
+
+- **`%s`, not `%B`** — the subject line, not the full body. A one-line subject per commit is what a
+  summary over a range wants, and it avoids multi-line capture through the shell.
+- **An unparseable commit time is dropped, not guessed.** A wrong `CommittedAtUtc` would silently
+  corrupt the deploy side's commit→production lead time, which is worse than reporting it absent.
+
+The honest limitation, which is stated to the model in the prompt rather than papered over: this is
+**one commit per build** — the repository head when CI ran — not `git log from..to`. If three commits
+land between two builds, only the third exists anywhere in this platform. The prompt says so
+explicitly, tells the model not to fill apparent gaps, flags how many builds in the range predate
+commit capture, and notes that failed and aborted builds are included so a commit that only ever
+appeared on a failure isn't listed as shipped.
+
+If **no** build in the range has a commit message, the page refuses rather than calling the model —
+release notes written from nothing but SHAs would be confident-sounding fiction.
+
 ### Weekly delivery digest
 
 The first AI feature that isn't a panel: it runs on a schedule in **deployment-api** and pushes to
@@ -305,7 +341,7 @@ touching feature code:
 
 | Tier | Config key | Default | Used by |
 | --- | --- | --- | --- |
-| `Interactive` | `Ai:InteractiveModel` | `claude-sonnet-5` | CVE explain, deploy-failure explain, licenses, drift, digest — small or pre-classified inputs |
+| `Interactive` | `Ai:InteractiveModel` | `claude-sonnet-5` | CVE explain, deploy-failure explain, licenses, drift, digest, release notes — small or pre-classified inputs |
 | `Synthesis` | `Ai:SynthesisModel` | `claude-opus-5` | Pipeline triage, Aspire deploy — long noisy logs; SBOM diff — a large structured set |
 
 The split is about **input shape, not importance**: a feature goes to Synthesis when it has to reason
@@ -464,9 +500,18 @@ only the API key is yours to supply.
 8. Open **SCA → Dependency diff** (`/sca/diff`). It defaults to the two newest `cicd-scan` builds;
    press **Compare**. If those two builds have the same dependency set the page says so and there is
    nothing to explain — pick a wider pair. *Explain the changes* appears once a non-empty diff loads.
-9. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
-   across `claude-sonnet-5` and `claude-opus-5` under *By model* per the tier table above.
-10. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
+9. Open a repository's **Builds** page. *Release notes* needs at least one build in the chosen range
+   to carry a commit message — see the note below if every row's Message column reads `—`.
+10. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
+    across `claude-sonnet-5` and `claude-opus-5` under *By model* per the tier table above.
+11. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
+
+> **Release notes needs one CI run before it does anything.** Commit author and subject are captured
+> by `jenkins/build/Jenkinsfile`, so builds ingested before that change have them as `null` for good
+> — there is nowhere to backfill them from, since `build-info.json` is archived per build and the old
+> ones don't contain the fields. Run `cicd-build` once and the next ingested build carries them. Until
+> then the Message and Author columns read `—`, the page shows a caption saying so, and the button
+> refuses instead of calling the model.
 
 ---
 

@@ -3,16 +3,18 @@
 Where the AI layer is going, and why in this order. Companion to [ai.md](ai.md), which documents
 what exists today.
 
-**Status: slices 1–4 of 9 done.**
+**Status: slices 1–5 of 9 done.**
 
-> **Release notes was cut from slice 4 deliberately.** `BuildSummaryDto` / `BuildDetailDto` expose
-> `CommitShort` and `Branch` but **no commit message and no author** — `SourceRevision` holds both, but
-> neither crosses into the contract. A narrative over what's left could only paraphrase the table
-> already on the build page: an AI feature that adds nothing and costs tokens per click.
+> **Release notes was cut from slice 4 and delivered in slice 5 — the deferral was right.** The stated
+> reason was that `BuildSummaryDto` carried no commit message or author. Building it properly showed
+> the cause was narrower than it looked: `SourceRevision` had `Author` / `Message` / `CommittedAtUtc`
+> all along, and the `CommitAuthor` / `CommitMessage` columns have existed **since the `InitialCi`
+> migration**. Nothing was missing but the *producer* — the Jenkinsfile never recorded them, so the
+> sync service hardcoded `null` and the DTO never exposed them.
 >
-> It moves to slice 5, which has to build commit-range plumbing for the SBOM diff anyway. Release notes
-> *over a range* is the version anyone actually wants; a single-build summary was always the weaker
-> half. Slice 5 will need `Author` + `Message` on the build contract regardless.
+> Doing it in slice 5 meant fixing the whole chain once (Jenkinsfile → `build-info.json` → sync →
+> contract → UI) rather than bolting a narrative onto data that wasn't there. A single-build summary
+> in slice 4 would have shipped the weaker half of the feature and still needed this work afterwards.
 
 ---
 
@@ -35,8 +37,8 @@ describes**, and several features had infrastructure provisioned *by name* and w
 | 2 | **Deploy failure explainer + Aspire deploy-log explainer** — plus `AiExplanationRunner`, the shared cache→call→cache half all features now use | ✅ Done |
 | 3 | **Weekly DORA digest** — Wolverine self-rescheduling chain + manual trigger, pushed over the existing Slack/SMTP senders. Included extracting `Cicd.Ai` so a second host could use it, and moving the DORA computation server-side with lead time + MTTR added | ✅ Done |
 | 4 | **License assessment + drift explainer.** Release notes was dropped — see below | ✅ Done |
-| 5 | **Commit-range capability**: SBOM diff between two builds + release notes over the range | Next |
-| 6 | **"Ask the platform"** — agentic, read-only tool use across every surface | Planned |
+| 5 | **Commit-range capability**: SBOM diff between two builds + commit provenance + release notes over the range | ✅ Done |
+| 6 | **"Ask the platform"** — agentic, read-only tool use across every surface | Next |
 | 7 | Suggest-and-apply — the agent proposes an action, a human applies it | Planned |
 | 8 | Metering completion — gauge collectors, storage/cloud meters, GCP billing reconciliation, budgets | Planned |
 | 9 | The blocked features, once their prerequisites land | Blocked |

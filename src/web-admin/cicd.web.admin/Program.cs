@@ -134,6 +134,8 @@ builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IAspireRunExplaine
 builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ILicenseExplainer, Cicd.Web.Admin.Services.Sca.LicenseExplainer>();
 builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IDriftExplainer, Cicd.Web.Admin.Services.Deployment.DriftExplainer>();
 builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ISbomDiffExplainer, Cicd.Web.Admin.Services.Sca.SbomDiffExplainer>();
+//   release_notes            — what shipped across a build range           (Interactive)
+builder.Services.AddScoped<IReleaseNotesWriter, ReleaseNotesWriter>();
 
 // Read-side metering client for the AI Usage page (GET usage/summary).
 builder.Services.AddHttpClient<MeteringApiClient>(c =>
