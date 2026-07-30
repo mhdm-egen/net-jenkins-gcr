@@ -415,6 +415,22 @@ digest now** button.
 **Off by default** — `Deployment:DoraDigest:Enabled` is `false`. This sends mail on a timer; nobody
 should get that from pulling the branch. The manual button works either way.
 
+> **Anything this handler reaches must be a PUBLIC type.** Wolverine generates handler code that
+> constructs dependencies inline; it cannot construct an `internal` type and falls back to service
+> location, which `ServiceLocationPolicy.NotAllowed` rejects. The whole handler then fails to build
+> and the digest **silently never runs** — the trigger endpoint still returns `202`, nothing
+> dead-letters, no envelope is left behind, and nothing is delivered.
+>
+> This actually happened: `GetDoraSummaryHandler` depends on `IRunReader` and
+> `IAspireApplicationRunReader`, whose EF implementations were `internal` like every other reader in
+> that file. Both are now `public` with a comment saying why, because reverting them re-breaks the
+> digest with no compile error and no obvious runtime signal. Metering's `EfUsageLedger` is public
+> for exactly this reason, which is why its consumers always worked.
+>
+> It escaped the slice-3 verification because with **no notification channel configured** there was
+> nothing observable downstream — the endpoint's `202` and the "no channel enabled" note looked
+> identical whether the handler ran or not. Configuring a channel is what made it visible.
+
 | Setting | Default | |
 | --- | --- | --- |
 | `Deployment:DoraDigest:Enabled` | `false` | Opt-in |

@@ -64,6 +64,17 @@ var pipelineRepoBranch = NexusParam("PipelineRepoBranch", "main");
 //   dotnet user-secrets set Parameters:AiApiKey <key>
 var aiApiKey = builder.AddParameter("AiApiKey", NexusParam("AiApiKey", ""), secret: true);
 
+// Slack Incoming Webhook for deploy notifications and the weekly DORA digest. Set via user-secrets:
+//   dotnet user-secrets set Parameters:SlackWebhookUrl <url>
+//
+// The URL is the ONLY switch. Deployment__Notifications__Slack__Enabled is derived from it below
+// rather than being set independently, because two switches produce a state that reads as working
+// and is not: Slack.IsUsable requires Enabled AND a non-empty WebhookUrl, so "enabled" without the
+// secret is indistinguishable from configured until a digest silently goes nowhere. Set the secret
+// and it sends; remove it and the channel is cleanly off.
+var slackWebhookUrlValue = NexusParam("SlackWebhookUrl", "");
+var slackWebhookUrl = builder.AddParameter("SlackWebhookUrl", slackWebhookUrlValue, secret: true);
+
 // SQL Server (container) + the Jenkins CI database. The sa password is PERSISTED rather than
 // re-generated per run — SQL Server bakes it into the data volume on first init and never updates
 // it, so a drifting value leaves the volume's sa password mismatched ("Login failed for user 'sa'").
@@ -265,7 +276,15 @@ var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithEnvironment("Deployment__Aspirate__ManifestBaseUrl", nexus.GetEndpoint("http"))
     .WithEnvironment("Deployment__Nexus__RegistryV2Url", nexusRegistryV2Url)
     .WithEnvironment("Deployment__Nexus__Username", nexusUsername)
-    .WithEnvironment("Deployment__Nexus__Password", nexusPassword);
+    .WithEnvironment("Deployment__Nexus__Password", nexusPassword)
+    // Derived, not independently configured — see the SlackWebhookUrl comment above.
+    .WithEnvironment("Deployment__Notifications__Slack__Enabled",
+        slackWebhookUrlValue.Length > 0 ? "true" : "false");
+
+// Only pass the webhook when there is one. Binding an empty string would be harmless (IsUsable
+// still fails on it) but it puts an empty secret row on the dashboard, which reads as "configured".
+if (slackWebhookUrlValue.Length > 0)
+    deployment = deployment.WithEnvironment("Deployment__Notifications__Slack__WebhookUrl", slackWebhookUrl);
 
 if (dockerConfigDir.Length > 0)
     deployment = deployment.WithEnvironment("DOCKER_CONFIG", dockerConfigDir);
