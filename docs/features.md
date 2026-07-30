@@ -150,6 +150,8 @@ key ⇒ AI actions simply don't appear. See [ai.md](ai.md) for what exists and
 | Build & deploy meters | `ci.events` / `deployment.events` subscriptions meter pipeline runs and deploys into the same ledger (counts, not costed) | `feat/ai-integration` |
 | Assess licenses | Turns `LicenseAnalyzer` findings into a ship / don't-ship call in priority order, on the SBOM visualizer | `feat/ai-integration` |
 | Explain what changed (drift) | Explains running-vs-deployed image drift, separating "not rolled out yet" from "changed out of band", and whether redeploying overwrites work | `feat/ai-integration` |
+| Dependency diff | Compares two builds' SBOMs: components added/removed/upgraded/downgraded, licence changes, and the CVE delta — gated so an unenriched SBOM can't read as "everything fixed" | `feat/ai-integration` |
+| Explain the changes | AI narrative over that diff — what matters, in priority order, and what to check before shipping | `feat/ai-integration` |
 | Weekly delivery digest | Narrates the DORA four to Slack/email on a Wolverine self-rescheduling schedule, plus a manual "send now" button. Opt-in, off by default | `feat/ai-integration` |
 | Full DORA four, server-side | Lead time (commit→production) and time-to-restore added; computed in deployment-api so the metrics page, home tile and digest cannot drift | `feat/ai-integration` |
 | Usage & cost page | Token spend, estimated cost, cache-hit rate, by model / by feature, plus build & deploy activity | `feat/ai-integration` |

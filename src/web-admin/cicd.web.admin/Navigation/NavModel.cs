@@ -63,6 +63,7 @@ public static class NavModel
         [
             new("SBOM",        "sca/sbom",        Icons.Material.Filled.DataObject),
             new("Aspire SBOM", "sca/aspire-sbom", Icons.Material.Filled.Inventory2),
+            new("Dependency diff", "sca/diff", Icons.Material.Filled.CompareArrows),
         ], []),
         new("ai", "AI", Icons.Material.Filled.AutoAwesome,
         [

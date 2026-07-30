@@ -14,6 +14,7 @@ What ships today:
 | **Explain this deploy** (Aspire) | `/deployment/aspire-runs/{id}`, any run with a log | Explains the aspirate log — the failure, or the warnings behind an unreachable app |
 | **Assess licenses** | SCA → Visualize (`/sca/visualize/{n}`) | Turns the analyzer's license findings into a ship / don't-ship call, in priority order |
 | **Explain what changed** | Aspire apps status panel, when drifted | Running-vs-deployed images: what differs, why, and whether redeploying overwrites something |
+| **Explain the changes** | SCA → Dependency diff (`/sca/diff`) | What moved in the dependency set between two builds, and whether it needs a look before shipping |
 | **Weekly delivery digest** | Scheduled → Slack / email, or on demand from `/deployment/metrics` | Narrates the DORA four for the week. Opt-in; off by default |
 | **Usage & cost** | AI → Usage & cost (`/ai/usage`) | Token spend, estimated cost, cache-hit rate, by model / by feature — plus build & deploy activity |
 
@@ -78,6 +79,8 @@ Four properties this shape buys:
 | `src/web-admin/.../Services/Deployment/DeployRunExplainer.cs` | Service-deploy failure triage |
 | `src/web-admin/.../Services/Deployment/AspireRunExplainer.cs` | Aspire deploy-log explanation |
 | `src/web-admin/.../Services/Sca/LicenseExplainer.cs` | License ship/don't-ship assessment |
+| `src/web-admin/.../Services/Sca/SbomDiff.cs` | The dependency differ (pure, no AI) |
+| `src/web-admin/.../Services/Sca/SbomDiffExplainer.cs` | Narrative over that diff |
 | `src/web-admin/.../Services/Deployment/DriftExplainer.cs` | Running-vs-deployed drift explanation |
 | `src/deployment/.../Features/Metrics/WeeklyDoraDigest.cs` | The scheduled delivery digest |
 | `src/web-admin/.../Components/Shared/AiExplanationDialog.razor` | Generic dialog every AI panel reuses |
@@ -217,6 +220,37 @@ Interactive tier, tagged with `service` + `environment`.
 Also told what the check *doesn't* cover — image references only, not environment variables, config
 maps, replica counts set outside the platform, or anything another tool applied.
 
+### Explain the changes (dependency diff)
+
+On `/sca/diff`, which is itself new: pick two `cicd-scan` builds and the page fetches both
+`bom-vex.json` artifacts, parses them, and diffs them. `SbomDiffer` is pure in the same way
+`LicenseAnalyzer` is — same two documents in, same result out — so it runs on a background thread
+and could be memoized freely.
+
+Three decisions in the differ are worth knowing about:
+
+- **Identity is the purl with the version stripped**, falling back to the name. A purl disambiguates
+  same-named packages from different ecosystems, which a name cannot. On the real `cicd-scan`
+  artifacts all 124 components carry one, so the fallback is a safety net rather than the live path.
+- **Version direction is asserted only when both sides parse as a numeric release.** A move that
+  involves a pre-release suffix, or a version string that isn't a version, is reported as `Changed`
+  rather than guessed — SemVer pre-release ordering is not something to infer from a string.
+- **The vulnerability delta is gated on both documents having a vulnerabilities section.** A
+  Trivy-enriched `bom-vex.json` compared against a bare `bom.json` would otherwise report every CVE
+  as resolved, which is the exact opposite of the truth. When they aren't comparable the UI says so
+  and the prompt is told no statement can be made either way, instead of showing a reassuring zero.
+
+Reports as `explain_sbom_diff`, **Synthesis** tier (see the note in the tier table for why a
+structured input lands there). Cached on the two build numbers with a 30-day TTL — both builds are
+settled and their Jenkins artifacts are immutable, so unlike the drift explainer there is nothing
+here that can go stale.
+
+The prompt is capped at 60 component rows out of the already-most-interesting-first ordering, and
+carries the count of what was dropped so the answer says "and N more" rather than implying it saw
+everything. It's also told that the data does **not** distinguish direct from transitive
+dependencies, and that it is being shown version numbers rather than the contents of those versions
+— so it must not narrate what a bump contains.
+
 ### Weekly delivery digest
 
 The first AI feature that isn't a panel: it runs on a schedule in **deployment-api** and pushes to
@@ -272,11 +306,17 @@ touching feature code:
 | Tier | Config key | Default | Used by |
 | --- | --- | --- | --- |
 | `Interactive` | `Ai:InteractiveModel` | `claude-sonnet-5` | CVE explain, deploy-failure explain, licenses, drift, digest — small or pre-classified inputs |
-| `Synthesis` | `Ai:SynthesisModel` | `claude-opus-5` | Pipeline triage, Aspire deploy — long noisy logs |
+| `Synthesis` | `Ai:SynthesisModel` | `claude-opus-5` | Pipeline triage, Aspire deploy — long noisy logs; SBOM diff — a large structured set |
 
 The split is about **input shape, not importance**: a feature goes to Synthesis when it has to reason
 backwards from a long, noisy log, and stays on Interactive when the platform already did the
 structuring. Both failure-triage features are equally important; only one of them is hard.
+
+The SBOM diff is the case that refined that rule. Its input *is* structured — the platform computed
+every row — so by the letter of "structured ⇒ Interactive" it should sit there. It doesn't, because
+size and cross-row dependence are what actually make a task hard: hundreds of rows where the useful
+answer is which upgrade dragged in the package that carries the new CVE. **Long noisy log** was
+always a proxy for **can't be read a row at a time**; a big diff meets that too.
 
 > **Re-pointing either model needs a matching row in `UsageRater`**, or its cost falls through to
 > the table's Opus-tier default rate.
@@ -421,9 +461,12 @@ only the API key is yours to supply.
 7. Open **Deployment → Aspire apps** and run a live status check. *Explain what changed* appears
    **only** when that check reports image drift or an undeployed change — no drift, no button, which
    is the intended behaviour rather than a missing registration.
-8. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
+8. Open **SCA → Dependency diff** (`/sca/diff`). It defaults to the two newest `cicd-scan` builds;
+   press **Compare**. If those two builds have the same dependency set the page says so and there is
+   nothing to explain — pick a wider pair. *Explain the changes* appears once a non-empty diff loads.
+9. Open **AI → Usage & cost** — the features you exercised should appear under *By feature*, split
    across `claude-sonnet-5` and `claude-opus-5` under *By model* per the tier table above.
-9. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
+10. Re-open any of them: the footer should read `(cached)`, and the ledger should be unchanged.
 
 ---
 

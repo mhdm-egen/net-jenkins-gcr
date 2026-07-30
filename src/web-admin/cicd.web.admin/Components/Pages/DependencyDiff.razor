@@ -1,0 +1,356 @@
+@page "/sca/diff"
+@inject IBuildStore Store
+@inject NavigationManager Nav
+@inject ISbomDiffExplainer DiffExplainer
+@inject IDialogService DialogService
+
+<PageTitle>SCA — Dependency diff</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+    <MudText Typo="Typo.h4">Dependency diff</MudText>
+    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+        @JobName · bom-vex.json
+    </MudText>
+    <MudSpacer />
+</MudStack>
+
+@* ---------- Build selectors ---------- *@
+<MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudIcon Icon="@Icons.Material.Filled.CompareArrows" Color="Color.Primary" />
+        <MudText Typo="Typo.h6">Compare two builds</MudText>
+        <MudSpacer />
+        <MudButton Color="Color.Primary"
+                   Variant="Variant.Filled"
+                   StartIcon="@Icons.Material.Filled.CompareArrows"
+                   Disabled="@(!CanCompare)"
+                   OnClick="CompareAsync">
+            Compare
+        </MudButton>
+    </MudStack>
+
+    @if (_buildsError is { Length: > 0 })
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_buildsError</MudAlert>
+    }
+
+    @if (_buildsLoading && _builds is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_builds is { Count: > 0 })
+    {
+        <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center">
+            <MudSelect T="int?" @bind-Value="_fromBuild" Label="Before (older build)" Dense="true" Variant="Variant.Outlined">
+                @foreach (var b in _builds)
+                {
+                    <MudSelectItem T="int?" Value="@b.Number">#@b.Number @Describe(b)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
+            <MudSelect T="int?" @bind-Value="_toBuild" Label="After (newer build)" Dense="true" Variant="Variant.Outlined">
+                @foreach (var b in _builds)
+                {
+                    <MudSelectItem T="int?" Value="@b.Number">#@b.Number @Describe(b)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudStack>
+
+        @if (_fromBuild is { } f && _toBuild is { } t && f == t)
+        {
+            <MudText Typo="Typo.caption" Class="mt-2" Style="color: var(--mud-palette-warning);">
+                Pick two different builds.
+            </MudText>
+        }
+    }
+    else if (_builds is { Count: 0 })
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            No @JobName builds found, so there is nothing to compare.
+        </MudAlert>
+    }
+</MudPaper>
+
+@if (_diffError is { Length: > 0 })
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">@_diffError</MudAlert>
+}
+
+@if (_diffLoading)
+{
+    <MudProgressLinear Indeterminate="true" Class="mb-4" />
+}
+
+@if (_diff is { } diff)
+{
+    <MudPaper Elevation="1" Class="pa-4 mb-4">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+            <MudIcon Icon="@Icons.Material.Filled.Summarize" Color="Color.Primary" />
+            <MudText Typo="Typo.h6">
+                #@_loadedFrom → #@_loadedTo
+            </MudText>
+            <MudSpacer />
+            @if (DiffExplainer.IsConfigured)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.AutoAwesome"
+                           OnClick="OpenDiffExplanationAsync">
+                    Explain the changes
+                </MudButton>
+            }
+        </MudStack>
+
+        @if (diff.IsEmpty)
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+                These two builds have an identical dependency set — nothing changed.
+            </MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-2" Style="color: var(--mud-palette-text-secondary);">
+                @diff.FromComponentCount → @diff.ToComponentCount components
+            </MudText>
+
+            <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" Class="my-2">
+                @if (diff.Stats.Added > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Filled">Added @diff.Stats.Added</MudChip>
+                }
+                @if (diff.Stats.Removed > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Filled">Removed @diff.Stats.Removed</MudChip>
+                }
+                @if (diff.Stats.Upgraded > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">Upgraded @diff.Stats.Upgraded</MudChip>
+                }
+                @if (diff.Stats.Downgraded > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Filled">Downgraded @diff.Stats.Downgraded</MudChip>
+                }
+                @if (diff.Stats.OtherChanged > 0)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">Other @diff.Stats.OtherChanged</MudChip>
+                }
+            </MudStack>
+
+            @* Vulnerability delta — suppressed entirely rather than shown as zeroes when the two
+               documents aren't comparable, since "0 introduced" would read as a clean result. *@
+            @if (!diff.VulnerabilitiesComparable)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="my-2">
+                    One of these SBOMs has no vulnerabilities section, so CVEs cannot be compared.
+                    Nothing is being claimed about vulnerabilities either way.
+                </MudAlert>
+            }
+            else if (diff.VulnerabilityChanges.Count > 0)
+            {
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" Class="my-2">
+                    @if (diff.Stats.VulnsIntroduced > 0)
+                    {
+                        <MudChip T="string" Size="Size.Small"
+                                 Color="@(diff.Stats.CriticalOrHighIntroduced > 0 ? Color.Error : Color.Warning)"
+                                 Variant="Variant.Filled">
+                            Vulnerabilities introduced @diff.Stats.VulnsIntroduced
+                        </MudChip>
+                    }
+                    @if (diff.Stats.VulnsResolved > 0)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
+                            Resolved @diff.Stats.VulnsResolved
+                        </MudChip>
+                    }
+                </MudStack>
+
+                <MudTable Items="@diff.VulnerabilityChanges" Dense="true" Hover="true" Striped="true" Class="mt-2">
+                    <HeaderContent>
+                        <MudTh>Change</MudTh>
+                        <MudTh>ID</MudTh>
+                        <MudTh>Severity</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Change">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                                     Color="@(context.Introduced ? Color.Error : Color.Success)">
+                                @(context.Introduced ? "Introduced" : "Resolved")
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="ID" Style="font-family: ui-monospace, monospace;">@context.Id</MudTd>
+                        <MudTd DataLabel="Severity">@context.Severity</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        }
+    </MudPaper>
+
+    @if (diff.ComponentChanges.Count > 0)
+    {
+        <MudPaper Elevation="1" Class="pa-4 mb-4">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                <MudIcon Icon="@Icons.Material.Filled.Inventory2" Color="Color.Primary" />
+                <MudText Typo="Typo.h6">Component changes (@diff.ComponentChanges.Count)</MudText>
+            </MudStack>
+
+            <MudTable Items="@diff.ComponentChanges" Dense="true" Hover="true" Striped="true"
+                      FixedHeader="true" Height="480px">
+                <HeaderContent>
+                    <MudTh>Change</MudTh>
+                    <MudTh>Component</MudTh>
+                    <MudTh>Before</MudTh>
+                    <MudTh>After</MudTh>
+                    <MudTh>Licence</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Change">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@KindColor(context.Kind)">
+                            @context.Kind
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Component" Style="font-family: ui-monospace, monospace;">@context.Name</MudTd>
+                    <MudTd DataLabel="Before" Style="font-family: ui-monospace, monospace;">@(context.FromVersion ?? "—")</MudTd>
+                    <MudTd DataLabel="After" Style="font-family: ui-monospace, monospace;">@(context.ToVersion ?? "—")</MudTd>
+                    <MudTd DataLabel="Licence">
+                        @if (context.LicensesChanged)
+                        {
+                            <MudText Typo="Typo.caption">
+                                @Licenses(context.FromLicenses) → @Licenses(context.ToLicenses)
+                            </MudText>
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+    }
+}
+
+@code {
+    // The SBOM (bom-vex.json) comes from the dedicated cicd-scan job, same as the SBOM viewer.
+    private const string JobName = "cicd-scan";
+    private const int BuildListCount = 25;
+    private const long MaxArtifactBytes = 10L * 1024 * 1024;
+
+    private bool _buildsLoading;
+    private string? _buildsError;
+    private IReadOnlyList<Build>? _builds;
+
+    private int? _fromBuild;
+    private int? _toBuild;
+
+    private bool _diffLoading;
+    private string? _diffError;
+    private SbomDiff? _diff;
+    private int _loadedFrom;
+    private int _loadedTo;
+
+    private bool CanCompare =>
+        !_diffLoading && _fromBuild is { } f && _toBuild is { } t && f != t;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _buildsLoading = true;
+        try
+        {
+            _builds = await Store.ListBuildsAsync(JobName, BuildListCount);
+
+            // Default to the two most recent builds — the comparison people want most of the time.
+            // ListBuildsAsync returns newest-first.
+            if (_builds is { Count: >= 2 })
+            {
+                _toBuild = _builds[0].Number;
+                _fromBuild = _builds[1].Number;
+            }
+        }
+        catch (Exception ex)
+        {
+            _buildsError = ex.Message;
+        }
+        finally
+        {
+            _buildsLoading = false;
+        }
+    }
+
+    private async Task CompareAsync()
+    {
+        if (_fromBuild is not { } from || _toBuild is not { } to || from == to) return;
+
+        _diffLoading = true;
+        _diffError = null;
+        _diff = null;
+        StateHasChanged();
+
+        try
+        {
+            var fromDoc = await LoadSbomAsync(from);
+            var toDoc = await LoadSbomAsync(to);
+
+            // Parsing and diffing two multi-megabyte SBOMs is CPU-bound; keep it off the
+            // circuit's thread so the UI stays responsive.
+            _diff = await Task.Run(() => SbomDiffer.Diff(fromDoc, toDoc));
+            _loadedFrom = from;
+            _loadedTo = to;
+        }
+        catch (Exception ex)
+        {
+            _diffError = ex.Message;
+        }
+        finally
+        {
+            _diffLoading = false;
+        }
+    }
+
+    private async Task<SbomDocument> LoadSbomAsync(int number)
+    {
+        var bytes = await Store.GetArtifactBytesAsync(JobName, number, "bom-vex.json");
+
+        if (bytes.LongLength > MaxArtifactBytes)
+        {
+            throw new InvalidOperationException(
+                $"Build #{number}'s bom-vex.json is {bytes.LongLength / (1024 * 1024)} MB, over the " +
+                $"{MaxArtifactBytes / (1024 * 1024)} MB limit for in-browser comparison.");
+        }
+
+        return SbomReader.Parse(bytes)
+               ?? throw new InvalidOperationException($"Build #{number}'s bom-vex.json could not be parsed.");
+    }
+
+    private async Task OpenDiffExplanationAsync()
+    {
+        if (_diff is not { } diff) return;
+
+        // Snapshot the request: re-comparing while the dialog is open must not change what the
+        // model was asked about.
+        var request = SbomDiffExplainRequest.FromDiff(JobName, _loadedFrom, _loadedTo, diff);
+
+        var parameters = new DialogParameters
+        {
+            ["Loader"] = new Func<Task<AiExplanationDialog.AiExplanationResult>>(async () =>
+            {
+                var e = await DiffExplainer.ExplainAsync(request);
+                return new AiExplanationDialog.AiExplanationResult(e.Text, e.FromCache, e.ModelUsed);
+            }),
+            ["LoadingMessage"] = "Reviewing what changed between these two builds…",
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<AiExplanationDialog>(
+            $"Dependency changes — #{_loadedFrom} → #{_loadedTo}", parameters, options);
+    }
+
+    private static string Describe(Build b) =>
+        string.IsNullOrWhiteSpace(b.Description) ? string.Empty : $"· {b.Description}";
+
+    private static string Licenses(IReadOnlyList<string> licenses) =>
+        licenses.Count == 0 ? "undeclared" : string.Join(", ", licenses);
+
+    private static Color KindColor(ComponentChangeKind kind) => kind switch
+    {
+        ComponentChangeKind.Added          => Color.Info,
+        ComponentChangeKind.Removed        => Color.Default,
+        ComponentChangeKind.Upgraded       => Color.Success,
+        ComponentChangeKind.Downgraded     => Color.Warning,
+        ComponentChangeKind.LicenseChanged => Color.Secondary,
+        _                                  => Color.Default,
+    };
+}
