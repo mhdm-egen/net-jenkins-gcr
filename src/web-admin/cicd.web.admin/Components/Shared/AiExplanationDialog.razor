@@ -1,0 +1,75 @@
+@* Generic dialog for any grounded AI explanation: runs a loader, shows a spinner, renders the
+   answer, and always footers it with the advisory-only + provenance line. Feature-agnostic on
+   purpose — a new AI panel supplies a Loader and needs no dialog of its own.
+   (CveExplanationDialog predates this and still has its own; fold it in once there are more callers.) *@
+
+<MudDialog>
+    <DialogContent>
+        @if (_loading)
+        {
+            <MudStack AlignItems="AlignItems.Center" Class="pa-6" Spacing="3">
+                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                    @LoadingMessage
+                </MudText>
+            </MudStack>
+        }
+        else if (_error is { Length: > 0 } err)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@err</MudAlert>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Style="white-space: pre-wrap; line-height: 1.6;">@_text</MudText>
+            <MudDivider Class="my-3" />
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" />
+                <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">
+                    AI-generated, advisory only — verify before acting.@(_fromCache ? " (cached)" : $" · {_model}")
+                </MudText>
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+
+    /// <summary>Produces the explanation. Returning FromCache suppresses the model name in the footer.</summary>
+    [Parameter] public Func<Task<AiExplanationResult>> Loader { get; set; } = null!;
+
+    [Parameter] public string LoadingMessage { get; set; } = "Analyzing…";
+
+    private bool _loading = true;
+    private string? _error;
+    private string _text = "";
+    private bool _fromCache;
+    private string _model = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var result = await Loader();
+            _text = result.Text;
+            _fromCache = result.FromCache;
+            _model = result.ModelUsed;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not generate an explanation: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Close() => Dialog.Close();
+
+    /// <summary>What a Loader returns — the same shape every feature's explanation record has.</summary>
+    public sealed record AiExplanationResult(string Text, bool FromCache, string ModelUsed);
+}

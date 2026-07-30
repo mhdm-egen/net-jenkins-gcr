@@ -3,6 +3,8 @@
 @using System.Text
 @inject JenkinsApiClient Api
 @inject NavigationManager Nav
+@inject IPipelineFailureExplainer FailureExplainer
+@inject IDialogService DialogService
 @implements IAsyncDisposable
 
 <PageTitle>Pipeline run</PageTitle>
@@ -42,6 +44,16 @@ else
     @if (r.FailureReason is { Length: > 0 } reason)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">@reason</MudAlert>
+    }
+
+    @* The console below is the richest failure signal we hold, and it is also the longest thing
+       on the page. Offer to triage it here rather than leaving the reader to scroll for the one
+       line that matters. Hidden entirely when AI is unconfigured — never a broken-looking button. *@
+    @if (r.Status == PipelineRunStatusDto.Failed && FailureExplainer.IsConfigured)
+    {
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="mb-4"
+                   StartIcon="@Icons.Material.Filled.AutoAwesome"
+                   OnClick="OpenFailureExplanationAsync">Explain this failure</MudButton>
     }
 
     <MudGrid>
@@ -113,6 +125,9 @@ else
     private readonly List<PipelineRunStepDto> _steps = new();
     // Console per job, preserving insertion order (persisted rows come sorted; live appends in arrival order).
     private readonly Dictionary<string, StringBuilder> _console = new();
+    // The same content, unkeyed: AI triage needs the raw job NAME to pick the failing job, and the
+    // _console key is a display label ("job #42"). Only populated for a settled run.
+    private IReadOnlyList<PipelineRunConsoleDto> _consoleSegments = [];
     private bool _loading;
     private bool _busy;
     private string? _error;
@@ -129,7 +144,7 @@ else
     private async Task LoadAsync()
     {
         _loading = true; _error = null;
-        _steps.Clear(); _console.Clear();
+        _steps.Clear(); _console.Clear(); _consoleSegments = [];
         await DisposeHubAsync();
         StateHasChanged();
         try
@@ -142,11 +157,34 @@ else
             if (_run.Status == PipelineRunStatusDto.Running)
                 await ConnectLiveAsync();   // stream steps + console live
             else
-                foreach (var seg in await Api.GetPipelineRunConsoleAsync(Id))   // persisted console
+            {
+                _consoleSegments = await Api.GetPipelineRunConsoleAsync(Id);   // persisted console
+                foreach (var seg in _consoleSegments)
                     _console[$"{seg.JobName}{(seg.BuildNumber > 0 ? $" #{seg.BuildNumber}" : "")}"] = new StringBuilder(seg.Content);
+            }
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; StateHasChanged(); }
+    }
+
+    private async Task OpenFailureExplanationAsync()
+    {
+        if (_run is not { } run) return;
+
+        // Assembled once, outside the loader, so the dialog closure captures a stable request.
+        var request = PipelineFailureExplainRequest.FromRun(run, _consoleSegments);
+
+        var parameters = new DialogParameters
+        {
+            ["Loader"] = new Func<Task<AiExplanationDialog.AiExplanationResult>>(async () =>
+            {
+                var e = await FailureExplainer.ExplainAsync(request);
+                return new AiExplanationDialog.AiExplanationResult(e.Text, e.FromCache, e.ModelUsed);
+            }),
+            ["LoadingMessage"] = $"Reading the console output from {run.PipelineName}…",
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<AiExplanationDialog>($"Why {run.PipelineName} failed", parameters, options);
     }
 
     private async Task CancelAsync()

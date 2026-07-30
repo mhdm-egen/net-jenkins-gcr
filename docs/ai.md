@@ -4,15 +4,17 @@ The platform has an AI layer built on the official Anthropic SDK, plus a **meter
 turns every model call into a rated, queryable cost ledger. Both are optional: with no API key the
 app runs exactly as before, AI actions simply don't appear.
 
-Two things ship today:
+Three things ship today:
 
 | Feature | Where | What it does |
 | --- | --- | --- |
 | **Explain this CVE** | SCA → SBOM / Aspire SBOM, vulnerability rows | Grounded, cached explanation of a CVE *in the context of the affected package* |
+| **Explain this failure** | Pipeline run detail (`/jenkins/runs/{id}`), failed runs only | Grounded, cached triage of *why* a pipeline run failed, from the failing job's console output |
 | **Usage & cost** | AI → Usage & cost (`/ai/usage`) | Token spend, estimated cost, cache-hit rate, by model / by feature — plus build & deploy activity |
 
-Everything else in this document is the plumbing those two sit on, which is deliberately built as a
-seam so later features (deploy advisor, remediation, digests) don't each grow their own model call.
+Everything else in this document is the plumbing those sit on, which is deliberately built as a
+seam so later features don't each grow their own model call.
+See [ai-roadmap.md](ai-roadmap.md) for what's coming and in what order.
 
 ---
 
@@ -66,6 +68,8 @@ Four properties this shape buys:
 | `src/web-admin/.../Services/Ai/MeterAiUsageRecorder.cs` | OTel meter sink |
 | `src/web-admin/.../Services/Metering/MeteringUsageRecorder.cs` | HTTP ingest sink |
 | `src/web-admin/.../Services/Sca/CveExplainer.cs` | The CVE-explain feature (prompt + cache) |
+| `src/web-admin/.../Services/Ci/PipelineFailureExplainer.cs` | The failure-triage feature (prompt + cache) |
+| `src/web-admin/.../Components/Shared/AiExplanationDialog.razor` | Generic dialog every AI panel reuses |
 | `src/metering/` | The metering service (ledger, rating, endpoints) |
 
 ---
@@ -92,26 +96,56 @@ Runs on the **Interactive** tier and reports as feature key `explain_cve` on the
 
 ---
 
-## 3. Model tiers
+## 3. Explain this failure
+
+On a **failed** pipeline run (`/jenkins/runs/{id}`) an *Explain this failure* button appears beside
+the failure banner — above the console pane, because the console is both the richest failure signal
+the platform holds and the longest thing on the page.
+
+**Substrate.** `PipelineRunConsoleLog` persists the full console text of every job in the chain,
+already exposed as `JenkinsApiClient.GetPipelineRunConsoleAsync(id)` — one segment per job. The
+prompt combines that with `PipelineRunDto.FailureReason` and the step record.
+
+**Picking the failing job.** `RecordStepSucceeded` only ever appends *succeeded* steps to a run, so
+the failing job is the last console segment whose job name isn't among them (falling back to the
+last segment, which covers a run that failed before any step settled). That heuristic lives in
+`PipelineFailureExplainRequest.FromRun` rather than the page, so it's testable and reusable.
+
+**Console trimming.** A CI console can be megabytes and the failure is at the end, so only the
+**tail** is sent — 12k chars, under the 16k tail-trim `AspireApplicationRun.Log` already uses. The
+prompt states that it *is* a tail, so the model doesn't read the first line as the run's start.
+
+**Tier.** Runs on **Synthesis** — reasoning backwards from a long, noisy build log to a cause is
+what that tier was defined for, and this is its first caller. Reports as `explain_pipeline_failure`.
+
+**Caching.** Redis, keyed `pipeline-explain:v1:{runId}`, 7 days. A settled run is immutable, so
+re-opening is free and marked `(cached)`.
+
+**Attribution.** First feature to populate `Dimensions` — it tags usage with the run's
+`repository`, which turns on per-repo showback in the ledger.
+
+---
+
+## 4. Model tiers
 
 Features pick a *tier*, not a model id, so the concrete model can be re-pointed in config without
 touching feature code:
 
-| Tier | Config key | Default | Intended for |
+| Tier | Config key | Default | Used by |
 | --- | --- | --- | --- |
-| `Interactive` | `Ai:InteractiveModel` | `claude-sonnet-5` | Latency-sensitive UI panels — CVE explain, digests |
-| `Synthesis` | `Ai:SynthesisModel` | `claude-opus-4-8` | Deep synthesis — deploy advisor, remediation |
+| `Interactive` | `Ai:InteractiveModel` | `claude-sonnet-5` | Latency-sensitive UI panels — CVE explain |
+| `Synthesis` | `Ai:SynthesisModel` | `claude-opus-5` | Deep synthesis — pipeline failure triage |
 
-`Synthesis` is wired end-to-end but **no shipped feature selects it yet** — CVE explain is the only
-caller and it asks for `Interactive`. It exists so the first synthesis feature is a one-line change.
+> **Re-pointing either model needs a matching row in `UsageRater`**, or its cost falls through to
+> the table's Opus-tier default rate.
 
 Calls are plain non-streaming `Messages.Create` with `MaxTokens` from `Ai:MaxOutputTokens` (4096).
-Extended thinking, effort, and prompt caching are *not* configured — the platform's caching win comes
-from the Redis layer in front of the call, not from prompt caching.
+Extended thinking, effort, and prompt caching are *not* configured — today's caching win comes from
+the Redis layer in front of the call, not from prompt caching (see Known gaps).
 
 ---
 
-## 4. Metering & cost
+## 5. Metering & cost
 
 `metering-api` is a general usage ledger, not an AI-only one. AI tokens are the first meter; build
 and deploy activity ride the same tables.
@@ -152,6 +186,7 @@ USD per 1M tokens:
 
 | Model | Input | Output | Cache read | Cache write |
 | --- | --- | --- | --- | --- |
+| `claude-opus-5` | $5.00 | $25.00 | $0.50 | $6.25 |
 | `claude-opus-4-8` | $5.00 | $25.00 | $0.50 | $6.25 |
 | `claude-sonnet-5` | $3.00 | $15.00 | $0.30 | $3.75 |
 | *anything else* | falls back to the Opus tier | | | |
@@ -162,9 +197,9 @@ Two things to know about the numbers:
 
 - **Sonnet 5 currently has promotional pricing** of $2.00/$10.00 per MTok through **2026-08-31**. The
   table uses the standard $3.00/$15.00, so during that window the page *over*-estimates Sonnet spend.
-- **If you re-point `Ai:SynthesisModel` at a newer model, add a matching table row.** Pointing it at
-  `claude-opus-5` today would hit the fallback, which happens to be the correct Opus-tier price — but
-  that is luck, not design, and won't hold for a model on a different tier.
+- **Re-pointing a tier at a newer model needs a matching table row.** Without one the cost falls
+  through to the Opus-tier fallback — which is right for an Opus-tier model by luck, not design, and
+  wrong for anything else.
 
 Costs on the page are labelled *estimated* for these reasons — they are not a billing source of truth.
 
@@ -198,7 +233,7 @@ Independent of the persisted ledger, two OpenTelemetry meters export to the Aspi
 
 ---
 
-## 5. Configuration
+## 6. Configuration
 
 ### The API key
 
@@ -219,7 +254,7 @@ prompts and never blocks a headless `dotnet run`.
 | --- | --- | --- | --- |
 | `Ai:ApiKey` | `Ai__ApiKey` | *(empty)* | Empty ⇒ AI disabled |
 | `Ai:InteractiveModel` | `Ai__InteractiveModel` | `claude-sonnet-5` | |
-| `Ai:SynthesisModel` | `Ai__SynthesisModel` | `claude-opus-4-8` | No feature selects this tier yet |
+| `Ai:SynthesisModel` | `Ai__SynthesisModel` | `claude-opus-5` | Needs a matching `UsageRater` row if changed |
 | `Ai:MaxOutputTokens` | `Ai__MaxOutputTokens` | `4096` | |
 | `Ai:BaseUrl` | `Ai__BaseUrl` | *(empty)* | **Declared but not yet honoured** — see gaps below |
 | `Metering:Api:BaseUrl` | `Metering__Api__BaseUrl` | *(empty)* | Empty ⇒ no ledger, OTel meter only |
@@ -233,32 +268,36 @@ only the API key is yours to supply.
 1. Start the stack and open web-admin → **SCA → SBOM**, pick a build with vulnerabilities.
 2. A ✨ button on each vulnerability row means the key resolved. No button ⇒ no key.
 3. Click it; the dialog should return an explanation naming your affected package.
-4. Open **AI → Usage & cost** — one call, non-zero tokens, a cost, and `explain_cve` under *By feature*.
-5. Re-open the same CVE: the footer should now read `(cached)`, and the ledger should be unchanged.
+4. Open a **failed** pipeline run (`/jenkins/runs/{id}`) — an *Explain this failure* button should
+   appear beside the failure banner, and its answer should name the actual failing job. A succeeded
+   run shows no button.
+5. Open **AI → Usage & cost** — two calls, non-zero tokens, a cost, and both `explain_cve` and
+   `explain_pipeline_failure` under *By feature* (the latter against `claude-opus-5`).
+6. Re-open either one: the footer should now read `(cached)`, and the ledger should be unchanged.
 
 ---
 
-## 6. Known gaps
+## 7. Known gaps
 
 Recorded here so they aren't rediscovered as bugs:
 
+- **The cache-hit-rate tile is currently always 0%.** `/ai/usage` computes
+  `cache_read / (input + cache_read)` and `UsageRater` prices both cache directions — but `AiClient`
+  sets no `cache_control`, so Anthropic never returns cached-token counts. The metric, its rating
+  rows, and its dashboard tile are all inert until prompt caching is enabled (planned with the
+  agentic slice, which is where a large stable prefix makes it worth having). Note this is unrelated
+  to the Redis cache, which prevents calls outright rather than producing cached tokens.
 - **`Ai:BaseUrl` is not wired.** `AiOptions` declares it for gateway/proxy use, but `AiClient`
   constructs `new AnthropicClient { ApiKey = … }` without it. Setting it today has no effect.
-- **`Microsoft.Extensions.AI` is referenced but unused.** The package (10.8.1) is in
-  `cicd.web.admin.csproj`; no code imports it. The layer talks to the Anthropic SDK directly.
-- **Dimensions are never populated.** `AiInsightRequest.Dimensions` and the ledger's
-  `Repository` / `Service` / `Environment` columns exist and are plumbed end-to-end, but
-  `CveExplainer` passes no dimensions — so those columns are null for every AI row today. Per-repo
-  AI showback needs a caller to start supplying them.
-- **`MaxOutputTokens`' comment says responses stream. They don't.** Calls are non-streaming
-  `Messages.Create`. Fine at 4096; revisit before raising it much.
+- **`Dimensions` are only partly populated.** The failure-triage feature tags `repository`;
+  `CveExplainer` still passes none, and `Service` / `Environment` are unused by every caller.
 - **The summary aggregates in memory.** `EfUsageLedger` pulls projected rows and rolls them up
   client-side, which is documented as a deliberate small-volume choice. It will need pushing
   server-side before the ledger gets large.
 
 ---
 
-## 7. Extending it
+## 8. Extending it
 
 To add an AI feature, don't reach for the SDK — inject `IAiInsightService` and:
 

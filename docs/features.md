@@ -136,12 +136,14 @@ A **Kubernetes** section in web-admin — see [k8s-admin-demo.md](demos/k8s-admi
 ## 15. AI & cost metering
 
 An optional AI layer on the Anthropic SDK, plus a usage ledger that rates every model call. No API
-key ⇒ AI actions simply don't appear. See [ai.md](ai.md).
+key ⇒ AI actions simply don't appear. See [ai.md](ai.md) for what exists and
+[ai-roadmap.md](ai-roadmap.md) for what's next.
 
 | Feature | What it does | PR |
 | --- | --- | --- |
 | AI foundation | One SDK call site behind `IAiInsightService`; token usage captured at the boundary and fanned out to an OTel meter + the ledger; soft-fails with no key | `feat/ai-integration` |
 | Explain this CVE | Grounded, Redis-cached explanation of a CVE in the context of the affected package, on every SBOM vulnerability row | `feat/ai-integration` |
+| Explain this failure | Grounded, Redis-cached triage of a failed pipeline run from the failing job's console output — picks the failing job from the step record and sends only the log tail | `feat/ai-integration` |
 | Metering service | `metering-api` — a general usage ledger with per-direction AI token rows, idempotent ingest, and a versioned rate table | `feat/ai-integration` |
 | Build & deploy meters | `ci.events` / `deployment.events` subscriptions meter pipeline runs and deploys into the same ledger (counts, not costed) | `feat/ai-integration` |
 | Usage & cost page | Token spend, estimated cost, cache-hit rate, by model / by feature, plus build & deploy activity | `feat/ai-integration` |

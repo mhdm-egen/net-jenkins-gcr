@@ -14,7 +14,10 @@ public sealed class UsageRater : IUsageRater
     // (input, output, cache_read, cache_write) USD per 1,000,000 tokens.
     private static readonly Dictionary<string, Rates> Table = new(StringComparer.OrdinalIgnoreCase)
     {
+        ["claude-opus-5"] = new(5.00m, 25.00m, 0.50m, 6.25m),
         ["claude-opus-4-8"] = new(5.00m, 25.00m, 0.50m, 6.25m),
+        // Sonnet 5 carries promotional pricing of 2.00 / 10.00 through 2026-08-31; the standard
+        // rate is used here, so Sonnet spend is over-stated until then rather than under-stated.
         ["claude-sonnet-5"] = new(3.00m, 15.00m, 0.30m, 3.75m),
     };
 

@@ -109,10 +109,9 @@ builder.Services.AddHttpClient<Cicd.Web.Admin.Services.Deployment.DeploymentApiC
     c.Timeout = TimeSpan.FromSeconds(60);
 });
 
-// AI layer — the model call runs on the official Anthropic SDK; token usage is captured
-// at the SDK boundary and recorded via IAiUsageRecorder (Phase 0: OTel meter + log; a
-// bus-publishing recorder arrives with the metering service). A missing Ai:ApiToken does
-// NOT fail startup — AI features surface a banner and no-op (mirrors the Nexus pattern).
+// AI layer — the model call runs on the official Anthropic SDK; token usage is captured at the SDK
+// boundary and recorded via IAiUsageRecorder. A missing Ai:ApiKey does NOT fail startup — AI
+// features hide themselves and no-op (mirrors the Nexus pattern).
 var aiOptions = builder.Configuration.GetSection(AiOptions.SectionName).Get<AiOptions>()
                 ?? new AiOptions();
 builder.Services.AddSingleton(aiOptions);
@@ -135,6 +134,10 @@ builder.Services.AddSingleton<IAiInsightService, AiClient>();
 
 // CVE-explain feature (Phase 1) — grounded, Redis-cached CVE explanations on the SBOM pages.
 builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ICveExplainer, Cicd.Web.Admin.Services.Sca.CveExplainer>();
+
+// Pipeline-failure triage — grounded, Redis-cached "why did this run fail" on the run detail page.
+// First caller of the Synthesis model tier.
+builder.Services.AddScoped<IPipelineFailureExplainer, PipelineFailureExplainer>();
 
 // Read-side metering client for the AI Usage page (GET usage/summary).
 builder.Services.AddHttpClient<MeteringApiClient>(c =>

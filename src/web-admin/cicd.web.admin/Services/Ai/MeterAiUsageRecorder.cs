@@ -3,11 +3,12 @@ using System.Diagnostics.Metrics;
 namespace Cicd.Web.Admin.Services.Ai;
 
 /// <summary>
-/// Phase-0 <see cref="IAiUsageRecorder"/>: emits an OpenTelemetry meter (<c>Cicd.Ai</c>,
-/// mirroring the deployment service's <c>Cicd.Deployment</c> meter) plus a structured
-/// log. When the metering microservice lands, a bus-publishing recorder augments/replaces
-/// this and the ledger becomes authoritative. The <c>Cicd.Ai</c> meter must be added to
-/// the OTel MeterProvider (see ServiceDefaults / Program.cs registration).
+/// <see cref="IAiUsageRecorder"/> that emits an OpenTelemetry meter (<c>Cicd.Ai</c>, mirroring the
+/// deployment service's <c>Cicd.Deployment</c> meter) plus a structured log. It records at the call
+/// site, so it keeps working with metering entirely unconfigured — the ledger
+/// (<see cref="Metering.MeteringUsageRecorder"/>) is authoritative for cost, this is for live
+/// observability. The <c>Cicd.Ai</c> meter must be added to the OTel MeterProvider (see
+/// ServiceDefaults / Program.cs registration).
 /// </summary>
 public sealed class MeterAiUsageRecorder : IAiUsageRecorder
 {
