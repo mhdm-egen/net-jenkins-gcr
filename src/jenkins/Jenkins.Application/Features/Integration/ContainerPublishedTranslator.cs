@@ -26,5 +26,6 @@ public sealed class ContainerPublishedTranslator
             ContainerName: evt.ContainerName,
             ArtifactUri: evt.Reference,
             Version: evt.Version,
-            CommitSha: evt.CommitSha);
+            CommitSha: evt.CommitSha,
+            CommittedAtUtc: evt.CommittedAtUtc);
 }

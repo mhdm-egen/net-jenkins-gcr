@@ -1,5 +1,19 @@
 <Project>
 
+  <!-- MSBuild stops at the nearest Directory.Build.props, so chain to src/ explicitly to
+       inherit the shared settings there (missing ProjectReference => error). Conditional
+       because a container build context may not include src/ above this directory.
+
+       The path is resolved into a property first rather than inlined into the Condition: a
+       condition cannot nest single quotes inside a single-quoted operand, so
+       Condition="'$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', ...))' != ''"
+       fails to parse with "MSB4092: An unexpected token "Directory" was found". -->
+  <PropertyGroup>
+    <_ParentDirectoryBuildProps>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))</_ParentDirectoryBuildProps>
+  </PropertyGroup>
+
+  <Import Project="$(_ParentDirectoryBuildProps)" Condition="'$(_ParentDirectoryBuildProps)' != ''" />
+
   <!--
     Container opt-in contract for CI.
 

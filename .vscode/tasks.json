@@ -93,6 +93,25 @@
         "reveal": "silent",
         "panel": "dedicated"
       }
+    },
+    {
+      // Builds the Aspire AppHost (and, transitively, every service it orchestrates) for the
+      // "Cicd Aspire AppHost (full stack)" launch configuration.
+      "label": "build-apphost",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/src/Aspire/Cicd.Aspire.Host/Cicd.Aspire.Host.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "group": "build",
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      }
     }
   ]
 }

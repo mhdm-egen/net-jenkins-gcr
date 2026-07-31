@@ -165,7 +165,7 @@ public sealed class Build : AggregateRoot<Guid>
             RaiseEvent(new ContainerPublished(
                 Id, artifact.Id, publication.Id, artifact.Name, publication.Reference,
                 RepositoryId, Versions?.PackageVersion ?? string.Empty, SourceRevision.CommitSha,
-                publishedAtUtc));
+                publishedAtUtc, SourceRevision.CommittedAtUtc));
         }
 
         return publication;

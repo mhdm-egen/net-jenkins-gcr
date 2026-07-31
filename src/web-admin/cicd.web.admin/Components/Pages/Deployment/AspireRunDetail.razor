@@ -2,6 +2,8 @@
 @inject DeploymentApiClient Api
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
+@inject IAspireRunExplainer Explainer
+@inject IDialogService DialogService
 
 <PageTitle>Deployment — Aspire run</PageTitle>
 
@@ -45,6 +47,16 @@ else
     @if (r.FailureReason is { Length: > 0 } reason)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-4">@reason</MudAlert>
+    }
+
+    @* A run can SUCCEED while the URL it produced is unreachable (e.g. no ingress controller), so
+       surface those advisories here rather than leaving them buried in the log pane below. *@
+    @foreach (var advisory in DeploymentAdvisories.Extract(r.Log))
+    {
+        <MudAlert Severity="@(advisory.Level == AdvisoryLevel.Warning ? Severity.Warning : Severity.Info)"
+                  Variant="Variant.Outlined" Class="mb-4">
+            @advisory.Message
+        </MudAlert>
     }
 
     <MudGrid>
@@ -92,6 +104,17 @@ else
         <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">No image digests recorded.</MudText>
     }
 
+    @* Offered on succeeded runs too, not just failures: the advisories above mean a run can succeed
+       while leaving the app unreachable, and that is exactly the case worth explaining. *@
+    @if (r.Log is { Length: > 0 } && Explainer.IsConfigured)
+    {
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="mt-6"
+                   StartIcon="@Icons.Material.Filled.AutoAwesome"
+                   OnClick="OpenExplanationAsync">
+            @(r.Status == AspireRunStatusDto.Failed ? "Explain this failure" : "Explain this deploy")
+        </MudButton>
+    }
+
     <MudText Typo="Typo.h6" Class="mt-6 mb-2">Log</MudText>
     <MudPaper Elevation="0" Outlined="true" Class="pa-2" Style="max-height: 28rem; overflow: auto; background: var(--mud-palette-background-grey);">
         <pre style="margin:0; white-space: pre-wrap; word-break: break-word; font-size: 0.8rem;">@(r.Log is { Length: > 0 } ? r.Log : "(no log)")</pre>
@@ -120,6 +143,27 @@ else
         try { _run = await Api.GetAspireRunByIdAsync(Id); }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; StateHasChanged(); }
+    }
+
+    private async Task OpenExplanationAsync()
+    {
+        if (_run is not { } run) return;
+        var request = AspireRunExplainRequest.FromRun(run);
+
+        var parameters = new DialogParameters
+        {
+            ["Loader"] = new Func<Task<AiExplanationDialog.AiExplanationResult>>(async () =>
+            {
+                var e = await Explainer.ExplainAsync(request);
+                return new AiExplanationDialog.AiExplanationResult(e.Text, e.FromCache, e.ModelUsed);
+            }),
+            ["LoadingMessage"] = $"Reading the deploy log for {run.ApplicationName}…",
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        var title = run.Status == AspireRunStatusDto.Failed
+            ? $"Why the {run.ApplicationName} deploy failed"
+            : $"The {run.ApplicationName} deploy, explained";
+        await DialogService.ShowAsync<AiExplanationDialog>(title, parameters, options);
     }
 
     private async Task Act(Func<Task> action, string ok, Severity sev)

@@ -50,6 +50,20 @@ public sealed class AspireAppPublishedConsumer
             return;
         }
 
+        // Out-of-order publish. The sync worker backfills builds, and a build seen for the FIRST time
+        // raises a publish regardless of its age — so an older build ingested after a newer one would
+        // otherwise overwrite ManifestSource/Version and auto-deploy a downgrade. Checked before the
+        // manifest update, because that overwrite is the real damage. Warning, not Info: a silently
+        // skipped deploy is exactly what sent us looking last time.
+        if (CiVersion.IsOlderThan(evt.Version, app.Version))
+        {
+            logger.LogWarning(
+                "[bus] AspireAppPublished '{App}' {Version} is older than the recorded {Current} " +
+                "(out-of-order publish, e.g. a build backfill); ignored.",
+                evt.AppName, evt.Version, app.Version);
+            return;
+        }
+
         var changed = app.ApplyPublishedManifest(evt.ManifestUrl, evt.Version, clock.GetUtcNow());
         await uow.SaveChangesAsync(ct).ConfigureAwait(false);
 

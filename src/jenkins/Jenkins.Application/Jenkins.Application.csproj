@@ -15,6 +15,10 @@
     <ProjectReference Include="..\Jenkins.Domain\Jenkins.Domain.csproj" />
     <ProjectReference Include="..\Jenkins.Contracts\Jenkins.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Cicd.IntegrationEvents\Cicd.IntegrationEvents.csproj" />
+    <!-- Outbound notification transport (Slack / email) for the build + pipeline-run notifiers in
+         Features/Integration. Same placement the deployment service uses; the library has no
+         project references of its own, so this adds exactly one edge to the graph. -->
+    <ProjectReference Include="..\..\shared\Cicd.Notifications\Cicd.Notifications.csproj" />
   </ItemGroup>
 
   <ItemGroup>

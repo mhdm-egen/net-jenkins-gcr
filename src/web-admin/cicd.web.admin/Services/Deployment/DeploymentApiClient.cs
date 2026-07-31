@@ -5,6 +5,7 @@ using Deployment.Contracts.AspireApps;
 using Deployment.Contracts.Catalog;
 using Deployment.Contracts.Kubernetes;
 using Deployment.Contracts.Mappings;
+using Deployment.Contracts.Metrics;
 using Deployment.Contracts.Previews;
 using Deployment.Contracts.Reset;
 using Deployment.Contracts.Runs;
@@ -23,15 +24,37 @@ public sealed class DeploymentApiClient
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
+    /// <summary>
+    /// Ceiling on GET calls, which are what render a page.
+    ///
+    /// Deliberately much shorter than the HttpClient's own timeout: when deployment-api is down,
+    /// every read on a page waits out the full client timeout before the page can render, so the UI
+    /// looks blank and broken rather than degraded. Observed: the Overview page took 60.0s and then
+    /// rendered empty. Reads here are plain catalog queries against a local service — if one has not
+    /// answered within a few seconds it is not going to.
+    ///
+    /// This applies to reads ONLY. Writes (deploy, promote, rollback) keep the client's full timeout
+    /// because the deploy path can legitimately run long — it shells out to crane and aspirate.
+    /// </summary>
+    private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(8);
+
     private readonly HttpClient _http;
     public DeploymentApiClient(HttpClient http) => _http = http;
+
+    /// <summary>GET + deserialize, bounded by <see cref="ReadTimeout"/>.</summary>
+    private async Task<T?> ReadAsync<T>(string url, CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(ReadTimeout);
+        return await _http.GetFromJsonAsync<T>(url, Json, cts.Token).ConfigureAwait(false);
+    }
 
     /// <summary>Base address of deployment-api — used to build the SignalR hub URL for completion toasts.</summary>
     public Uri BaseAddress => _http.BaseAddress!;
 
     // ---- Services ----
     public async Task<IReadOnlyList<ServiceDto>> ListServicesAsync(CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<List<ServiceDto>>("api/deployment/services", Json, ct).ConfigureAwait(false) ?? new();
+        => await ReadAsync<List<ServiceDto>>("api/deployment/services", ct).ConfigureAwait(false) ?? new();
     public Task<ServiceDto> CreateServiceAsync(CreateServiceRequest body, CancellationToken ct = default)
         => PostJsonAsync<CreateServiceRequest, ServiceDto>("api/deployment/services", body, ct);
     public Task UpdateServiceAsync(Guid id, UpdateServiceRequest body, CancellationToken ct = default)
@@ -42,7 +65,7 @@ public sealed class DeploymentApiClient
 
     // ---- Environments ----
     public async Task<IReadOnlyList<EnvironmentDto>> ListEnvironmentsAsync(CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<List<EnvironmentDto>>("api/deployment/environments", Json, ct).ConfigureAwait(false) ?? new();
+        => await ReadAsync<List<EnvironmentDto>>("api/deployment/environments", ct).ConfigureAwait(false) ?? new();
     public Task<EnvironmentDto> CreateEnvironmentAsync(CreateEnvironmentRequest body, CancellationToken ct = default)
         => PostJsonAsync<CreateEnvironmentRequest, EnvironmentDto>("api/deployment/environments", body, ct);
     public Task UpdateEnvironmentAsync(Guid id, UpdateEnvironmentRequest body, CancellationToken ct = default)
@@ -53,7 +76,7 @@ public sealed class DeploymentApiClient
     public async Task<IReadOnlyList<DeploymentMappingDto>> ListMappingsAsync(Guid? serviceId = null, CancellationToken ct = default)
     {
         var url = serviceId is { } s ? $"api/deployment/mappings?serviceId={s}" : "api/deployment/mappings";
-        return await _http.GetFromJsonAsync<List<DeploymentMappingDto>>(url, Json, ct).ConfigureAwait(false) ?? new();
+        return await ReadAsync<List<DeploymentMappingDto>>(url, ct).ConfigureAwait(false) ?? new();
     }
     public Task CreateMappingAsync(CreateMappingRequest body, CancellationToken ct = default)
         => PostJsonNoBodyAsync("api/deployment/mappings", body, ct);
@@ -77,7 +100,7 @@ public sealed class DeploymentApiClient
         if (serviceId is { } s) q.Add($"serviceId={s}");
         if (mappingId is { } m) q.Add($"mappingId={m}");
         var url = "api/deployment/runs" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
-        return await _http.GetFromJsonAsync<List<DeploymentRunDto>>(url, Json, ct).ConfigureAwait(false) ?? new();
+        return await ReadAsync<List<DeploymentRunDto>>(url, ct).ConfigureAwait(false) ?? new();
     }
     public async Task<DeploymentRunDto?> GetRunAsync(Guid id, CancellationToken ct = default)
     {
@@ -87,18 +110,20 @@ public sealed class DeploymentApiClient
         return await r.Content.ReadFromJsonAsync<DeploymentRunDto>(Json, ct).ConfigureAwait(false);
     }
     public async Task<IReadOnlyList<KnownContainerDto>> ListKnownContainersAsync(CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<List<KnownContainerDto>>("api/deployment/containers", Json, ct).ConfigureAwait(false) ?? new();
+        => await ReadAsync<List<KnownContainerDto>>("api/deployment/containers", ct).ConfigureAwait(false) ?? new();
     public Task<KnownContainerDto> AddKnownContainerAsync(AddKnownContainerRequest body, CancellationToken ct = default)
         => PostJsonAsync<AddKnownContainerRequest, KnownContainerDto>("api/deployment/containers", body, ct);
 
     // ---- Aspire applications (Aspir8 → Kubernetes) ----
     public async Task<IReadOnlyList<AspireApplicationDto>> ListAspireAppsAsync(CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<List<AspireApplicationDto>>("api/deployment/aspire-apps", Json, ct).ConfigureAwait(false) ?? new();
+        => await ReadAsync<List<AspireApplicationDto>>("api/deployment/aspire-apps", ct).ConfigureAwait(false) ?? new();
     public Task<AspireApplicationDto> CreateAspireAppAsync(CreateAspireApplicationRequest body, CancellationToken ct = default)
         => PostJsonAsync<CreateAspireApplicationRequest, AspireApplicationDto>("api/deployment/aspire-apps", body, ct);
     public Task UpdateAspireAppAsync(Guid id, UpdateAspireApplicationRequest body, CancellationToken ct = default)
         => PutJsonAsync($"api/deployment/aspire-apps/{id}", body, ct);
     public Task DeleteAspireAppAsync(Guid id, CancellationToken ct = default) => DeleteAsync($"api/deployment/aspire-apps/{id}", ct);
+    public Task<AspireUninstallResultDto> UninstallAspireAppAsync(Guid id, CancellationToken ct = default)
+        => PostJsonAsync<UninstallAspireAppRequest, AspireUninstallResultDto>($"api/deployment/aspire-apps/{id}/uninstall", new UninstallAspireAppRequest("ui"), ct);
     public Task SetAspireAutoDeployAsync(Guid id, bool autoDeploy, CancellationToken ct = default)
         => PostJsonNoBodyAsync($"api/deployment/aspire-apps/{id}/auto-deploy", new SetAspireAutoDeployRequest(autoDeploy), ct);
     public Task<DeployResponse> DeployAspireAppAsync(Guid id, TriggerAspireDeploymentRequest body, CancellationToken ct = default)
@@ -116,11 +141,11 @@ public sealed class DeploymentApiClient
     public Task RollbackAspireRunAsync(Guid runId, string? reason = null, CancellationToken ct = default)
         => PostJsonNoBodyAsync($"api/deployment/aspire-runs/{runId}/rollback", new RollbackAspireRunRequest("ui", reason), ct);
     public Task<AspireAppStatusDto?> GetAspireAppStatusAsync(Guid id, CancellationToken ct = default)
-        => _http.GetFromJsonAsync<AspireAppStatusDto>($"api/deployment/aspire-apps/{id}/status", Json, ct);
+        => ReadAsync<AspireAppStatusDto>($"api/deployment/aspire-apps/{id}/status", ct);
 
     // ---- Preview environments ----
     public async Task<IReadOnlyList<PreviewEnvironmentDto>> ListPreviewsAsync(bool includeTornDown = false, CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<List<PreviewEnvironmentDto>>($"api/deployment/previews?includeTornDown={includeTornDown.ToString().ToLowerInvariant()}", Json, ct).ConfigureAwait(false) ?? new();
+        => await ReadAsync<List<PreviewEnvironmentDto>>($"api/deployment/previews?includeTornDown={includeTornDown.ToString().ToLowerInvariant()}", ct).ConfigureAwait(false) ?? new();
     public Task CreatePreviewAsync(CreatePreviewEnvironmentRequest body, CancellationToken ct = default)
         => PostJsonNoBodyAsync("api/deployment/previews", body, ct);
     public Task TeardownPreviewAsync(Guid id, CancellationToken ct = default)
@@ -128,8 +153,28 @@ public sealed class DeploymentApiClient
     public async Task<IReadOnlyList<AspireApplicationRunDto>> ListAspireRunsAsync(Guid? applicationId = null, CancellationToken ct = default)
     {
         var url = applicationId is { } a ? $"api/deployment/aspire-runs?applicationId={a}" : "api/deployment/aspire-runs";
-        return await _http.GetFromJsonAsync<List<AspireApplicationRunDto>>(url, Json, ct).ConfigureAwait(false) ?? new();
+        return await ReadAsync<List<AspireApplicationRunDto>>(url, ct).ConfigureAwait(false) ?? new();
     }
+    /// <summary>
+    /// The DORA four over a trailing window, computed server-side. Prefer this over aggregating runs
+    /// client-side so every surface (metrics page, home tile, weekly digest) reports one number.
+    /// </summary>
+    public async Task<DoraSummaryDto?> GetDoraSummaryAsync(int days = 30, CancellationToken ct = default)
+        => await ReadAsync<DoraSummaryDto>($"api/deployment/metrics/dora?days={days}", ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// Sends the delivery digest now. Returns what the service says will actually happen — a digest
+    /// with no usable channel, or with OnlyFailures set, is generated and then dropped, and the
+    /// caller can't tell that from success without this.
+    /// </summary>
+    public async Task<DigestTriggerResult> SendDigestNowAsync(CancellationToken ct = default)
+    {
+        using var resp = await _http.PostAsync("api/deployment/metrics/digest", content: null, ct).ConfigureAwait(false);
+        await EnsureOk(resp, ct).ConfigureAwait(false);
+        return await resp.Content.ReadFromJsonAsync<DigestTriggerResult>(Json, ct).ConfigureAwait(false)
+               ?? new DigestTriggerResult(true, Array.Empty<string>(), false, null);
+    }
+
     public async Task<AspireApplicationRunDto?> GetAspireRunByIdAsync(Guid id, CancellationToken ct = default)
     {
         using var r = await _http.GetAsync($"api/deployment/aspire-runs/{id}", ct).ConfigureAwait(false);
@@ -150,17 +195,17 @@ public sealed class DeploymentApiClient
 
     // ---- Kubernetes (read-only cluster browsing) ----
     public async Task<IReadOnlyList<K8sContextDto>> ListK8sContextsAsync(CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<List<K8sContextDto>>("api/deployment/k8s/contexts", Json, ct).ConfigureAwait(false) ?? new();
+        => await ReadAsync<List<K8sContextDto>>("api/deployment/k8s/contexts", ct).ConfigureAwait(false) ?? new();
     public async Task<IReadOnlyList<K8sNamespaceDto>> ListK8sNamespacesAsync(string? context = null, CancellationToken ct = default)
-        => await _http.GetFromJsonAsync<List<K8sNamespaceDto>>($"api/deployment/k8s/namespaces{ContextQuery(context)}", Json, ct).ConfigureAwait(false) ?? new();
+        => await ReadAsync<List<K8sNamespaceDto>>($"api/deployment/k8s/namespaces{ContextQuery(context)}", ct).ConfigureAwait(false) ?? new();
     public Task<K8sNamespaceDetailDto?> GetK8sNamespaceAsync(string ns, string? context = null, CancellationToken ct = default)
-        => _http.GetFromJsonAsync<K8sNamespaceDetailDto>($"api/deployment/k8s/namespaces/{Uri.EscapeDataString(ns)}{ContextQuery(context)}", Json, ct);
+        => ReadAsync<K8sNamespaceDetailDto>($"api/deployment/k8s/namespaces/{Uri.EscapeDataString(ns)}{ContextQuery(context)}", ct);
     public Task<PodLogDto?> GetK8sPodLogAsync(string ns, string pod, string? container = null, int tail = 500, string? context = null, CancellationToken ct = default)
     {
         var q = $"?tail={tail}";
         if (!string.IsNullOrWhiteSpace(container)) q += $"&container={Uri.EscapeDataString(container)}";
         if (!string.IsNullOrWhiteSpace(context)) q += $"&context={Uri.EscapeDataString(context)}";
-        return _http.GetFromJsonAsync<PodLogDto>($"api/deployment/k8s/namespaces/{Uri.EscapeDataString(ns)}/pods/{Uri.EscapeDataString(pod)}/logs{q}", Json, ct);
+        return ReadAsync<PodLogDto>($"api/deployment/k8s/namespaces/{Uri.EscapeDataString(ns)}/pods/{Uri.EscapeDataString(pod)}/logs{q}", ct);
     }
     private static string ContextQuery(string? context)
         => string.IsNullOrWhiteSpace(context) ? "" : $"?context={Uri.EscapeDataString(context)}";

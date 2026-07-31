@@ -33,12 +33,14 @@ public sealed class ContainerPublishedConsumer
         var known = await containers.FindByNameAsync(evt.ContainerName, ct).ConfigureAwait(false);
         if (known is null)
         {
-            known = new KnownContainer(Guid.NewGuid(), evt.ContainerName, evt.Version, evt.ArtifactUri, now);
+            known = new KnownContainer(
+                Guid.NewGuid(), evt.ContainerName, evt.Version, evt.ArtifactUri, now,
+                evt.CommitSha, evt.CommittedAtUtc);
             await containers.AddAsync(known, ct).ConfigureAwait(false);
         }
         else
         {
-            known.Observe(evt.Version, evt.ArtifactUri, now);
+            known.Observe(evt.Version, evt.ArtifactUri, now, evt.CommitSha, evt.CommittedAtUtc);
         }
         await uow.SaveChangesAsync(ct).ConfigureAwait(false);
 

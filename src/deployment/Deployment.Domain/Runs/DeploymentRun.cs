@@ -20,6 +20,17 @@ public sealed class DeploymentRun : AggregateRoot<Guid>
     public string Version { get; private set; }
     public string SourceRef { get; private set; }
 
+    /// <summary>The commit behind the image this run deployed, when CI reported it.</summary>
+    public string? CommitSha { get; private set; }
+
+    /// <summary>
+    /// When that commit was authored — with <see cref="CompletedAtUtc"/> this gives commit→production
+    /// lead time. SNAPSHOTTED at request time alongside <see cref="SourceRef"/>, deliberately: the
+    /// container inventory is keyed by name and the latest push overwrites it, so reading commit time
+    /// back later would attribute a newer commit to this older run.
+    /// </summary>
+    public DateTimeOffset? CommittedAtUtc { get; private set; }
+
     // Target snapshot (so the executor + event need no catalog re-read).
     public string GcpProject { get; private set; }
     public string Region { get; private set; }
@@ -78,7 +89,8 @@ public sealed class DeploymentRun : AggregateRoot<Guid>
         string serviceName, string containerName, string version, string sourceRef,
         string gcpProject, string region, string garRepository, string? cloudRunServiceName,
         string? kubernetesContext, string? kubernetesNamespace, Mappings.KubernetesSpec? kubernetesSpec,
-        DeploymentTrigger trigger, string triggeredBy, DateTimeOffset requestedAtUtc)
+        DeploymentTrigger trigger, string triggeredBy, DateTimeOffset requestedAtUtc,
+        string? commitSha = null, DateTimeOffset? committedAtUtc = null)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
 
@@ -90,6 +102,8 @@ public sealed class DeploymentRun : AggregateRoot<Guid>
         ContainerName = containerName?.Trim() ?? string.Empty;
         Version = version?.Trim() ?? string.Empty;
         SourceRef = sourceRef?.Trim() ?? string.Empty;
+        CommitSha = string.IsNullOrWhiteSpace(commitSha) ? null : commitSha.Trim();
+        CommittedAtUtc = committedAtUtc;
         GcpProject = gcpProject?.Trim() ?? string.Empty;
         Region = region?.Trim() ?? string.Empty;
         GarRepository = garRepository?.Trim() ?? string.Empty;

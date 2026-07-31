@@ -43,6 +43,23 @@ public sealed class AspireOptions
     /// <summary>Name of the image-pull secret provisioned when <see cref="EnsurePullSecret"/> is set.</summary>
     public string PullSecretName { get; set; } = "nexus-pull";
 
+    /// <summary>
+    /// Base URL (scheme + authority, e.g. <c>http://localhost:8081</c>) this service should fetch
+    /// manifest archives from, replacing whatever host was recorded on the application.
+    ///
+    /// The recorded <c>ManifestSource</c> comes from CI, which uploads from a build agent and records
+    /// the address IT used — <c>http://nexus:8081/...</c> by default. This service runs as a HOST
+    /// PROCESS under the Aspire AppHost, so it cannot resolve that container hostname, and a
+    /// CI-triggered auto-deploy would fail at the fetch. Note host.docker.internal does not help
+    /// here either: it resolves inside containers but not from a Windows host.
+    ///
+    /// Only the scheme + authority are replaced; the path (repository, app, version, filename) is
+    /// preserved, so this cannot repoint a deploy at a different artifact. Empty = use the recorded
+    /// URL unchanged, which is correct when CI and this service share a view of the registry.
+    /// This is the manifest-fetch counterpart of <see cref="PullRegistry"/>.
+    /// </summary>
+    public string ManifestBaseUrl { get; set; } = string.Empty;
+
     /// <summary>How long <c>aspirate generate</c> may run (builds the Aspire manifest).</summary>
     public int GenerateTimeoutSeconds { get; set; } = 600;
 

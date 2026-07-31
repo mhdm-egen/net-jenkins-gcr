@@ -12,6 +12,8 @@
     <ProjectReference Include="..\Deployment.Contracts\Deployment.Contracts.csproj" />
     <ProjectReference Include="..\..\shared\Cicd.IntegrationEvents\Cicd.IntegrationEvents.csproj" />
     <ProjectReference Include="..\..\shared\Cicd.Notifications\Cicd.Notifications.csproj" />
+    <!-- The weekly delivery digest has the model narrate the DORA figures. -->
+    <ProjectReference Include="..\..\shared\Cicd.Ai\Cicd.Ai.csproj" />
   </ItemGroup>
 
   <ItemGroup>

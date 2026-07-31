@@ -3,6 +3,8 @@
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject RunEventsService Events
+@inject IDriftExplainer DriftExplainer
+@inject IDialogService DialogService
 @implements IDisposable
 
 <PageTitle>Deployment — Aspire apps</PageTitle>
@@ -64,14 +66,22 @@
     else if (_apps is not null)
     {
         <MudTable Items="@_apps" Dense="true" Hover="true" Striped="true" T="AspireApplicationDto">
-            <HeaderContent><MudTh>Name</MudTh><MudTh>Environment</MudTh><MudTh>Version</MudTh><MudTh>Manifest source</MudTh><MudTh Style="width:7rem;">Auto-deploy</MudTh><MudTh Style="width:12rem;">Actions</MudTh></HeaderContent>
+            <HeaderContent><MudTh>Name</MudTh><MudTh>Environment</MudTh><MudTh>Version</MudTh><MudTh>Manifest source</MudTh><MudTh Style="width:7rem;">Auto-deploy</MudTh><MudTh Style="width:15rem;">Actions</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd>
                     @context.Name
                     @if (!string.IsNullOrEmpty(context.SourceKey) && context.SourceKey != context.Name)
                     { <MudTooltip Text="CI source key this app tracks"><MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Default" Icon="@Icons.Material.Filled.Link">@context.SourceKey</MudChip></MudTooltip> }
                 </MudTd>
-                <MudTd>@context.EnvironmentName</MudTd>
+                <MudTd>
+                    @context.EnvironmentName
+                    @if (!string.IsNullOrWhiteSpace(context.ActiveSlot))
+                    {
+                        <MudTooltip Text="@($"Live blue-green slot — workloads run in namespace '{NamespaceFor(context)}'")">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Info">@context.ActiveSlot</MudChip>
+                        </MudTooltip>
+                    }
+                </MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size:0.85em;">@(context.Version ?? "—")</MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size:0.78em; max-width:24rem; overflow:hidden; text-overflow:ellipsis;">@context.ManifestSource</MudTd>
                 <MudTd>
@@ -85,7 +95,8 @@
                     <MudTooltip Text="Live status — cluster health + drift for this app"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.MonitorHeart" OnClick="@(() => OpenStatusAsync(context))" Disabled="_busy" /></MudTooltip>
                     <MudTooltip Text="Promote this app's current manifest to another environment"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.MoveUp" OnClick="@(() => OpenPromote(context))" Disabled="_busy" /></MudTooltip>
                     <MudTooltip Text="Edit (name, environment, manifest source, …)"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" OnClick="@(() => OpenEdit(context))" /></MudTooltip>
-                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" />
+                    <MudTooltip Text="Uninstall from the cluster — deletes this app's namespace(s); the registration stays so you can redeploy"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.CloudOff" Color="Color.Error" OnClick="@(() => UninstallAsync(context))" Disabled="_busy" /></MudTooltip>
+                    <MudTooltip Text="Delete this app — removes it from the cluster AND unregisters it"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" Disabled="_busy" /></MudTooltip>
                 </MudTd>
             </RowTemplate>
         </MudTable>
@@ -252,6 +263,15 @@
                 </MudAlert>
             }
 
+            @* Offered whenever there is something to explain. Redeploying to "reconcile" drift
+               overwrites whatever was applied out of band, so it is worth understanding first. *@
+            @if ((_status.HasImageDrift || _status.HasUndeployedChanges) && DriftExplainer.IsConfigured)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="my-2"
+                           StartIcon="@Icons.Material.Filled.AutoAwesome"
+                           OnClick="OpenDriftExplanationAsync">Explain what changed</MudButton>
+            }
+
             <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">
                 Last deployed: @(_status.LastDeployedAtUtc is { } t ? t.LocalDateTime.ToString("g") : "never")
                 @(_status.LastDeployedVersion is { Length: > 0 } v ? $" · {v}" : "")
@@ -392,10 +412,100 @@
         finally { _busy = false; }
     }
 
+    /// <summary>
+    /// The namespace(s) this app owns on the cluster, for display in the confirm dialog. Mirrors the
+    /// server's rule (AspireNamespaceResolver): blue-green lives in '{ns}-{slot}' and owns nothing until
+    /// its first deploy sets a slot; Direct lives in the environment namespace itself.
+    ///
+    /// This is a PREVIEW only — the server recomputes authoritatively and its list is what the snackbar
+    /// reports, so a divergence shows up rather than passing unnoticed. It cannot see a green namespace
+    /// parked awaiting promotion; the server can, and will delete it too.
+    /// </summary>
+    private IReadOnlyList<string> NamespacesFor(AspireApplicationDto app)
+    {
+        var env = _k8sEnvs.FirstOrDefault(e => e.Id == app.EnvironmentId);
+        if (env is null || string.IsNullOrWhiteSpace(env.KubernetesNamespace)) return Array.Empty<string>();
+
+        if (app.Strategy == RolloutStrategyDto.BlueGreen)
+            return string.IsNullOrWhiteSpace(app.ActiveSlot)
+                ? Array.Empty<string>()
+                : new[] { $"{env.KubernetesContext}/{env.KubernetesNamespace}-{app.ActiveSlot}" };
+
+        return new[] { $"{env.KubernetesContext}/{env.KubernetesNamespace}" };
+    }
+
+    private string NamespaceFor(AspireApplicationDto app)
+    {
+        var env = _k8sEnvs.FirstOrDefault(e => e.Id == app.EnvironmentId);
+        if (env is null) return "—";
+        return string.IsNullOrWhiteSpace(app.ActiveSlot)
+            ? env.KubernetesNamespace ?? "—"
+            : $"{env.KubernetesNamespace}-{app.ActiveSlot}";
+    }
+
+    private const string AutoDeployWarning =
+        "Auto-deploy is ON for this app — it stays down until CI produces a NEW successful build, and is then " +
+        "redeployed automatically. Turn the switch off first if you want it to stay down for good.";
+
+    private async Task<bool> ConfirmAsync(string title, string message, AspireApplicationDto app, string confirmText, string icon, bool warnAutoDeploy)
+    {
+        var namespaces = NamespacesFor(app);
+        var parameters = new DialogParameters
+        {
+            ["Message"] = namespaces.Count == 0
+                ? $"{message}\n\nNothing of this app appears to be on the cluster — it has no live namespace recorded."
+                : message,
+            ["Items"] = namespaces,
+            ["ConfirmText"] = confirmText,
+            ["ConfirmIcon"] = icon,
+            ["Warning"] = warnAutoDeploy && app.AutoDeploy ? AutoDeployWarning : null,
+        };
+        var dialog = await DialogService.ShowAsync<ConfirmDeleteDialog>(title, parameters);
+        var result = await dialog.Result;
+        return result is not null && !result.Canceled;
+    }
+
+    private async Task UninstallAsync(AspireApplicationDto app)
+    {
+        if (!await ConfirmAsync(
+                $"Uninstall '{app.Name}' from the cluster",
+                $"Delete the Kubernetes namespace(s) below? '{app.Name}' stays registered and can be redeployed.",
+                app, "Uninstall", Icons.Material.Filled.CloudOff, warnAutoDeploy: true))
+            return;
+
+        _busy = true;
+        try
+        {
+            var r = await Api.UninstallAspireAppAsync(app.Id);
+            // Kubernetes deletes namespaces asynchronously (Terminating for 30s+), so say "deleting".
+            Snackbar.Add(
+                r.Outcome == "not-deployed"
+                    ? $"'{app.Name}' had nothing deployed on the cluster."
+                    : $"Deleting namespace(s) {string.Join(", ", r.Namespaces)} for '{app.Name}'.",
+                Severity.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
     private async Task DeleteAsync(AspireApplicationDto app)
     {
-        try { await Api.DeleteAspireAppAsync(app.Id); await LoadAsync(); }
+        if (!await ConfirmAsync(
+                $"Delete '{app.Name}'",
+                $"Remove '{app.Name}' from the cluster and unregister it? The namespace(s) below are deleted too.",
+                app, "Delete app", Icons.Material.Filled.Delete, warnAutoDeploy: false))
+            return;
+
+        _busy = true;
+        try
+        {
+            await Api.DeleteAspireAppAsync(app.Id);
+            Snackbar.Add($"Deleted '{app.Name}' and its namespace(s).", Severity.Warning);
+            await LoadAsync();
+        }
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _busy = false; }
     }
 
     private void OpenPromote(AspireApplicationDto app)
@@ -485,6 +595,28 @@
         try { _status = await Api.GetAspireAppStatusAsync(_statusAppId); }
         catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
         finally { _statusLoading = false; StateHasChanged(); }
+    }
+
+    private async Task OpenDriftExplanationAsync()
+    {
+        if (_status is not { } status) return;
+
+        // Snapshot the request now: the status panel can refresh underneath the open dialog, and the
+        // explanation should describe the state the user was looking at when they asked.
+        var request = DriftExplainRequest.FromStatus(status);
+
+        var parameters = new DialogParameters
+        {
+            ["Loader"] = new Func<Task<AiExplanationDialog.AiExplanationResult>>(async () =>
+            {
+                var e = await DriftExplainer.ExplainAsync(request);
+                return new AiExplanationDialog.AiExplanationResult(e.Text, e.FromCache, e.ModelUsed);
+            }),
+            ["LoadingMessage"] = $"Comparing what {status.ApplicationName} is running against what was deployed…",
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<AiExplanationDialog>(
+            $"What changed on {status.ApplicationName}", parameters, options);
     }
 
     private static Color HealthColor(WorkloadHealthDto h) => h switch

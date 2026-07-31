@@ -64,12 +64,25 @@
                 <MudTd>
                     @if (context.Status == PreviewStatusDto.Active && !string.IsNullOrEmpty(context.Url))
                     {
-                        <MudLink Href="@context.Url" Target="_blank" Underline="Underline.Hover">
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                                <MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" />
-                                <span style="font-family: ui-monospace, monospace; font-size:0.8em;">@DisplayHost(context.Url)</span>
-                            </MudStack>
-                        </MudLink>
+                        @* The preview can be Active with a URL that nothing serves (no ingress controller).
+                           Flag it on the link itself, so a refused connection is explained before it is hit. *@
+                        var advisories = DeploymentAdvisories.Extract(context.Log);
+                        var blocked = advisories.Any(a => a.Level == AdvisoryLevel.Warning);
+
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudLink Href="@context.Url" Target="_blank" Underline="Underline.Hover">
+                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudIcon Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small" />
+                                    <span style="font-family: ui-monospace, monospace; font-size:0.8em;">@DisplayHost(context.Url)</span>
+                                </MudStack>
+                            </MudLink>
+                            @if (blocked)
+                            {
+                                <MudTooltip Text="@string.Join(" ", advisories.Where(a => a.Level == AdvisoryLevel.Warning).Select(a => a.Message))">
+                                    <MudIcon Icon="@Icons.Material.Filled.WarningAmber" Size="Size.Small" Color="Color.Warning" />
+                                </MudTooltip>
+                            }
+                        </MudStack>
                     }
                     else if (context.Status == PreviewStatusDto.Active)
                     {

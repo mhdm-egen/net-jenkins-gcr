@@ -15,7 +15,7 @@
 # Optional env (defaults shown):
 #   NEXUS_URL=http://nexus:8081
 #   NEXUS_USER=admin
-#   DOCKER_REPO=docker-hosted
+#   DOCKER_REPO=docker-private
 #   NUGET_REPO=nuget-hosted
 #   DOCKER_POLICY_NAME=docker-ci-cleanup
 #   NUGET_POLICY_NAME=nuget-prerelease-cleanup
@@ -36,13 +36,17 @@ set -euo pipefail
 NEXUS_URL="${NEXUS_URL:-http://nexus:8081}"
 NEXUS_USER="${NEXUS_USER:-admin}"
 NEXUS_PASS="${NEXUS_PASS:?NEXUS_PASS env var is required}"
-DOCKER_REPO="${DOCKER_REPO:-docker-hosted}"
+DOCKER_REPO="${DOCKER_REPO:-docker-private}"
 NUGET_REPO="${NUGET_REPO:-nuget-hosted}"
 DOCKER_POLICY_NAME="${DOCKER_POLICY_NAME:-docker-ci-cleanup}"
 NUGET_POLICY_NAME="${NUGET_POLICY_NAME:-nuget-prerelease-cleanup}"
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
 
 API="$NEXUS_URL/service/rest/v1"
+# Cleanup policies are NOT under /v1 on every Nexus. On 3.70.1 the only endpoint that exists is
+# service/rest/internal/cleanup-policies (verified: /v1 and /beta both 404, /internal returns 200),
+# while newer builds expose a public one. Probed below, after the credentials are known to work.
+CLEANUP_API=""
 TMP_BODY="$(mktemp)"
 trap 'rm -f "$TMP_BODY"' EXIT
 
@@ -52,7 +56,7 @@ log() { printf '\n=== %s\n' "$*"; }
 # Performs an authenticated Nexus REST call.
 # Writes response body to $TMP_BODY, echoes the HTTP status code on stdout.
 nx() {
-    local method="$1" path="$2" body="${3:-}"
+    local method="$1" path="$2" body="${3:-}" base="${NX_BASE:-$API}"
     if [ -n "$body" ]; then
         curl -sS -o "$TMP_BODY" -w '%{http_code}' \
             -u "$NEXUS_USER:$NEXUS_PASS" \
@@ -60,34 +64,50 @@ nx() {
             -H 'Accept: application/json' \
             -X "$method" \
             --data "$body" \
-            "$API$path"
+            "$base$path"
     else
         curl -sS -o "$TMP_BODY" -w '%{http_code}' \
             -u "$NEXUS_USER:$NEXUS_PASS" \
             -H 'Accept: application/json' \
             -X "$method" \
-            "$API$path"
+            "$base$path"
     fi
 }
 
+# Same as nx, but against whichever base actually serves cleanup policies.
+nxc() { NX_BASE="$CLEANUP_API" nx "$@"; }
+
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+# Pick the cleanup-policy base this Nexus actually implements.
+detect_cleanup_api() {
+    local candidate
+    for candidate in "$NEXUS_URL/service/rest/v1" "$NEXUS_URL/service/rest/internal"; do
+        if [ "$(NX_BASE="$candidate" nx GET "/cleanup-policies")" = "200" ]; then
+            CLEANUP_API="$candidate"
+            log "Cleanup-policy API: $CLEANUP_API"
+            return 0
+        fi
+    done
+    die "no cleanup-policy endpoint found under /v1 or /internal on $NEXUS_URL (checked GET /cleanup-policies)"
+}
 
 upsert_policy() {
     local payload="$1" name code
     name=$(echo "$payload" | jq -r '.name')
 
     log "Upserting cleanup policy: $name"
-    code=$(nx GET "/cleanup-policies/$name")
+    code=$(nxc GET "/cleanup-policies/$name")
     if [ "$code" = "200" ]; then
         echo "  exists - updating"
-        code=$(nx PUT "/cleanup-policies/$name" "$payload")
+        code=$(nxc PUT "/cleanup-policies/$name" "$payload")
         case "$code" in
             200|204) echo "  ok ($code)" ;;
             *) die "PUT /cleanup-policies/$name returned $code: $(cat "$TMP_BODY")" ;;
         esac
     elif [ "$code" = "404" ]; then
         echo "  creating"
-        code=$(nx POST "/cleanup-policies" "$payload")
+        code=$(nxc POST "/cleanup-policies" "$payload")
         case "$code" in
             200|201|204) echo "  ok ($code)" ;;
             *) die "POST /cleanup-policies returned $code: $(cat "$TMP_BODY")" ;;
@@ -131,6 +151,8 @@ log "Probing $NEXUS_URL"
 code=$(nx GET "/status")
 [ "$code" = "200" ] || die "Nexus probe failed ($code). Check NEXUS_URL/NEXUS_USER/NEXUS_PASS."
 
+detect_cleanup_api
+
 # --- Policy definitions ---
 docker_policy=$(jq -n \
     --arg name "$DOCKER_POLICY_NAME" \
@@ -138,11 +160,23 @@ docker_policy=$(jq -n \
     --argjson days "$RETENTION_DAYS" \
     '{name: $name, notes: $notes, criteriaLastBlobUpdated: $days, format: "docker"}')
 
+# Prereleases are selected by ASSET REGEX, not criteriaReleaseType. Nexus only offers the
+# prerelease/release criterion (`isPrerelease`) for maven2 — asking for it on a nuget policy is
+# rejected with a bare HTTP 400. Verified against
+# GET /service/rest/internal/cleanup-policies/criteria/formats, which reports nuget as supporting
+# exactly: regex, lastDownloaded, lastBlobUpdated.
+#
+# The regex matches a SemVer prerelease suffix on the version (a hyphen after the numeric core),
+# e.g. Model.Weather.1.0.0-ci.3.gac66016.nupkg. A plain release such as Model.Weather.1.0.0.nupkg
+# has no hyphen after the version and is therefore preserved.
+NUGET_PRERELEASE_REGEX="${NUGET_PRERELEASE_REGEX:-.*[0-9]+\\.[0-9]+\\.[0-9]+-.*\\.nupkg}"
+
 nuget_policy=$(jq -n \
     --arg name "$NUGET_POLICY_NAME" \
-    --arg notes "Prune prerelease NuGet packages not updated in $RETENTION_DAYS days. Release versions are preserved." \
+    --arg notes "Prune prerelease NuGet packages not updated in $RETENTION_DAYS days. Release versions are preserved (selected by asset regex; nuget has no prerelease criterion)." \
+    --arg regex "$NUGET_PRERELEASE_REGEX" \
     --argjson days "$RETENTION_DAYS" \
-    '{name: $name, notes: $notes, criteriaLastBlobUpdated: $days, criteriaReleaseType: "PRERELEASES", format: "nuget"}')
+    '{name: $name, notes: $notes, criteriaLastBlobUpdated: $days, criteriaAssetRegex: $regex, format: "nuget"}')
 
 upsert_policy "$docker_policy"
 upsert_policy "$nuget_policy"

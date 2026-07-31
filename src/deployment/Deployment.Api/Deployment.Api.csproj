@@ -25,6 +25,8 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.Common" Version="5.0.0" />
     <PackageReference Include="WolverineFx.RuntimeCompilation" Version="6.4.3" />
+    <!-- Distributed cache for the AI layer (digest narrative + the per-week sent marker). -->
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
   </ItemGroup>
 
 </Project>

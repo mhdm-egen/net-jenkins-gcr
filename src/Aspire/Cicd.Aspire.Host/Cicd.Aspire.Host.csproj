@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.4.3">
+<Project Sdk="Aspire.AppHost.Sdk/13.4.6">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -13,12 +13,16 @@
     <ProjectReference Include="..\..\jenkins\Jenkins.Api\Jenkins.Api.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\..\deployment\Deployment.Api\Deployment.Api.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\..\web-admin\cicd.web.admin\cicd.web.admin.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\..\metering\Metering.Api\Metering.Api.csproj" IsAspireProjectResource="true" />
+    <!-- Run as the one-shot `nexus-provision` resource, not a long-lived service. -->
+    <ProjectReference Include="..\..\util\Util.Cli\Util.Cli.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\Cicd.Aspire.ServiceDefaults\Cicd.Aspire.ServiceDefaults.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.SqlServer" Version="13.4.3" />
-    <PackageReference Include="Aspire.Hosting.RabbitMQ" Version="13.4.3" />
+    <PackageReference Include="Aspire.Hosting.Redis" Version="13.4.6" />
+    <PackageReference Include="Aspire.Hosting.SqlServer" Version="13.4.6" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" Version="13.4.6" />
   </ItemGroup>
 
 </Project>

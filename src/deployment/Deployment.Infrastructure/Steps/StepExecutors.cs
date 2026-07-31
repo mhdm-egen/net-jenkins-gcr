@@ -2,6 +2,8 @@ using Deployment.Application.Abstractions;
 using Deployment.Domain.Mappings;
 using Deployment.Domain.Runs;
 using Deployment.Infrastructure.Kubernetes;
+using Deployment.Infrastructure.Nexus;
+using Microsoft.Extensions.Options;
 
 namespace Deployment.Infrastructure.Steps;
 
@@ -13,7 +15,13 @@ namespace Deployment.Infrastructure.Steps;
 internal sealed class GarPushStepExecutor : IDeploymentStepExecutor
 {
     private readonly IArtifactPromoter _promoter;
-    public GarPushStepExecutor(IArtifactPromoter promoter) => _promoter = promoter;
+    private readonly IOptionsMonitor<NexusRegistryOptions> _nexus;
+
+    public GarPushStepExecutor(IArtifactPromoter promoter, IOptionsMonitor<NexusRegistryOptions> nexus)
+    {
+        _promoter = promoter;
+        _nexus = nexus;
+    }
 
     public DeploymentStepKind Kind => DeploymentStepKind.GarPush;
 
@@ -28,7 +36,13 @@ internal sealed class GarPushStepExecutor : IDeploymentStepExecutor
         var (sep, suffix) = SourceSuffix(ctx.SourceRef, ctx.Version);
         var garRef = $"{ctx.Region}-docker.pkg.dev/{ctx.GcpProject}/{ctx.GarRepository.Trim('/')}/{leaf}{sep}{suffix}";
 
-        await _promoter.EnsureCopiedAsync(ctx.SourceRef, garRef, ct).ConfigureAwait(false);
+        // SourceRef is a RECORDED pull reference, carrying the host that build agents and cluster
+        // nodes need. crane runs in THIS process, which may not resolve that host — so translate it
+        // to a dialable address here, at the only point where the recorded value becomes an address.
+        // Digest/tag and repository path are preserved, so the image identity cannot change.
+        var sourceRef = _nexus.CurrentValue.ToDialableRef(ctx.SourceRef);
+
+        await _promoter.EnsureCopiedAsync(sourceRef, garRef, ct).ConfigureAwait(false);
         ctx.RemoteImageRef = garRef;
         return StepOutcome.Ok($"copied to {garRef}");
     }

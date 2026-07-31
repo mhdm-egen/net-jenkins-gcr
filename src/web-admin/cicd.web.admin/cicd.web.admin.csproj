@@ -9,6 +9,9 @@
          NOT referenced from here. -->
     <ProjectReference Include="..\..\jenkins\Jenkins.Contracts\Jenkins.Contracts.csproj" />
     <ProjectReference Include="..\..\deployment\Deployment.Contracts\Deployment.Contracts.csproj" />
+    <ProjectReference Include="..\..\metering\Metering.Contracts\Metering.Contracts.csproj" />
+    <!-- The AI layer is shared: deployment-api uses it too (the DORA digest). -->
+    <ProjectReference Include="..\..\shared\Cicd.Ai\Cicd.Ai.csproj" />
     <ProjectReference Include="..\..\Aspire\Cicd.Aspire.ServiceDefaults\Cicd.Aspire.ServiceDefaults.csproj" />
   </ItemGroup>
 
@@ -20,6 +23,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
     <PackageReference Include="MudBlazor" Version="9.5.0" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
   </ItemGroup>

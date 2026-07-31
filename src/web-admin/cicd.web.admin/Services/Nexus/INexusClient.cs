@@ -31,7 +31,7 @@ public interface INexusClient
     Task<IReadOnlyList<NuGetPackage>> ListNuGetPackagesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns every image+tag in the configured docker-hosted repository.
+    /// Returns every image+tag in the configured docker hosted repository.
     /// Walks Nexus's continuation-token paging until exhausted.
     /// </summary>
     Task<IReadOnlyList<DockerImage>> ListDockerImagesAsync(CancellationToken cancellationToken = default);
@@ -48,7 +48,7 @@ public interface INexusClient
     Task DeleteDockerImageAsync(DockerImage image, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns every asset (manifests + blobs) in the configured docker-hosted repository.
+    /// Returns every asset (manifests + blobs) in the configured docker hosted repository.
     /// Used by the "wipe orphans after component delete" pass — Nexus's components API
     /// only manipulates the tag/component layer; assets linger underneath.
     /// </summary>

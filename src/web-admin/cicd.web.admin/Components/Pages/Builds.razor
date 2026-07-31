@@ -1,5 +1,6 @@
 @page "/jenkins/builds"
 @inject IBuildStore Store
+@inject JenkinsApiClient Api
 @inject JenkinsOptions JenkinsOpts
 @inject NavigationManager Nav
 @implements IDisposable
@@ -8,9 +9,15 @@
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
     <MudText Typo="Typo.h4">Builds</MudText>
-    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
-        @_jobName
-    </MudText>
+    <MudSelect T="Guid?" Value="@_selectedPipelineId" ValueChanged="OnPipelineSelectedAsync"
+               Label="Pipeline" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+               Disabled="@(_pipelines.Count == 0)"
+               Style="max-width: 16rem;">
+        @foreach (var p in _pipelines)
+        {
+            <MudSelectItem T="Guid?" Value="@p.Id">@p.Name</MudSelectItem>
+        }
+    </MudSelect>
     <MudSpacer />
     <MudNumericField T="int"
                      @bind-Value="_count"
@@ -34,110 +41,153 @@
     <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
 }
 
-<MudPaper Elevation="1" Class="pa-4 mb-4">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
-        <MudText Typo="Typo.h6">Recent runs</MudText>
-        @if (_builds is { Count: > 0 })
-        {
-            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
-                @_builds.Count
-            </MudChip>
-        }
-        <MudSpacer />
-    </MudStack>
+@if (_pipelines.Count == 0 && !_loading)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="my-2">
+        No pipelines are defined, so this page is showing the default <code>@FallbackJob</code> job.
+        Define one under <MudLink Href="/jenkins/pipelines">Jenkins → Pipelines</MudLink> to pick
+        which jobs appear here.
+    </MudAlert>
+}
 
-    @if (_loading && _builds is null)
+<MudTextField @bind-Value="_filter"
+              Placeholder="Filter by version, build #, or status…"
+              Adornment="Adornment.Start"
+              AdornmentIcon="@Icons.Material.Filled.Search"
+              IconSize="Size.Small"
+              Variant="Variant.Outlined"
+              Margin="Margin.Dense"
+              Clearable="true"
+              Immediate="true"
+              Class="mb-3"
+              Style="max-width: 28rem;" />
+
+@if (_loading && _runs.Count == 0 && _errors.Count == 0)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+
+<MudExpansionPanels MultiExpansion="true" Elevation="1">
+    @foreach (var job in _stageJobs)
     {
-        <MudProgressLinear Indeterminate="true" />
+        var rows = VisibleRows(job);
+        <MudExpansionPanel Expanded="@_expanded.Contains(job)"
+                           ExpandedChanged="@(v => SetExpanded(job, v))">
+            <TitleContent>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudText Typo="Typo.body1">@job</MudText>
+                    @if (_errors.ContainsKey(job))
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text">
+                            unavailable
+                        </MudChip>
+                    }
+                    else if (_runs.TryGetValue(job, out var loaded))
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">
+                            @(HasFilter ? $"{rows.Count} of {loaded.Count}" : rows.Count.ToString())
+                        </MudChip>
+                    }
+                </MudStack>
+            </TitleContent>
+            <ChildContent>
+                @if (_errors.TryGetValue(job, out var err))
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                        Could not read runs of <code>@job</code> from Jenkins: @err
+                    </MudAlert>
+                }
+                else if (!_runs.ContainsKey(job))
+                {
+                    <MudProgressLinear Indeterminate="true" />
+                }
+                else if (rows.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                        @(HasFilter ? "No runs match the filter." : "No builds. Refresh to fetch.")
+                    </MudText>
+                }
+                else
+                {
+                    <MudTable Items="@rows" Dense="true" Hover="true" Striped="true" T="Build">
+                        <HeaderContent>
+                            <MudTh Style="width: 5rem;">#</MudTh>
+                            <MudTh>Version</MudTh>
+                            <MudTh Style="width: 8rem;">Status</MudTh>
+                            <MudTh Style="width: 11rem;">Started</MudTh>
+                            <MudTh Style="width: 7rem;">Duration</MudTh>
+                            <MudTh Style="width: 8rem; text-align: right;"></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd Style="font-family: ui-monospace, monospace;">#@context.Number</MudTd>
+                            <MudTd>@(context.Description ?? "—")</MudTd>
+                            <MudTd>
+                                <MudChip T="string"
+                                         Size="Size.Small"
+                                         Color="@StatusColor(context)"
+                                         Variant="Variant.Filled">
+                                    @StatusLabel(context)
+                                </MudChip>
+                            </MudTd>
+                            <MudTd>@FormatStarted(context.Timestamp)</MudTd>
+                            <MudTd>@FormatDuration(context)</MudTd>
+                            <MudTd Style="text-align: right; white-space: nowrap;">
+                                <MudTooltip Text="View summary">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Info"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => Nav.NavigateTo(DetailLinkFor(job, context)))" />
+                                </MudTooltip>
+                                <MudTooltip Text="Open in Jenkins">
+                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
+                                                   Size="Size.Small"
+                                                   Href="@JenkinsLinkFor(job, context)"
+                                                   Target="_blank" />
+                                </MudTooltip>
+                            </MudTd>
+                        </RowTemplate>
+                        <PagerContent>
+                            <MudTablePager PageSizeOptions="new[] { 25, 50, 100, 200 }" />
+                        </PagerContent>
+                    </MudTable>
+                }
+            </ChildContent>
+        </MudExpansionPanel>
     }
-    else if (_builds is { Count: > 0 })
-    {
-        <MudTable Items="@_builds"
-                  Dense="true"
-                  Hover="true"
-                  Striped="true"
-                  Filter="new Func<Build, bool>(MatchesFilter)"
-                  T="Build">
-            <ToolBarContent>
-                <MudTextField @bind-Value="_filter"
-                              Placeholder="Filter by version, build #, or status…"
-                              Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Filled.Search"
-                              IconSize="Size.Small"
-                              Variant="Variant.Outlined"
-                              Margin="Margin.Dense"
-                              Clearable="true"
-                              Immediate="true"
-                              Style="max-width: 28rem;" />
-            </ToolBarContent>
-            <HeaderContent>
-                <MudTh Style="width: 5rem;">#</MudTh>
-                <MudTh>Version</MudTh>
-                <MudTh Style="width: 8rem;">Status</MudTh>
-                <MudTh Style="width: 11rem;">Started</MudTh>
-                <MudTh Style="width: 7rem;">Duration</MudTh>
-                <MudTh Style="width: 8rem; text-align: right;"></MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd Style="font-family: ui-monospace, monospace;">#@context.Number</MudTd>
-                <MudTd>@(context.Description ?? "—")</MudTd>
-                <MudTd>
-                    <MudChip T="string"
-                             Size="Size.Small"
-                             Color="@StatusColor(context)"
-                             Variant="Variant.Filled">
-                        @StatusLabel(context)
-                    </MudChip>
-                </MudTd>
-                <MudTd>@FormatStarted(context.Timestamp)</MudTd>
-                <MudTd>@FormatDuration(context)</MudTd>
-                <MudTd Style="text-align: right; white-space: nowrap;">
-                    <MudTooltip Text="View summary">
-                        <MudIconButton Icon="@Icons.Material.Filled.Info"
-                                       Size="Size.Small"
-                                       OnClick="@(() => Nav.NavigateTo($"/jenkins/builds/{context.Number}"))" />
-                    </MudTooltip>
-                    <MudTooltip Text="Open in Jenkins">
-                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
-                                       Size="Size.Small"
-                                       Href="@JenkinsLinkFor(context)"
-                                       Target="_blank" />
-                    </MudTooltip>
-                </MudTd>
-            </RowTemplate>
-            <PagerContent>
-                <MudTablePager PageSizeOptions="new[] { 25, 50, 100, 200 }" />
-            </PagerContent>
-        </MudTable>
-    }
-    else if (!_loading && _error is null)
-    {
-        <MudText Typo="Typo.body2" Class="mt-2" Style="color: var(--mud-palette-text-secondary);">
-            No builds. Refresh to fetch.
-        </MudText>
-    }
-</MudPaper>
+</MudExpansionPanels>
 
 @code {
     public const int IntervalSec = 30;
 
-    // First cut targets the canonical orchestrator job; could become a dropdown
-    // later if we want builds across multiple jobs in one view.
-    private const string _jobName = "cicd-build";
+    /// <summary>
+    /// Used only when no pipelines are defined, so the page still shows something rather than a
+    /// blank panel list. This was the page's hardcoded job before it grew a pipeline selector.
+    /// </summary>
+    private const string FallbackJob = "cicd-build";
 
     private int _count = 25;
     private bool _loading;
     private bool _autoOn;
     private string? _error;
     private DateTimeOffset? _lastFetchedAt;
-    private IReadOnlyList<Build>? _builds;
     private string _filter = string.Empty;
     private CancellationTokenSource? _inflightCts;
     private Timer? _timer;
     private int _lastFetchedCount;
 
+    private IReadOnlyList<PipelineSummaryDto> _pipelines = Array.Empty<PipelineSummaryDto>();
+    private Dictionary<Guid, IReadOnlyList<string>> _pipelineJobs = new();
+    private Guid? _selectedPipelineId;
+
+    private IReadOnlyList<string> _stageJobs = Array.Empty<string>();
+    private readonly Dictionary<string, IReadOnlyList<Build>> _runs = new();
+    private readonly Dictionary<string, string> _errors = new();
+    private readonly HashSet<string> _expanded = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool HasFilter => !string.IsNullOrWhiteSpace(_filter);
+
     protected override async Task OnInitializedAsync()
     {
+        await LoadPipelinesAsync();
         await RefreshAsync();
     }
 
@@ -148,6 +198,65 @@
         {
             await RefreshAsync();
         }
+    }
+
+    private async Task LoadPipelinesAsync()
+    {
+        try { _pipelines = await Api.ListPipelinesAsync(); }
+        catch (Exception ex) { _pipelines = Array.Empty<PipelineSummaryDto>(); _error = ex.Message; }
+
+        // Fetch each pipeline's stage jobs in declared order — there are only a handful of pipelines.
+        var jobs = new Dictionary<Guid, IReadOnlyList<string>>();
+        foreach (var p in _pipelines)
+        {
+            try
+            {
+                var dto = await Api.GetPipelineAsync(p.Id);
+                jobs[p.Id] = dto?.Stages.OrderBy(s => s.Order).Select(s => s.JobName)
+                                        .Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                             ?? Array.Empty<string>();
+            }
+            catch { jobs[p.Id] = Array.Empty<string>(); }
+        }
+        _pipelineJobs = jobs;
+
+        // Default to the pipeline that actually runs cicd-build, so the page opens on what it has
+        // always shown; only fall back to "first active" when no pipeline contains it.
+        var preferred = _pipelines.FirstOrDefault(p =>
+                            _pipelineJobs.TryGetValue(p.Id, out var j)
+                            && j.Contains(FallbackJob, StringComparer.OrdinalIgnoreCase))
+                        ?? _pipelines.FirstOrDefault(p => p.IsActive)
+                        ?? _pipelines.FirstOrDefault();
+
+        SelectPipeline(preferred?.Id);
+    }
+
+    private void SelectPipeline(Guid? id)
+    {
+        _selectedPipelineId = id;
+        _runs.Clear();
+        _errors.Clear();
+
+        _stageJobs = id is { } pid && _pipelineJobs.TryGetValue(pid, out var j) && j.Count > 0
+            ? j
+            : new[] { FallbackJob };
+
+        // Open the first stage so the page has visible content on arrival; the rest stay collapsed
+        // so a four-stage pipeline doesn't render four full tables at once.
+        _expanded.Clear();
+        if (_stageJobs.Count > 0) _expanded.Add(_stageJobs[0]);
+    }
+
+    private async Task OnPipelineSelectedAsync(Guid? id)
+    {
+        SelectPipeline(id);
+        StateHasChanged();
+        await RefreshAsync();
+    }
+
+    private void SetExpanded(string job, bool expanded)
+    {
+        if (expanded) _expanded.Add(job); else _expanded.Remove(job);
     }
 
     private async Task RefreshAsync()
@@ -162,7 +271,30 @@
 
         try
         {
-            _builds = await Store.ListBuildsAsync(_jobName, _count, ct);
+            // Every stage in parallel: a pipeline has a handful of jobs, and loading them lazily on
+            // panel expansion would leave the header counts blank until each panel is clicked.
+            var fetches = _stageJobs.Select(async job =>
+            {
+                try
+                {
+                    return (job, builds: await Store.ListBuildsAsync(job, _count, ct), error: (string?)null);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    return (job, builds: (IReadOnlyList<Build>)Array.Empty<Build>(), error: (string?)ex.Message);
+                }
+            });
+
+            var results = await Task.WhenAll(fetches);
+            _runs.Clear();
+            _errors.Clear();
+            foreach (var (job, builds, error) in results)
+            {
+                if (error is not null) _errors[job] = error;
+                else _runs[job] = builds;
+            }
+
             _lastFetchedAt = DateTimeOffset.UtcNow;
             _lastFetchedCount = _count;
         }
@@ -200,6 +332,13 @@
         _inflightCts?.Dispose();
     }
 
+    private IReadOnlyList<Build> VisibleRows(string job)
+    {
+        if (!_runs.TryGetValue(job, out var builds)) return Array.Empty<Build>();
+        if (!HasFilter) return builds;
+        return builds.Where(MatchesFilter).ToArray();
+    }
+
     private bool MatchesFilter(Build b)
     {
         if (string.IsNullOrWhiteSpace(_filter)) return true;
@@ -210,13 +349,22 @@
     }
 
     /// <summary>
+    /// The summary page defaults to cicd-build, so any other job must be named explicitly —
+    /// otherwise the button would quietly open a different job's build of the same number.
+    /// </summary>
+    private static string DetailLinkFor(string jobName, Build b) =>
+        string.Equals(jobName, FallbackJob, StringComparison.OrdinalIgnoreCase)
+            ? $"/jenkins/builds/{b.Number}"
+            : $"/jenkins/builds/{Uri.EscapeDataString(jobName)}/{b.Number}";
+
+    /// <summary>
     /// Build URLs returned by Jenkins point at the docker network alias used by
     /// the WebUI's server-side client. Rewrite onto JenkinsOpts.BaseUrl so the
     /// browser can actually open them — matches what the Jenkins Admin link does.
     /// </summary>
-    private string JenkinsLinkFor(Build b)
+    private string JenkinsLinkFor(string jobName, Build b)
     {
-        var path = $"/job/{Uri.EscapeDataString(_jobName)}/{b.Number}/";
+        var path = $"/job/{Uri.EscapeDataString(jobName)}/{b.Number}/";
         var baseUrl = JenkinsOpts.BaseUrl.TrimEnd('/');
         return $"{baseUrl}{path}";
     }

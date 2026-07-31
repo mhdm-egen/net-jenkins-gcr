@@ -1,5 +1,6 @@
 @page "/deployment/metrics"
 @inject DeploymentApiClient Api
+@inject ISnackbar Snackbar
 
 <PageTitle>Deployment — Metrics</PageTitle>
 
@@ -7,6 +8,10 @@
     <MudText Typo="Typo.h4">Deployment metrics</MudText>
     <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">delivery performance across all deploy runs (per-service + Aspire)</MudText>
     <MudSpacer />
+    <MudTooltip Text="Compute the delivery digest now and send it to whichever notification channels are configured. Independent of the weekly schedule.">
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Send"
+                   OnClick="SendDigestAsync" Disabled="_sending">Send digest now</MudButton>
+    </MudTooltip>
     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
 </MudStack>
 
@@ -21,6 +26,52 @@ else if (_points is not null)
         <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4"><MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Success rate</MudText><MudText Typo="Typo.h4" Style="@RateStyle(_successRate, true)">@_successRate.ToString("P0")</MudText><MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">@_succeeded of @_total</MudText></MudPaper></MudItem>
         <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4"><MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Change-failure rate</MudText><MudText Typo="Typo.h4" Style="@RateStyle(_cfr, false)">@_cfr.ToString("P0")</MudText><MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">failed + rolled back</MudText></MudPaper></MudItem>
         <MudItem xs="6" md="3"><MudPaper Elevation="1" Class="pa-4"><MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Avg duration</MudText><MudText Typo="Typo.h4">@FormatSeconds(_avgDuration)</MudText><MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">requested → settled</MudText></MudPaper></MudItem>
+    </MudGrid>
+
+    @* The other two of the DORA four. Both can legitimately be unavailable, and both show their
+       sample size — a mean over two runs shouldn't look like a mean over two hundred. *@
+    <MudGrid Class="mb-2">
+        <MudItem xs="6" md="3">
+            <MudPaper Elevation="1" Class="pa-4">
+                <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Lead time</MudText>
+                @if (_dora?.LeadTimeSeconds is { } lt)
+                {
+                    <MudText Typo="Typo.h4">@FormatSeconds(lt)</MudText>
+                    <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">commit → production · @_dora.LeadTimeSampleCount deploy(s)</MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.h4" Style="color:var(--mud-palette-text-secondary)">—</MudText>
+                    <MudTooltip Text="Lead time needs the commit timestamp that CI now sends with each published image. Runs deployed before that change carry no commit time, and there is no honest substitute for it.">
+                        <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">no commit-dated deploys yet</MudText>
+                    </MudTooltip>
+                }
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="6" md="3">
+            <MudPaper Elevation="1" Class="pa-4">
+                <MudText Typo="Typo.overline" Style="color:var(--mud-palette-text-secondary)">Time to restore</MudText>
+                @if (_dora?.MttrSeconds is { } mttr)
+                {
+                    <MudText Typo="Typo.h4">@FormatSeconds(mttr)</MudText>
+                    <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">@_dora.MttrSampleCount recovered failure(s)</MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.h4" Style="color:var(--mud-palette-text-secondary)">—</MudText>
+                    <MudText Typo="Typo.caption" Style="color:var(--mud-palette-text-secondary)">no recovered failures in window</MudText>
+                }
+            </MudPaper>
+        </MudItem>
+        @if (_dora is { UnrecoveredFailures: > 0 } u)
+        {
+            <MudItem xs="12" md="6">
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="pa-4" Style="height:100%">
+                    @u.UnrecoveredFailures service(s) failed and have not been successfully deployed since —
+                    excluded from time-to-restore, because they have not been restored.
+                </MudAlert>
+            </MudItem>
+        }
     </MudGrid>
 
     <MudGrid>
@@ -54,7 +105,13 @@ else if (_points is not null)
 
     private IReadOnlyList<DeployPoint>? _points;
     private bool _loading;
+    private bool _sending;
     private string? _error;
+
+    // Scalar figures come from the server (GET metrics/dora) so this page, the home tile and the
+    // weekly digest cannot disagree. The per-run points below are still fetched, but only for the
+    // charts — a daily histogram and an outcome donut aren't expressible in the summary DTO.
+    private DoraSummaryDto? _dora;
 
     private int _total, _succeeded, _failed, _rolledBack;
     private double _successRate, _cfr, _avgDuration, _frequency;
@@ -68,11 +125,31 @@ else if (_points is not null)
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
+    private async Task SendDigestAsync()
+    {
+        _sending = true;
+        try
+        {
+            var r = await Api.SendDigestNowAsync();
+
+            // Report what will actually happen. The dispatcher is fire-and-forget, so "queued" alone
+            // would look identical to a digest that gets generated and then dropped.
+            if (r.Suppressed || r.Channels.Count == 0)
+                Snackbar.Add(r.Note ?? "Digest queued, but no channel will receive it.", Severity.Warning);
+            else
+                Snackbar.Add($"Digest queued — sending to {string.Join(", ", r.Channels)}.", Severity.Success);
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+        finally { _sending = false; }
+    }
+
     private async Task LoadAsync()
     {
         _loading = true; _error = null; StateHasChanged();
         try
         {
+            _dora = await Api.GetDoraSummaryAsync(days: 30);
+
             var svc = await Api.ListRunsAsync();
             var aspire = await Api.ListAspireRunsAsync();
             var points = new List<DeployPoint>();
@@ -91,10 +168,13 @@ else if (_points is not null)
             .Where(p => p.Outcome is "Succeeded" or "Failed" or "RolledBack")
             .ToList();
 
-        // Scalar summary is the shared DORA computation (also used by the Home dashboard).
-        var dora = DoraMetrics.Compute(_points!.Select(p => (p.RequestedAt, p.CompletedAt, p.Outcome)));
-        _total = dora.Total; _succeeded = dora.Succeeded; _failed = dora.Failed; _rolledBack = dora.RolledBack;
-        _successRate = dora.SuccessRate; _cfr = dora.ChangeFailureRate; _avgDuration = dora.AvgDurationSeconds; _frequency = dora.FrequencyPerDay;
+        // Scalars come from the server DTO; the charts below are derived from the raw points.
+        if (_dora is { } d)
+        {
+            _total = d.Total; _succeeded = d.Succeeded; _failed = d.Failed; _rolledBack = d.RolledBack;
+            _successRate = d.SuccessRate; _cfr = d.ChangeFailureRate;
+            _avgDuration = d.AvgDeployDurationSeconds; _frequency = d.DeploymentFrequencyPerDay;
+        }
 
         var today = DateTimeOffset.Now.Date;
         var days = Enumerable.Range(0, 14).Select(i => today.AddDays(-13 + i)).ToList();

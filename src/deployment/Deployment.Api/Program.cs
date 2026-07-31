@@ -1,4 +1,6 @@
+using Deployment.Contracts.Seed;
 using System.Text.Json.Serialization;
+using Cicd.Ai;
 using Cicd.Messaging;
 using Cicd.Notifications;
 using Deployment.Api.Endpoints;
@@ -44,6 +46,23 @@ builder.Services.AddScoped<Deployment.Api.Endpoints.SeedDemoHandler>();
 builder.Services.Configure<NotificationOptions>(builder.Configuration.GetSection("Deployment:Notifications"));
 builder.Services.AddCicdNotifications();
 
+// AI layer — same shared registration web-admin uses. Only the weekly delivery digest needs it here;
+// a missing Ai:ApiKey is fine, the digest just sends figures without a narrative.
+builder.Services.AddCicdAi(builder.Configuration);
+
+// The digest's narrative cache and its per-week "already sent" marker both live in the distributed
+// cache. Redis when the connection string is injected (Aspire host / compose), otherwise in-process —
+// note an in-process fallback means the sent-marker does not survive a restart, so a restart inside
+// the send window can re-send. Acceptable weekly; Redis avoids it.
+var deployRedis = builder.Configuration.GetConnectionString("redis");
+if (!string.IsNullOrWhiteSpace(deployRedis))
+    builder.Services.AddStackExchangeRedisCache(o => o.Configuration = deployRedis);
+else
+    builder.Services.AddDistributedMemoryCache();
+
+// Export the AI usage meter so digest spend shows up alongside web-admin's.
+builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddMeter(MeterAiUsageRecorder.MeterName));
+
 // Wolverine: CQRS dispatcher + in-process bus + durable cross-service messaging.
 // Handlers (the ContainerPublished consumer, the run executor, the success translator) are
 // discovered from Application + Infrastructure.
@@ -69,6 +88,15 @@ builder.Host.UseWolverine(opts =>
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.Runs.RequestDeploymentHandler>();
     // The completion notifier wraps IHubContext, which the generated handler can't construct inline.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<IDeploymentRunNotifier>();
+    // The deploy-QUEUED notifiers join the DeploymentRunRequested / AspireApplicationRunRequested
+    // chains — the same chains that drive the run executors. A codegen failure there would stop
+    // deployments outright, not just notifications, so every dependency they inject is hatched:
+    // NotificationDispatcher and both senders are internal to Cicd.Notifications, and the Ef*Reader
+    // implementations are internal to Infrastructure.
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<INotificationDispatcher>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.Services.IServiceReader>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.Environments.IEnvironmentReader>();
+    opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Application.Features.AspireApps.IAspireApplicationReader>();
     // Aspire-app deploy: the run executor resolves these internal/Infrastructure types — same codegen
     // constraint as above, or the AspireApplicationRunRequested handler leaves runs stuck Pending.
     opts.CodeGeneration.AlwaysUseServiceLocationFor<Deployment.Domain.AspireApps.Runs.IAspireApplicationRunRepository>();
@@ -133,6 +161,41 @@ if (builder.Configuration.GetValue<bool>("Database:AutoMigrate"))
     }
 }
 
+// Seed the demo deployment catalog on a brand-new system, so a freshly brought-up stack has a
+// Kubernetes environment and an Aspire application to deploy instead of empty dropdowns. Mirrors the
+// CI-side repository seed in Jenkins.Api. Creating config raises only config events with no
+// consumers, so this never kicks off a deploy.
+//
+// Guarded the same two ways: skipped once ANY environment exists (so it cannot resurrect something an
+// operator deleted, and never touches an established install), and Deployment:SeedDemoCatalog=false
+// opts out. Runs after ApplicationStarted so the bus is up when SaveChanges dispatches events.
+app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+{
+    if (!app.Configuration.GetValue("Deployment:SeedDemoCatalog", true)) return;
+
+    using var scope = app.Services.CreateScope();
+    try
+    {
+        var db = scope.ServiceProvider.GetRequiredService<DeploymentDbContext>();
+        if (await db.Environments.AnyAsync()) return;
+
+        var result = await scope.ServiceProvider.GetRequiredService<Deployment.Api.Endpoints.SeedDemoHandler>()
+            .HandleAsync(new SeedDemoRequest(
+                AspireAutoDeploy: true,
+                BlueGreenK8s: false,
+                CloudRun: false,
+                K8sAdmin: false), CancellationToken.None);
+
+        app.Logger.LogInformation(
+            "Seeded demo deployment catalog on first run: {Created} created, {Skipped} skipped.",
+            result.Created, result.Skipped);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Demo deployment catalog seed skipped.");
+    }
+}));
+
 if (app.Environment.IsDevelopment()) app.MapOpenApi();
 if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
 
@@ -146,6 +209,7 @@ app.MapAspireAppEndpoints();
 app.MapAspireRunEndpoints();
 app.MapPreviewEndpoints();
 app.MapK8sEndpoints();
+app.MapMetricsEndpoints();
 app.MapResetEndpoints();
 app.MapSeedEndpoints();
 app.MapHub<DeploymentRunHub>("/hubs/deployment-runs");

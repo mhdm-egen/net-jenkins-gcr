@@ -29,6 +29,7 @@ depth.
 | Repository management | Register/edit repos; activate/deactivate | #8 |
 | Event bus + server-side runs | RabbitMQ/Wolverine with SQL outbox; live run status over SignalR | #11 |
 | Cancel pipeline runs | Cancellation + `PipelineCancelled` event | #12 |
+| CI notifications | Slack/email on the start and every outcome of both CI builds and orchestrator pipeline runs. Build messages carry commit, author, version, duration and a link straight to the Jenkins console. Opt-in via `Ci:Notifications`; starts separately switchable via `OnStart` | `feat/ai-integration` |
 | Trim built-in pipeline | Chain ends at the Nexus publishes | #4 |
 
 ## 3. Build pipeline & supply-chain security
@@ -72,6 +73,7 @@ Operational features layered on the Aspire-app **run lifecycle**. Detailed in
 | Feature | What it does | PR |
 | --- | --- | --- |
 | Deploy notifications | Slack + email on every deploy outcome (success/failure); per-channel, with a failures-only mute | #44 |
+| Deploy queued notifications | A message when a deploy is *requested*, with service/app and environment names resolved. Says "queued", not "started" — a run targeting a protected environment parks awaiting approval | `feat/ai-integration` |
 | Rollback | Redeploy a previous succeeded run's digest-pinned manifest (identical images, not a rebuild) | #45 |
 | Promotion | Deploy an app's current manifest to another environment, running the same pinned artifacts | #46 |
 | Approval gate | Runs targeting a *protected* environment park as `AwaitingApproval` until approved/rejected | #47 |
@@ -133,7 +135,42 @@ A **Kubernetes** section in web-admin — see [k8s-admin-demo.md](demos/k8s-admi
 | Deployed-apps overview | Consolidated live health of all Aspire apps + active previews (with URLs), aggregated from existing endpoints | #57 |
 | Lifecycle actions | Rolling-restart a Deployment, scale replicas, delete a pod — each behind a confirm | #58 |
 
+## 15. AI & cost metering
+
+An optional AI layer on the Anthropic SDK, plus a usage ledger that rates every model call. No API
+key ⇒ AI actions simply don't appear. See [ai.md](ai.md) for what exists and
+[ai-roadmap.md](ai-roadmap.md) for what's next.
+
+| Feature | What it does | PR |
+| --- | --- | --- |
+| AI foundation | One SDK call site behind `IAiInsightService`; token usage captured at the boundary and fanned out to an OTel meter + the ledger; soft-fails with no key | `feat/ai-integration` |
+| Explain this CVE | Grounded, Redis-cached explanation of a CVE in the context of the affected package, on every SBOM vulnerability row | `feat/ai-integration` |
+| Explain this failure (pipeline) | Grounded, Redis-cached triage of a failed pipeline run from the failing job's console output — picks the failing job from the step record and sends only the log tail | `feat/ai-integration` |
+| Explain this failure (deploy) | Turns a deploy run's typed `StepFailureKind` into a specific fix, grounded in the step record and the deploy target | `feat/ai-integration` |
+| Explain this deploy (Aspire) | Explains an aspirate deploy log — the failure on a failed run, or the warnings behind an unreachable app on a succeeded one | `feat/ai-integration` |
+| Metering service | `metering-api` — a general usage ledger with per-direction AI token rows, idempotent ingest, and a versioned rate table | `feat/ai-integration` |
+| Build & deploy meters | `ci.events` / `deployment.events` subscriptions meter pipeline runs and deploys into the same ledger (counts, not costed) | `feat/ai-integration` |
+| Assess licenses | Turns `LicenseAnalyzer` findings into a ship / don't-ship call in priority order, on the SBOM visualizer | `feat/ai-integration` |
+| Explain what changed (drift) | Explains running-vs-deployed image drift, separating "not rolled out yet" from "changed out of band", and whether redeploying overwrites work | `feat/ai-integration` |
+| Dependency diff | Compares two builds' SBOMs: components added/removed/upgraded/downgraded, licence changes, and the CVE delta — gated so an unenriched SBOM can't read as "everything fixed" | `feat/ai-integration` |
+| Explain the changes | AI narrative over that diff — what matters, in priority order, and what to check before shipping | `feat/ai-integration` |
+| Commit provenance | Author, subject and commit time captured in CI and carried through to the build catalog — surfaced as columns on the Builds page. No migration needed; the columns had existed since `InitialCi` and only the producer was missing | `feat/ai-integration` |
+| Release notes | Summarises what shipped across a range of builds, grouped by theme. Refuses rather than inventing when no build in the range has a recorded commit message | `feat/ai-integration` |
+| Ask the platform | Agentic assistant that answers questions by calling 15 read-only tools over live platform data, showing which tools it used. No write tool exists; tool turns and result sizes are capped | `feat/ai-integration` |
+| Prompt caching | The agent's tool definitions + system prompt are cached as one stable prefix (measured 3,087 tokens written then read), which is what makes the cache-hit-rate tile meaningful | `feat/ai-integration` |
+| Suggest-and-apply | The agent proposes an action validated against the same status guard that renders the real button; the proposal is a link to that button, never a shortcut around it | `feat/ai-integration` |
+| Storage gauges | A scheduled collector samples Nexus NuGet and Docker repository sizes into the ledger, using the asset listing so shared blob layers are counted | `feat/ai-integration` |
+| Gauge-aware rollups | Gauges roll up as the latest sample per series rather than a sum, so a level doesn't appear to grow each time the collector runs; the UI labels them and shows when they were sampled | `feat/ai-integration` |
+| AI budget | Optional advisory month-to-date spend bar with a warning threshold. Never blocks or disables anything | `feat/ai-integration` |
+| Pipeline failure on the bus | `Ci.PipelineFailed` carries the pipeline context, the recorded reason and the steps that did complete. The bus previously only ever learned about success and cancellation, which blocked anything failure-driven | `feat/ai-integration` |
+| Failure metering | Failed runs are metered alongside successful ones, so build activity is no longer a success-only series where a bad week looks identical to a clean one | `feat/ai-integration` |
+| Opt-in test results | `RUN_TESTS` runs `dotnet test` and archives a `.trx`, keeping the results even when tests fail. Off by default so enabling tests stays a deliberate choice | `feat/ai-integration` |
+| Weekly delivery digest | Narrates the DORA four to Slack/email on a Wolverine self-rescheduling schedule, plus a manual "send now" button. Opt-in, off by default | `feat/ai-integration` |
+| Full DORA four, server-side | Lead time (commit→production) and time-to-restore added; computed in deployment-api so the metrics page, home tile and digest cannot drift | `feat/ai-integration` |
+| Usage & cost page | Token spend, estimated cost, cache-hit rate, by model / by feature, plus build & deploy activity | `feat/ai-integration` |
+
 ---
 
 *Docs added along the way: architecture-diagram rewrite (#22), `kind`-to-Nexus setup script (#38), the
-deploy-safety / preview / README / feature-catalog docs, and the demo runbooks under [demos/](demos/).*
+deploy-safety / preview / README / feature-catalog docs, the demo runbooks under [demos/](demos/), and
+the [AI features](ai.md) guide.*

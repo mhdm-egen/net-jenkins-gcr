@@ -41,7 +41,12 @@ public sealed class EfBuildCatalogReader : IBuildCatalogReader
                 b.Versions == null ? null : b.Versions.PackageVersion,
                 (BuildStatusDto)(int)b.Status,
                 b.StartedAtUtc,
-                b.CompletedAtUtc);
+                b.CompletedAtUtc,
+                // Owned-entity properties: these translate to the CommitAuthor / CommitMessage
+                // columns on the Builds table, not a join.
+                b.SourceRevision.Author,
+                b.SourceRevision.Message,
+                b.SourceRevision.CommittedAtUtc);
 
         return await query.Take(capped).ToListAsync(cancellationToken).ConfigureAwait(false);
     }

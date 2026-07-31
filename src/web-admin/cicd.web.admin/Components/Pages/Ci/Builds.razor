@@ -1,6 +1,10 @@
 @page "/ci/repositories/{RepositoryId:guid}/builds"
 @inject JenkinsApiClient Api
+@inject IBuildStore Store
+@inject JenkinsOptions JenkinsOpts
 @inject NavigationManager Nav
+@inject IReleaseNotesWriter ReleaseNotes
+@inject IDialogService DialogService
 
 <PageTitle>CI — Builds</PageTitle>
 
@@ -9,7 +13,18 @@
     <MudText Typo="Typo.h4">Builds</MudText>
     <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">@_repoName</MudText>
     <MudSpacer />
-    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">Refresh</MudButton>
+    @if (_pipelines.Count > 0)
+    {
+        <MudSelect T="Guid?" Value="@_selectedPipelineId" ValueChanged="OnPipelineSelectedAsync"
+                   Label="Pipeline" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                   Style="max-width: 16rem;">
+            @foreach (var p in _pipelines)
+            {
+                <MudSelectItem T="Guid?" Value="@p.Id">@p.Name</MudSelectItem>
+            }
+        </MudSelect>
+    }
+    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync">Refresh</MudButton>
 </MudStack>
 
 @if (_error is { Length: > 0 })
@@ -17,7 +32,16 @@
     <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="my-2">@_error</MudAlert>
 }
 
+@* --- The repository's own CI job, from the build catalog. Rich rows: commit provenance, versions,
+     and the release-notes range picker, none of which exist on a live Jenkins build. --- *@
 <MudPaper Elevation="1" Class="pa-4 mb-4">
+    <MudText Typo="Typo.subtitle2" Class="mb-2">
+        @_repoJobName
+        <MudText Typo="Typo.caption" Inline="true" Style="color: var(--mud-palette-text-secondary);">
+            — ingested build history
+        </MudText>
+    </MudText>
+
     @if (_loading && _builds is null)
     {
         <MudProgressLinear Indeterminate="true" />
@@ -30,10 +54,46 @@
     }
     else if (_builds is not null)
     {
+        @* Release-notes range picker. Only offered once at least two builds exist — a range of one
+           build has nothing to narrate that its own row doesn't already say. *@
+        @if (ReleaseNotes.IsConfigured && _builds.Count >= 2)
+        {
+            <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center" Class="mb-4">
+                <MudSelect T="int?" @bind-Value="_fromBuild" Label="From build" Dense="true"
+                           Variant="Variant.Outlined" Style="max-width: 10rem;">
+                    @foreach (var b in _builds)
+                    {
+                        <MudSelectItem T="int?" Value="@b.CiBuildNumber">#@b.CiBuildNumber</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="int?" @bind-Value="_toBuild" Label="To build" Dense="true"
+                           Variant="Variant.Outlined" Style="max-width: 10rem;">
+                    @foreach (var b in _builds)
+                    {
+                        <MudSelectItem T="int?" Value="@b.CiBuildNumber">#@b.CiBuildNumber</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.AutoAwesome"
+                           Disabled="@(_fromBuild is null || _toBuild is null)"
+                           OnClick="OpenReleaseNotesAsync">
+                    Release notes
+                </MudButton>
+                @if (_builds.Any(b => string.IsNullOrWhiteSpace(b.CommitMessage)))
+                {
+                    <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">
+                        Commit messages exist only for builds run since the platform started recording them.
+                    </MudText>
+                }
+            </MudStack>
+        }
+
         <MudTable Items="@_builds" Dense="true" Hover="true" Striped="true" T="BuildSummaryDto">
             <HeaderContent>
                 <MudTh Style="width: 6rem;">Build</MudTh>
                 <MudTh Style="width: 8rem;">Commit</MudTh>
+                <MudTh>Message</MudTh>
+                <MudTh Style="width: 10rem;">Author</MudTh>
                 <MudTh>Version</MudTh>
                 <MudTh Style="width: 7rem;">Branch</MudTh>
                 <MudTh Style="width: 7rem;">Status</MudTh>
@@ -44,6 +104,8 @@
                     <MudLink Href="@($"/ci/builds/{context.Id}")">#@context.CiBuildNumber</MudLink>
                 </MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@context.CommitShort</MudTd>
+                <MudTd>@(string.IsNullOrWhiteSpace(context.CommitMessage) ? "—" : context.CommitMessage)</MudTd>
+                <MudTd>@(string.IsNullOrWhiteSpace(context.CommitAuthor) ? "—" : context.CommitAuthor)</MudTd>
                 <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">@(context.PackageVersion ?? "—")</MudTd>
                 <MudTd>@context.Branch</MudTd>
                 <MudTd>
@@ -57,15 +119,156 @@
     }
 </MudPaper>
 
+@* --- The rest of the selected pipeline, read live from Jenkins. These jobs are not ingested into
+     the build catalog, so their rows are thinner and are attributed by parsing the build
+     description rather than by a stored repository id. --- *@
+@if (_stageJobs.Count > 0)
+{
+    @if (!_pipelineMatchesRepo)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-2">
+            No stage of <b>@_selectedPipelineName</b> runs this repository's CI job
+            (<code>@_repoJobName</code>), so these runs cannot be filtered to this repository.
+            Showing everything.
+        </MudAlert>
+    }
+
+    <MudExpansionPanels MultiExpansion="true" Elevation="1">
+        @foreach (var job in _stageJobs)
+        {
+            var rows = VisibleRows(job);
+            <MudExpansionPanel>
+                <TitleContent>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudText Typo="Typo.body1">@job</MudText>
+                        @if (_stageErrors.ContainsKey(job))
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text">
+                                unavailable
+                            </MudChip>
+                        }
+                        else if (_stageRuns.TryGetValue(job, out var loaded))
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text">
+                                @rows.Count of @loaded.Count
+                            </MudChip>
+                        }
+                    </MudStack>
+                </TitleContent>
+                <ChildContent>
+                    @if (_stageErrors.TryGetValue(job, out var err))
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                            Could not read runs of <code>@job</code> from Jenkins: @err
+                        </MudAlert>
+                    }
+                    else if (!_stageRuns.ContainsKey(job))
+                    {
+                        <MudProgressLinear Indeterminate="true" />
+                    }
+                    else
+                    {
+                        <MudSwitch T="bool" Value="@ShowOther(job)"
+                                   ValueChanged="@(v => SetShowOther(job, v))"
+                                   Color="Color.Primary" Class="mb-2"
+                                   Label="Show runs for other repositories" />
+
+                        @if (rows.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                                No runs of <code>@job</code> match this repository in the last @LiveTake.
+                                Turn on the switch above to see every run of this job.
+                            </MudText>
+                        }
+                        else
+                        {
+                            <MudTable Items="@rows" Dense="true" Hover="true" Striped="true"
+                                      T="StageBuildAttribution.AttributedStageBuild">
+                                <HeaderContent>
+                                    <MudTh Style="width: 6rem;">Run</MudTh>
+                                    <MudTh Style="width: 9rem;">Origin</MudTh>
+                                    <MudTh>Version</MudTh>
+                                    <MudTh Style="width: 7rem;">Status</MudTh>
+                                    <MudTh Style="width: 8rem;">Started</MudTh>
+                                    <MudTh Style="width: 8rem;">Duration</MudTh>
+                                    <MudTh Style="width: 4rem;"></MudTh>
+                                </HeaderContent>
+                                <RowTemplate>
+                                    <MudTd>#@context.Build.Number</MudTd>
+                                    <MudTd>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                                                 Color="@OriginColor(context.Origin)">
+                                            @OriginLabel(context)
+                                        </MudChip>
+                                    </MudTd>
+                                    <MudTd Style="font-family: ui-monospace, monospace; font-size: 0.85em;">
+                                        @(context.PackageVersion ?? "—")
+                                    </MudTd>
+                                    <MudTd>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled"
+                                                 Color="@LiveStatusColor(context.Build)">
+                                            @LiveStatusLabel(context.Build)
+                                        </MudChip>
+                                    </MudTd>
+                                    <MudTd>@FormatStarted(context.Build.Timestamp)</MudTd>
+                                    <MudTd>@FormatDuration(context.Build)</MudTd>
+                                    <MudTd>
+                                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
+                                                       Href="@JenkinsLinkFor(job, context.Build)" Target="_blank"
+                                                       title="Open in Jenkins" />
+                                    </MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        }
+                    }
+                </ChildContent>
+            </MudExpansionPanel>
+        }
+    </MudExpansionPanels>
+}
+
 @code {
     [Parameter] public Guid RepositoryId { get; set; }
 
+    /// <summary>
+    /// Deliberately shallower than the catalog's 100. A stage run that is missing from the catalog
+    /// then means "belongs to another repository" rather than "aged out of the window", which is
+    /// what makes the origin column trustworthy.
+    /// </summary>
+    private const int LiveTake = 25;
+
     private IReadOnlyList<BuildSummaryDto>? _builds;
     private string _repoName = "";
+    private string _repoJobName = "";
     private bool _loading;
     private string? _error;
+    private Guid? _loadedRepositoryId;
 
-    protected override Task OnParametersSetAsync() => LoadAsync();
+    private int? _fromBuild;
+    private int? _toBuild;
+
+    private IReadOnlyList<PipelineSummaryDto> _pipelines = Array.Empty<PipelineSummaryDto>();
+    private Dictionary<Guid, IReadOnlyList<string>> _pipelineJobs = new();
+    private Guid? _selectedPipelineId;
+    private string _selectedPipelineName = "";
+    private bool _pipelineMatchesRepo = true;
+
+    private IReadOnlyList<string> _stageJobs = Array.Empty<string>();
+    private readonly Dictionary<string, IReadOnlyList<StageBuildAttribution.AttributedStageBuild>> _stageRuns = new();
+    private readonly Dictionary<string, string> _stageErrors = new();
+    private readonly Dictionary<string, bool> _showOther = new();
+
+    // Guard against OnParametersSetAsync re-entry (a re-render with the same route parameter would
+    // otherwise reload and stomp the pipeline the user picked).
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedRepositoryId == RepositoryId) return;
+        _loadedRepositoryId = RepositoryId;
+        await LoadAsync();
+    }
+
+    // LoadAsync re-selects the pipeline, which reloads the stages — no second call needed here.
+    private Task ReloadAsync() => LoadAsync();
 
     private async Task LoadAsync()
     {
@@ -74,7 +277,21 @@
         {
             var repo = await Api.GetRepositoryAsync(RepositoryId);
             _repoName = repo?.Name ?? RepositoryId.ToString();
+            _repoJobName = repo?.CiJobName ?? "";
             _builds = await Api.ListBuildsAsync(RepositoryId, 100);
+
+            // Default the range to the newest pair. ListBuildsAsync orders by start time descending,
+            // which is not the same as build-number order for concurrent builds — hence Max/Min over
+            // the numbers rather than indexing [0] and [1].
+            if (_builds is { Count: >= 2 })
+            {
+                _toBuild ??= _builds.Max(b => b.CiBuildNumber);
+                _fromBuild ??= _builds.Where(b => b.CiBuildNumber < _toBuild)
+                                      .Select(b => (int?)b.CiBuildNumber)
+                                      .Max();
+            }
+
+            await LoadPipelinesAsync(repo);
         }
         catch (Exception ex)
         {
@@ -87,6 +304,174 @@
         }
     }
 
+    private async Task LoadPipelinesAsync(RepositoryDto? repo)
+    {
+        try { _pipelines = await Api.ListPipelinesAsync(); }
+        catch { _pipelines = Array.Empty<PipelineSummaryDto>(); }
+
+        // Fetch each pipeline's stage jobs so the repo→pipeline default can match on repo.CiJobName
+        // (robust to pipeline renames). There are only a handful of pipelines.
+        var jobs = new Dictionary<Guid, IReadOnlyList<string>>();
+        foreach (var p in _pipelines)
+        {
+            try
+            {
+                var dto = await Api.GetPipelineAsync(p.Id);
+                jobs[p.Id] = dto?.Stages.OrderBy(s => s.Order).Select(s => s.JobName).ToArray()
+                             ?? Array.Empty<string>();
+            }
+            catch { jobs[p.Id] = Array.Empty<string>(); }
+        }
+        _pipelineJobs = jobs;
+
+        // Keep whatever the user picked across a Refresh; only fall back to the repo default when
+        // nothing is selected yet (or the selection has since disappeared).
+        var keep = _selectedPipelineId is { } sel && _pipelines.Any(p => p.Id == sel)
+            ? sel
+            : ChoosePipeline(repo)?.Id;
+
+        await OnPipelineSelectedAsync(keep);
+    }
+
+    // Pick the pipeline that fits the repo: (1) one whose stages include the repo's CI job,
+    // (2) by build kind → seeded pipeline name, (3) first active, else first.
+    // Lifted from Orchestrator.razor so both pages default the same way.
+    private PipelineSummaryDto? ChoosePipeline(RepositoryDto? repo)
+    {
+        if (_pipelines.Count == 0) return null;
+        if (repo is not null)
+        {
+            var byJob = _pipelines.FirstOrDefault(p =>
+                _pipelineJobs.TryGetValue(p.Id, out var j)
+                && j.Contains(repo.CiJobName, StringComparer.OrdinalIgnoreCase));
+            if (byJob is not null) return byJob;
+
+            var wantName = repo.BuildKind == BuildKindDto.Aspire ? "Aspire build" : "CICD Main";
+            var byName = _pipelines.FirstOrDefault(p => string.Equals(p.Name, wantName, StringComparison.OrdinalIgnoreCase));
+            if (byName is not null) return byName;
+        }
+        return _pipelines.FirstOrDefault(p => p.IsActive) ?? _pipelines.FirstOrDefault();
+    }
+
+    private async Task OnPipelineSelectedAsync(Guid? id)
+    {
+        _selectedPipelineId = id;
+        _selectedPipelineName = _pipelines.FirstOrDefault(p => p.Id == id)?.Name ?? "";
+        _stageRuns.Clear();
+        _stageErrors.Clear();
+
+        var all = id is { } pid && _pipelineJobs.TryGetValue(pid, out var j) ? j : Array.Empty<string>();
+
+        // The repository's own CI job is the catalog section above; showing it twice, once thinly,
+        // would be noise.
+        _pipelineMatchesRepo = all.Contains(_repoJobName, StringComparer.OrdinalIgnoreCase);
+        _stageJobs = all.Where(x => !string.Equals(x, _repoJobName, StringComparison.OrdinalIgnoreCase))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+
+        // Nothing to filter against, so hiding rows would hide everything.
+        if (!_pipelineMatchesRepo)
+        {
+            foreach (var job in _stageJobs) _showOther[job] = true;
+        }
+
+        StateHasChanged();
+        await LoadStagesAsync();
+    }
+
+    private async Task LoadStagesAsync()
+    {
+        if (_stageJobs.Count == 0) return;
+
+        var catalog = _builds ?? Array.Empty<BuildSummaryDto>();
+
+        // Eager and parallel: a pipeline has a handful of stages, and loading them lazily on panel
+        // expansion would make the counts in the headers unavailable until clicked.
+        var fetches = _stageJobs.Select(async job =>
+        {
+            try
+            {
+                var live = await Store.ListBuildsAsync(job, LiveTake);
+                return (job, rows: StageBuildAttribution.Attribute(live, catalog), error: (string?)null);
+            }
+            catch (Exception ex)
+            {
+                return (job, rows: (IReadOnlyList<StageBuildAttribution.AttributedStageBuild>)Array.Empty<StageBuildAttribution.AttributedStageBuild>(), error: (string?)ex.Message);
+            }
+        });
+
+        foreach (var (job, rows, error) in await Task.WhenAll(fetches))
+        {
+            if (error is not null) _stageErrors[job] = error;
+            else _stageRuns[job] = rows;
+        }
+
+        StateHasChanged();
+    }
+
+    private bool ShowOther(string job) => _showOther.TryGetValue(job, out var v) && v;
+
+    private void SetShowOther(string job, bool value)
+    {
+        _showOther[job] = value;
+        StateHasChanged();
+    }
+
+    private IReadOnlyList<StageBuildAttribution.AttributedStageBuild> VisibleRows(string job)
+    {
+        if (!_stageRuns.TryGetValue(job, out var rows)) return Array.Empty<StageBuildAttribution.AttributedStageBuild>();
+        if (ShowOther(job)) return rows;
+        return rows.Where(r => r.Origin == StageBuildAttribution.StageBuildOrigin.ThisRepository).ToArray();
+    }
+
+    // Name the root cicd-build the run came from where it is known — that number is directly
+    // checkable against the catalog table above, which is what makes the attribution auditable
+    // rather than something the UI just asserts.
+    private static string OriginLabel(StageBuildAttribution.AttributedStageBuild r) => r.Origin switch
+    {
+        StageBuildAttribution.StageBuildOrigin.ThisRepository =>
+            r.RootBuildNumber is { } n ? $"#{n}" : "this repo",
+        StageBuildAttribution.StageBuildOrigin.OtherRepository => "other repo",
+        _ => "unknown",
+    };
+
+    private static Color OriginColor(StageBuildAttribution.StageBuildOrigin origin) => origin switch
+    {
+        StageBuildAttribution.StageBuildOrigin.ThisRepository => Color.Success,
+        _ => Color.Default,
+    };
+
+    private async Task OpenReleaseNotesAsync()
+    {
+        if (_builds is null || _fromBuild is not { } from || _toBuild is not { } to) return;
+
+        var request = ReleaseNotesRequest.FromBuilds(_repoName, _builds, from, to);
+
+        // Refuse rather than ask the model to write release notes out of nothing but SHAs — every
+        // build in the range predating commit capture would produce confident-sounding fiction.
+        if (request.HasNothingToSummarize)
+        {
+            _error = $"No build between #{request.FromBuild} and #{request.ToBuild} has a commit " +
+                     "message recorded, so there is nothing to summarise. Commit messages are " +
+                     "captured from the next CI build onward.";
+            StateHasChanged();
+            return;
+        }
+
+        var parameters = new DialogParameters
+        {
+            ["Loader"] = new Func<Task<AiExplanationDialog.AiExplanationResult>>(async () =>
+            {
+                var n = await ReleaseNotes.WriteAsync(request);
+                return new AiExplanationDialog.AiExplanationResult(n.Text, n.FromCache, n.ModelUsed);
+            }),
+            ["LoadingMessage"] = "Summarising what shipped across these builds…",
+        };
+        var options = new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true, CloseButton = true };
+        await DialogService.ShowAsync<AiExplanationDialog>(
+            $"Release notes — #{request.FromBuild} → #{request.ToBuild}", parameters, options);
+    }
+
     private static Color StatusColor(BuildStatusDto s) => s switch
     {
         BuildStatusDto.Succeeded => Color.Success,
@@ -95,4 +480,59 @@
         BuildStatusDto.Aborted => Color.Warning,
         _ => Color.Default,
     };
+
+    // --- Live-build formatting. Mirrors the legacy /jenkins/builds page. ---
+
+    /// <summary>
+    /// Build URLs returned by Jenkins point at the docker network alias used by the server-side
+    /// client. Rewrite onto JenkinsOptions.BaseUrl so the browser can actually open them.
+    /// </summary>
+    private string JenkinsLinkFor(string jobName, Build b)
+        => $"{JenkinsOpts.BaseUrl.TrimEnd('/')}/job/{Uri.EscapeDataString(jobName)}/{b.Number}/";
+
+    private static string LiveStatusLabel(Build b) =>
+        b.Building ? "Running" : (b.Result?.ToString() ?? "Unknown");
+
+    private static Color LiveStatusColor(Build b)
+    {
+        if (b.Building) return Color.Info;
+        return b.Result switch
+        {
+            BuildResult.Success => Color.Success,
+            BuildResult.Failure => Color.Error,
+            BuildResult.Unstable => Color.Warning,
+            BuildResult.Aborted => Color.Dark,
+            _ => Color.Default
+        };
+    }
+
+    private static string FormatStarted(long unixMs)
+    {
+        if (unixMs <= 0) return "—";
+        var t = DateTimeOffset.FromUnixTimeMilliseconds(unixMs);
+        var ago = DateTimeOffset.UtcNow - t;
+        return ago switch
+        {
+            { TotalMinutes: < 1 } => "just now",
+            { TotalHours: < 1 } => $"{(int)ago.TotalMinutes}m ago",
+            { TotalDays: < 1 } => $"{(int)ago.TotalHours}h ago",
+            { TotalDays: < 30 } => $"{(int)ago.TotalDays}d ago",
+            _ => t.LocalDateTime.ToString("yyyy-MM-dd HH:mm")
+        };
+    }
+
+    private static string FormatDuration(Build b)
+    {
+        // For in-progress builds Jenkins reports duration=0; show "running" so the column doesn't
+        // read "0.0s" and look misleading.
+        if (b.Building) return "running…";
+        if (b.Duration <= 0) return "—";
+        var ts = TimeSpan.FromMilliseconds(b.Duration);
+        return ts switch
+        {
+            { TotalSeconds: < 60 } => $"{ts.TotalSeconds:F1}s",
+            { TotalMinutes: < 60 } => $"{(int)ts.TotalMinutes}m {ts.Seconds}s",
+            _ => $"{(int)ts.TotalHours}h {ts.Minutes}m"
+        };
+    }
 }

@@ -13,6 +13,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# Shared MSBuild settings for everything under src/ — makes a missing ProjectReference an
+# error (MSB9008) so a COPY omitted below fails here instead of as a downstream CS0246.
+COPY Directory.Build.props .
+
 # Copy csproj files first for restore-layer caching.
 COPY deployment/Deployment.Domain/*.csproj         deployment/Deployment.Domain/
 COPY deployment/Deployment.Contracts/*.csproj      deployment/Deployment.Contracts/

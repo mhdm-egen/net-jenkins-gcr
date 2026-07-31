@@ -6,12 +6,17 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# Shared MSBuild settings for everything under src/ — makes a missing ProjectReference an
+# error (MSB9008) so a COPY omitted below fails here instead of as a downstream CS0246.
+COPY Directory.Build.props .
+
 # Copy csproj files first for layer caching of `dotnet restore`.
 COPY jenkins/Jenkins.Client/*.csproj                        jenkins/Jenkins.Client/
 COPY jenkins/Jenkins.Orchestrator.Abstractions/*.csproj     jenkins/Jenkins.Orchestrator.Abstractions/
 COPY jenkins/Jenkins.Orchestrator/*.csproj                  jenkins/Jenkins.Orchestrator/
 COPY jenkins/Jenkins.Contracts/*.csproj                     jenkins/Jenkins.Contracts/
 COPY deployment/Deployment.Contracts/*.csproj               deployment/Deployment.Contracts/
+COPY metering/Metering.Contracts/*.csproj                   metering/Metering.Contracts/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/*.csproj            Aspire/Cicd.Aspire.ServiceDefaults/
 COPY web-admin/cicd.web.admin/*.csproj                      web-admin/cicd.web.admin/
 RUN dotnet restore web-admin/cicd.web.admin/cicd.web.admin.csproj
@@ -22,6 +27,7 @@ COPY jenkins/Jenkins.Orchestrator.Abstractions/  jenkins/Jenkins.Orchestrator.Ab
 COPY jenkins/Jenkins.Orchestrator/               jenkins/Jenkins.Orchestrator/
 COPY jenkins/Jenkins.Contracts/                  jenkins/Jenkins.Contracts/
 COPY deployment/Deployment.Contracts/            deployment/Deployment.Contracts/
+COPY metering/Metering.Contracts/                metering/Metering.Contracts/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/         Aspire/Cicd.Aspire.ServiceDefaults/
 COPY web-admin/cicd.web.admin/                   web-admin/cicd.web.admin/
 RUN dotnet publish web-admin/cicd.web.admin/cicd.web.admin.csproj \

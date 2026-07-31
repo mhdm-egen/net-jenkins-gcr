@@ -43,7 +43,13 @@ public sealed class SeedDemoHandler
     private const string K8sNamespace = "sampleapp";
     private const string AspireAppName = "Sample App";
     private const string AspireSourceKey = "sampleapp";
-    private const string AspireManifestSource = "http://nexus:8081/repository/raw-hosted/sampleapp/1.0.0/aspirate-output.tar.gz";
+    // Overridable via Deployment:Seed:AspireManifestSource. The default uses localhost, NOT the
+    // "nexus" container name: under the Aspire AppHost this service runs as a HOST PROCESS and
+    // cannot resolve container hostnames, so the old nexus:8081 default could never be fetched.
+    // cicd-aspire-publish writes to raw-hosted/<app>/<version>/aspirate-output.tar.gz, so point this
+    // at a version a CI run has actually published.
+    private const string DefaultAspireManifestSource =
+        "http://localhost:8081/repository/raw-hosted/sampleapp/1.0.0/aspirate-output.tar.gz";
 
     // Scenario 2 — Blue-green / canary K8s.
     private const string BgEnvName = "bg-test";
@@ -77,12 +83,13 @@ public sealed class SeedDemoHandler
     private readonly IDeploymentMappingRepository _mappings;
     private readonly IAspireApplicationRepository _apps;
     private readonly ILogger<SeedDemoHandler> _logger;
+    private readonly string _manifestSource;
 
     public SeedDemoHandler(
         CreateServiceHandler createService, CreateEnvironmentHandler createEnv, CreateMappingHandler createMapping,
         CreateAspireApplicationHandler createAspire, SetAspireAutoDeployHandler setAspireAutoDeploy,
         IServiceRepository services, IEnvironmentRepository envs, IDeploymentMappingRepository mappings,
-        IAspireApplicationRepository apps, ILogger<SeedDemoHandler> logger)
+        IAspireApplicationRepository apps, ILogger<SeedDemoHandler> logger, IConfiguration configuration)
     {
         _createService = createService;
         _createEnv = createEnv;
@@ -94,6 +101,9 @@ public sealed class SeedDemoHandler
         _mappings = mappings;
         _apps = apps;
         _logger = logger;
+        _manifestSource = configuration["Deployment:Seed:AspireManifestSource"] is { Length: > 0 } s
+            ? s
+            : DefaultAspireManifestSource;
     }
 
     public async Task<SeedDemoResultDto> HandleAsync(SeedDemoRequest req, CancellationToken ct)
@@ -122,7 +132,7 @@ public sealed class SeedDemoHandler
             {
                 var dto = await _createAspire.HandleAsync(new CreateAspireApplicationCommand(
                     AspireAppName, "Bundled Aspire sample (sample-aspire).", localK8sEnvId,
-                    AspireManifestSource, Version: null, SourceKey: AspireSourceKey, MainBranch: "main"), ct);
+                    _manifestSource, Version: null, SourceKey: AspireSourceKey, MainBranch: "main"), ct);
                 appId = dto.Id; Record("aspire-app", AspireAppName, created: true);
             }
             // Ensure the demo invariant (auto-deploy on) even when the app pre-existed — idempotent.

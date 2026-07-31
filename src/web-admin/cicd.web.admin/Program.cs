@@ -4,10 +4,13 @@ using Cicd.Web.Admin.Components;
 using Cicd.Web.Admin.Services;
 using Cicd.Web.Admin.Services.Builds;
 using Cicd.Web.Admin.Services.Ci;
+using Cicd.Ai;
+using Cicd.Web.Admin.Services.Metering;
 using Cicd.Web.Admin.Services.Gcp;
 using Cicd.Web.Admin.Services.Nexus;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
+using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -105,6 +108,75 @@ builder.Services.AddHttpClient<Cicd.Web.Admin.Services.Deployment.DeploymentApiC
     c.BaseAddress = new Uri(deploymentApiOptions.BaseUrl.EndsWith('/') ? deploymentApiOptions.BaseUrl : deploymentApiOptions.BaseUrl + "/");
     c.Timeout = TimeSpan.FromSeconds(60);
 });
+
+// AI layer — options, the two usage sinks, IAiInsightService and AiExplanationRunner, all from the
+// shared Cicd.Ai project (deployment-api registers the same way for the DORA digest). A missing
+// Ai:ApiKey does NOT fail startup: AI features hide themselves and no-op.
+// Still owned here, because they are host concerns: the IDistributedCache below and adding the
+// Cicd.Ai meter to the OTel pipeline.
+builder.Services.AddCicdAi(builder.Configuration);
+
+var meteringApiOptions = builder.Configuration.GetSection(MeteringApiOptions.SectionName).Get<MeteringApiOptions>()
+                         ?? new MeteringApiOptions();
+
+// Grounded, Redis-cached explanation features. Each owns only its prompt, tier and cache key.
+//   explain_cve              — SBOM vulnerability rows          (Interactive)
+//   explain_pipeline_failure — a failed pipeline run's console   (Synthesis)
+//   explain_deploy_failure   — a failed service deploy's steps   (Interactive: input is pre-classified)
+//   explain_aspire_deploy    — an Aspire deploy's aspirate log    (Synthesis)
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ICveExplainer, Cicd.Web.Admin.Services.Sca.CveExplainer>();
+builder.Services.AddScoped<IPipelineFailureExplainer, PipelineFailureExplainer>();
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IDeployRunExplainer, Cicd.Web.Admin.Services.Deployment.DeployRunExplainer>();
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IAspireRunExplainer, Cicd.Web.Admin.Services.Deployment.AspireRunExplainer>();
+//   explain_licenses         — LicenseAnalyzer findings → ship/don't-ship  (Interactive)
+//   explain_drift            — running vs deployed images                  (Interactive)
+//   explain_sbom_diff        — dependency change between two builds        (Synthesis)
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ILicenseExplainer, Cicd.Web.Admin.Services.Sca.LicenseExplainer>();
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Deployment.IDriftExplainer, Cicd.Web.Admin.Services.Deployment.DriftExplainer>();
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Sca.ISbomDiffExplainer, Cicd.Web.Admin.Services.Sca.SbomDiffExplainer>();
+//   release_notes            — what shipped across a build range           (Interactive)
+builder.Services.AddScoped<IReleaseNotesWriter, ReleaseNotesWriter>();
+//   ask_platform             — agentic, read-only tool use                 (Synthesis)
+// Scoped: the tool registry wraps the scoped API clients it reads through.
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Ai.PlatformToolRegistry>();
+builder.Services.AddScoped<Cicd.Web.Admin.Services.Ai.IPlatformAgent, Cicd.Web.Admin.Services.Ai.PlatformAgent>();
+
+// Read-side metering client for the AI Usage page (GET usage/summary).
+builder.Services.AddHttpClient<MeteringApiClient>(c =>
+{
+    if (!string.IsNullOrWhiteSpace(meteringApiOptions.BaseUrl))
+        c.BaseAddress = new Uri(meteringApiOptions.BaseUrl.EndsWith('/') ? meteringApiOptions.BaseUrl : meteringApiOptions.BaseUrl + "/");
+    c.Timeout = TimeSpan.FromSeconds(30);
+});
+
+// Scheduled storage-gauge collector — the piece MeterType.Gauge and the storage MeterKind values
+// were reserved for and never got. Samples Nexus repository sizes and posts them as gauges. Runs
+// here rather than in metering-api because INexusClient lives here; metering-api stays a pure
+// ledger with no Nexus client and no credentials.
+var storageGaugeOptions = builder.Configuration.GetSection(StorageGaugeOptions.SectionName)
+                              .Get<StorageGaugeOptions>()
+                          ?? new StorageGaugeOptions();
+builder.Services.AddSingleton(storageGaugeOptions);
+builder.Services.AddHostedService<StorageGaugeCollector>();
+
+// Advisory monthly AI budget. Unset by default, in which case the usage page shows no budget UI
+// at all — a zero budget would render as permanently over.
+builder.Services.AddSingleton(
+    builder.Configuration.GetSection(BudgetOptions.SectionName).Get<BudgetOptions>()
+    ?? new BudgetOptions());
+
+// Export the AI usage meter through the OpenTelemetry pipeline set up by AddServiceDefaults.
+builder.Services.AddOpenTelemetry().WithMetrics(m => m.AddMeter(MeterAiUsageRecorder.MeterName));
+
+// Distributed cache for AI responses + gauge-collector snapshots. Redis when a connection
+// string is present (ConnectionStrings:redis — injected by the Aspire host / docker-compose),
+// otherwise an in-process fallback so web-admin still runs standalone.
+var redisConnection = builder.Configuration.GetConnectionString("redis")
+                      ?? builder.Configuration["Redis:Connection"];
+if (!string.IsNullOrWhiteSpace(redisConnection))
+    builder.Services.AddStackExchangeRedisCache(o => o.Configuration = redisConnection);
+else
+    builder.Services.AddDistributedMemoryCache();
 
 var app = builder.Build();
 

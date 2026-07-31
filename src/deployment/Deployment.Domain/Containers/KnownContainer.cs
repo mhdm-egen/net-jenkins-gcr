@@ -16,6 +16,16 @@ public sealed class KnownContainer : AggregateRoot<Guid>
     /// <summary>The Nexus pull reference (digest-pinned when available) — the GarPush source.</summary>
     public string NexusRef { get; private set; }
 
+    /// <summary>Commit behind the latest-seen push, when CI reported it.</summary>
+    public string? CommitSha { get; private set; }
+
+    /// <summary>
+    /// When the latest-seen push's commit was authored — the start of commit→production lead time.
+    /// Tracks the LATEST push only (this row is keyed by container name, latest wins), which is why
+    /// a deployment run snapshots it at request time rather than reading it back later.
+    /// </summary>
+    public DateTimeOffset? CommittedAtUtc { get; private set; }
+
     public DateTimeOffset FirstSeenAtUtc { get; private set; }
     public DateTimeOffset LastSeenAtUtc { get; private set; }
 
@@ -26,7 +36,9 @@ public sealed class KnownContainer : AggregateRoot<Guid>
         NexusRef = string.Empty;
     }
 
-    public KnownContainer(Guid id, string containerName, string version, string nexusRef, DateTimeOffset seenAtUtc)
+    public KnownContainer(
+        Guid id, string containerName, string version, string nexusRef, DateTimeOffset seenAtUtc,
+        string? commitSha = null, DateTimeOffset? committedAtUtc = null)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id cannot be empty.", nameof(id));
         if (string.IsNullOrWhiteSpace(containerName)) throw new ArgumentException("ContainerName cannot be empty.", nameof(containerName));
@@ -36,12 +48,16 @@ public sealed class KnownContainer : AggregateRoot<Guid>
         Version = version?.Trim() ?? string.Empty;
         NexusRef = nexusRef?.Trim() ?? string.Empty;
         ImageDigest = ParseDigest(NexusRef);
+        CommitSha = string.IsNullOrWhiteSpace(commitSha) ? null : commitSha.Trim();
+        CommittedAtUtc = committedAtUtc;
         FirstSeenAtUtc = seenAtUtc;
         LastSeenAtUtc = seenAtUtc;
     }
 
-    /// <summary>A newer push of the same container name — refresh version/ref.</summary>
-    public void Observe(string version, string nexusRef, DateTimeOffset seenAtUtc)
+    /// <summary>A newer push of the same container name — refresh version/ref/commit.</summary>
+    public void Observe(
+        string version, string nexusRef, DateTimeOffset seenAtUtc,
+        string? commitSha = null, DateTimeOffset? committedAtUtc = null)
     {
         Version = version?.Trim() ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(nexusRef))
@@ -49,6 +65,10 @@ public sealed class KnownContainer : AggregateRoot<Guid>
             NexusRef = nexusRef.Trim();
             ImageDigest = ParseDigest(NexusRef);
         }
+        // Only overwrite commit provenance when the new push actually carries it — a caller that
+        // doesn't know the commit (e.g. the manual seed endpoint) must not erase what CI recorded.
+        if (!string.IsNullOrWhiteSpace(commitSha)) CommitSha = commitSha.Trim();
+        if (committedAtUtc is not null) CommittedAtUtc = committedAtUtc;
         LastSeenAtUtc = seenAtUtc;
     }
 

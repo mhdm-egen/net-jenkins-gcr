@@ -60,7 +60,13 @@ public sealed record ContainerPublished(
     Guid RepositoryId,
     string Version,
     string CommitSha,
-    DateTimeOffset OccurredAtUtc) : IDomainEvent;
+    DateTimeOffset OccurredAtUtc,
+    /// <summary>
+    /// When the deployed commit was authored — carried downstream so the deployment service can
+    /// compute commit→production lead time. Nullable because <c>SourceRevision.CommittedAtUtc</c>
+    /// is itself best-effort: some checkouts don't report it.
+    /// </summary>
+    DateTimeOffset? CommittedAtUtc = null) : IDomainEvent;
 
 /// <summary>
 /// Raised when an Aspire build's Kustomize-manifest archive is published to Nexus (its URL

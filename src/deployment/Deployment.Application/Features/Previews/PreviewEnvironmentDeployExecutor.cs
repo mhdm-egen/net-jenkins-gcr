@@ -50,12 +50,24 @@ public sealed class PreviewEnvironmentDeployExecutor
             // Stamp a browsable Ingress for the preview's frontend (best-effort — a ClusterIP-only preview
             // stays reachable via port-forward). The manager builds the host {key}.{configured-domain}.
             string? url = null;
+            var log = result.Log;
             try
             {
                 url = await ingress.EnsureFrontendIngressAsync(preview.KubeContext, preview.Namespace, preview.Key, ct).ConfigureAwait(false);
+
+                // A stamped Ingress is not a reachable one. If nothing backs it, say so ON THE PREVIEW —
+                // otherwise the preview shows Active with a URL that refuses connections, which reads as a
+                // broken app instead of a missing ingress controller.
+                if (url is not null &&
+                    await ingress.DescribeUnbackedIngressAsync(preview.KubeContext, preview.Namespace, ct).ConfigureAwait(false)
+                        is { Length: > 0 } warning)
+                {
+                    log = string.IsNullOrEmpty(log) ? warning : $"{log}{Environment.NewLine}{warning}";
+                    logger.LogWarning("[preview] {Preview}: {Warning}", preview.Id, warning);
+                }
             }
             catch (Exception ex) { logger.LogWarning(ex, "[preview] {Preview} ingress stamp failed; reachable via port-forward.", preview.Id); }
-            preview.MarkActive(result.Log, now, url);
+            preview.MarkActive(log, now, url);
         }
         else preview.MarkFailed(result.FailureReason ?? "aspirate deploy failed.", result.Log, now);
 

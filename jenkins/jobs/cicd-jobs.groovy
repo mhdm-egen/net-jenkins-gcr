@@ -23,24 +23,46 @@
 // `parameters {}` block. The Jenkinsfile remains the source of truth thereafter.
 // =============================================================================
 
-// Where the Jenkinsfiles live. Override by binding these in the seed job
-// (e.g. as String parameters / env) — otherwise the defaults below are used.
-def pipelineRepo   = binding.hasVariable('PIPELINE_REPO_URL')           ? PIPELINE_REPO_URL           : 'https://github.com/mhdm-egen/net-jenkins-gcr.git'
-def pipelineBranch = binding.hasVariable('PIPELINE_REPO_BRANCH')        ? PIPELINE_REPO_BRANCH        : 'main'
-def pipelineCreds  = binding.hasVariable('PIPELINE_REPO_CREDENTIAL_ID') ? PIPELINE_REPO_CREDENTIAL_ID : ''
+// Where the Jenkinsfiles live. Resolution order, first hit wins:
+//   1. a seed-job binding (String parameter / env on a manual "Process Job DSLs" seed job)
+//   2. an environment variable on the controller — this is the JCasC path, where `jobs:` runs the
+//      DSL directly and there is no seed job to bind anything. Without this rung every seeded job
+//      would silently pin to the literal below, ignoring the branch you actually checked out.
+//   3. the literal default
+def cfg = { String key, String fallback ->
+    if (binding.hasVariable(key)) return binding.getVariable(key)
+    def v = System.getenv(key)
+    return (v != null && !v.isEmpty()) ? v : fallback
+}
+def pipelineRepo   = cfg('PIPELINE_REPO_URL',           'https://github.com/mhdm-egen/net-jenkins-gcr.git')
+def pipelineBranch = cfg('PIPELINE_REPO_BRANCH',        'main')
+def pipelineCreds  = cfg('PIPELINE_REPO_CREDENTIAL_ID', '')
 
 // Common build-container plumbing shared by every job.
+//
+// About `-v jenkins-home:/var/jenkins_home`: with `reuseNode true` the Docker Pipeline plugin starts
+// the agent with `-v <workspace>:<workspace> -w <workspace>`, where <workspace> is
+// /var/jenkins_home/workspace/<job> — a path that exists inside the CONTROLLER container, not on the
+// host. The plugin's automatic remedy is to notice it is itself containerised (by reading
+// /proc/self/cgroup) and add `--volumes-from <controller>`; that detection is unreliable under
+// cgroup v2, which is what Docker Desktop uses. Mounting the same named volume at the same path
+// makes the agent's view of the workspace identical either way. Without it the checkout lands in an
+// empty directory and the build fails with no obvious cause.
 def BUILD_IMAGE = 'netsdk10:latest'
-def BUILD_ARGS_BUILD   = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0'
+def BUILD_ARGS_BUILD   = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_ROLL_FORWARD=Major --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock --group-add 0'
 // Scan job: needs the Trivy DB cache, no docker.sock (it doesn't build images).
-def BUILD_ARGS_SCAN    = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0'
+def BUILD_ARGS_SCAN    = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_ROLL_FORWARD=Major --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0'
 // Publish jobs: docker.sock for image builds + the Trivy DB cache for the image scan.
-def BUILD_ARGS_PUBLISH = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0'
+def BUILD_ARGS_PUBLISH = '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_ROLL_FORWARD=Major --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0'
 
 // Helper: build a pipelineJob that loads `scriptPath` from the pipeline repo.
 // `lightweight` is always true now — every job fetches just its Jenkinsfile and clones
 // the app repo itself (cicd-build from GIT_URL; scan/publish from build-info.json's gitUrl).
-def makePipeline = { String name, String desc, String scriptPath, boolean lightweight, Closure params ->
+// NB: the closure parameters must NOT be named after the Job DSL methods they feed —
+// `scriptPath(scriptPath)` resolves owner-first to the local String and dies with
+// "No signature of method: java.lang.String.call()". That is why they are jenkinsfilePath /
+// useLightweight rather than the more obvious names.
+def makePipeline = { String name, String desc, String jenkinsfilePath, boolean useLightweight, Closure params ->
     pipelineJob(name) {
         description(desc)
         logRotator {
@@ -61,8 +83,8 @@ def makePipeline = { String name, String desc, String scriptPath, boolean lightw
                         branch(pipelineBranch)
                     }
                 }
-                scriptPath(scriptPath)
-                lightweight(lightweight)
+                scriptPath(jenkinsfilePath)
+                lightweight(useLightweight)
             }
         }
     }
@@ -82,6 +104,7 @@ makePipeline('cicd-build',
     stringParam('BUILD_CONTAINER_ARGS', BUILD_ARGS_BUILD, 'Arguments for the build container')
     stringParam('BUILD_FILE', 'src/app/cicd.sln', 'File to build (sln or csproj), relative to the cloned repo root')
     stringParam('BASE_VER', '1.0.0', 'Base version (Major.Minor.Patch) used to derive the build versions')
+    booleanParam('RUN_TESTS', false, 'Run dotnet test and archive a .trx. Off by default: enabling tests changes what a build means, so it is a deliberate choice.')
 }
 
 // ---------------------------------------------------------------------------
@@ -113,7 +136,8 @@ makePipeline('cicd-publish-nexus-nuget',
     stringParam('BUILD_CONTAINER_IMAGE', BUILD_IMAGE, 'Image for the build container')
     stringParam('BUILD_CONTAINER_ARGS', BUILD_ARGS_PUBLISH, 'Arguments for the build container')
     stringParam('NUGET_SOURCE', 'http://nexus:8081/repository/nuget-hosted/', 'NuGet feed URL (Nexus hosted repo)')
-    stringParam('NUGET_API_KEY_CREDENTIAL_ID', 'rhythm-nuget', 'Jenkins credential id (Secret Text) holding the NuGet API key')
+    stringParam('NUGET_CREDENTIAL_ID', 'nexus-nuget', 'Jenkins credential id (Username/Password) for basic-auth publishing. Preferred for Nexus. Blank => use NUGET_API_KEY_CREDENTIAL_ID.')
+    stringParam('NUGET_API_KEY_CREDENTIAL_ID', 'rhythm-nuget', 'Jenkins credential id (Secret Text) holding the NuGet API key. Only used when NUGET_CREDENTIAL_ID is blank (e.g. nuget.org).')
     stringParam('GIT_CREDENTIALS_ID', '', 'Jenkins credentials id for cloning a private app repo (blank = public/anonymous)')
     stringParam('SOURCE_BUILD_JOB', 'cicd-scan', 'Upstream job whose build-info.json is pulled in (cicd-scan)')
     stringParam('SOURCE_BUILD_NUMBER', '', 'Specific upstream build number to publish. Blank = last successful build.')
@@ -130,7 +154,7 @@ makePipeline('cicd-publish-nexus-docker',
     stringParam('BUILD_CONTAINER_ARGS', BUILD_ARGS_PUBLISH, 'Arguments for the build container')
     stringParam('DOCKER_BUILD_FILE', '', 'Optional Dockerfile override (path within the app repo). Blank = built-in copy-only runtime Dockerfile generated by the job')
     stringParam('CONTAINER_NAME', '', 'Optional single-container override; normally blank — containers come from the cicd-build manifest in build-info.json')
-    stringParam('NEXUS_DOCKER_HOST', 'nexus:8082', 'Nexus docker registry host:port')
+    stringParam('NEXUS_DOCKER_HOST', 'host.docker.internal:8082', 'Nexus docker registry host:port')
     stringParam('NEXUS_DOCKER_CREDENTIAL_ID', 'rhythm-docker', 'Jenkins credential id (Username/Password) for the Nexus docker registry')
     stringParam('NEXUS_DOCKER_USER', 'admin', 'Nexus docker registry username')
     stringParam('NEXUS_DOCKER_PROTOCOL', 'http://', 'Nexus communications protocol (http:// or https://)')
@@ -165,7 +189,8 @@ makePipeline('cicd-aspire-publish',
     stringParam('BUILD_CONTAINER_IMAGE', BUILD_IMAGE, 'Image for the build container')
     stringParam('BUILD_CONTAINER_ARGS', BUILD_ARGS_PUBLISH, 'Arguments for the build container (docker socket for image build/push + Trivy DB cache)')
     stringParam('ASPIRATE_PACKAGE_VERSION', '', 'Pin the Aspirate global tool version (blank = latest)')
-    stringParam('NEXUS_DOCKER_HOST', 'nexus:8082', 'Nexus docker registry host:port images are pushed to')
+    stringParam('NEXUS_DOCKER_HOST', 'host.docker.internal:8082', 'Nexus docker registry host:port images are pushed to')
+    stringParam('NEXUS_SDK_HOST', '', 'Registry host:port the .NET SDK pushes to, when it must differ from NEXUS_DOCKER_HOST (the SDK connects from inside the agent; docker resolves via the daemon). Blank = use NEXUS_DOCKER_HOST.')
     stringParam('NEXUS_DOCKER_PROTOCOL', 'http://', 'Nexus docker registry protocol')
     stringParam('NEXUS_DOCKER_CREDENTIAL_ID', 'rhythm-docker', 'Jenkins username/password credential id for the Nexus docker registry')
     stringParam('NEXUS_RAW_REPO_URL', 'http://nexus:8081/repository/raw-hosted/', 'Nexus raw (hosted) repo base URL for the Kustomize-output archive')

@@ -17,7 +17,7 @@ public sealed record NexusOptions
     public string NuGetHostedRepository { get; init; } = "nuget-hosted";
 
     /// <summary>Name of the hosted Docker repository to enumerate (Nexus repo name, not URL).</summary>
-    public string DockerHostedRepository { get; init; } = "docker-hosted";
+    public string DockerHostedRepository { get; init; } = "docker-private";
 
     /// <summary>Name of the raw repository holding SBOM/VEX artifacts (used by the reset purge).</summary>
     public string SbomRepository { get; init; } = "sboms";

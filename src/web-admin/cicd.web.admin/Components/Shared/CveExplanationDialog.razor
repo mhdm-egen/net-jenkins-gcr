@@ -1,0 +1,62 @@
+@using Cicd.Web.Admin.Services.Sca
+@inject ICveExplainer Explainer
+
+<MudDialog>
+    <DialogContent>
+        @if (_loading)
+        {
+            <MudStack AlignItems="AlignItems.Center" Class="pa-6" Spacing="3">
+                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                <MudText Typo="Typo.body2" Style="color: var(--mud-palette-text-secondary);">
+                    Analyzing @Request.CveId in the context of your dependency…
+                </MudText>
+            </MudStack>
+        }
+        else if (_error is { Length: > 0 } err)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@err</MudAlert>
+        }
+        else if (_explanation is { } ex)
+        {
+            <MudText Typo="Typo.body2" Style="white-space: pre-wrap; line-height: 1.6;">@ex.Text</MudText>
+            <MudDivider Class="my-3" />
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" />
+                <MudText Typo="Typo.caption" Style="color: var(--mud-palette-text-secondary);">
+                    AI-generated, advisory only — verify against the linked advisory.@(ex.FromCache ? " (cached)" : $" · {ex.ModelUsed}")
+                </MudText>
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = null!;
+
+    [Parameter] public CveExplainRequest Request { get; set; } = null!;
+
+    private bool _loading = true;
+    private string? _error;
+    private CveExplanation? _explanation;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _explanation = await Explainer.ExplainAsync(Request);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not generate an explanation: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Close() => Dialog.Close();
+}

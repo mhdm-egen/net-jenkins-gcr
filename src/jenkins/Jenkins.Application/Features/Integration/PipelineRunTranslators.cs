@@ -43,6 +43,31 @@ public sealed class PipelineRunSucceededTranslator
 }
 
 /// <summary>
+/// Translation edge (CI → bus): a failed pipeline run → the cross-service
+/// <see cref="Cicd.IntegrationEvents.Ci.PipelineFailed"/> integration event.
+///
+/// The domain event has been raised all along; what was missing was this translator and the
+/// integration event itself, so no subscriber could ever learn a pipeline had failed.
+/// </summary>
+[WolverineHandler]
+public sealed class PipelineRunFailedTranslator
+{
+    public Cicd.IntegrationEvents.Ci.PipelineFailed Handle(PipelineRunFailed evt)
+        => new(
+            EventId: Guid.NewGuid(),
+            OccurredAtUtc: evt.OccurredAtUtc,
+            RunId: evt.RunId,
+            PipelineId: evt.PipelineId,
+            PipelineName: evt.PipelineName,
+            RepositoryId: evt.RepositoryId,
+            TriggeredBy: evt.TriggeredBy,
+            FailureReason: evt.FailureReason,
+            CompletedSteps: evt.CompletedSteps
+                .Select(s => new Cicd.IntegrationEvents.Ci.PipelineCompletedStep(s.JobName, s.BuildNumber))
+                .ToList());
+}
+
+/// <summary>
 /// Translation edge (CI → bus): a cancelled pipeline run → the cross-service
 /// <see cref="Cicd.IntegrationEvents.Ci.PipelineCancelled"/> integration event.
 /// </summary>

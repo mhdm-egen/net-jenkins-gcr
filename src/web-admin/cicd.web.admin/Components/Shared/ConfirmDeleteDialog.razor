@@ -17,6 +17,13 @@
             </MudPaper>
         }
 
+        @if (!string.IsNullOrWhiteSpace(Warning))
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Filled" Dense="true" Class="mb-3">
+                @Warning
+            </MudAlert>
+        }
+
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
             This cannot be undone. Deletion may take several seconds per item.
         </MudAlert>
@@ -26,9 +33,9 @@
         <MudButton OnClick="OnCancel">Cancel</MudButton>
         <MudButton Color="Color.Error"
                    Variant="Variant.Filled"
-                   StartIcon="@Icons.Material.Filled.Delete"
+                   StartIcon="@ConfirmIcon"
                    OnClick="OnConfirm">
-            Delete
+            @ConfirmText
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -38,6 +45,14 @@
 
     [Parameter] public string Message { get; set; } = "Delete the following item(s)?";
     [Parameter] public IReadOnlyList<string> Items { get; set; } = Array.Empty<string>();
+
+    /// <summary>Confirm-button label. Defaults to "Delete" so existing call sites are unchanged.</summary>
+    [Parameter] public string ConfirmText { get; set; } = "Delete";
+    [Parameter] public string ConfirmIcon { get; set; } = Icons.Material.Filled.Delete;
+
+    /// <summary>Optional extra warning shown above the standard one — for consequences specific to this
+    /// action that the generic "cannot be undone" line doesn't cover.</summary>
+    [Parameter] public string? Warning { get; set; }
 
     private void OnCancel()  => Dialog.Cancel();
     private void OnConfirm() => Dialog.Close(DialogResult.Ok(true));

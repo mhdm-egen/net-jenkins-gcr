@@ -26,6 +26,14 @@ public sealed record UpdateAspireApplicationRequest(string Name, string? Descrip
 /// <summary>Trigger an Aspire-app deployment.</summary>
 public sealed record TriggerAspireDeploymentRequest(string? TriggeredBy);
 
+/// <summary>Remove an app's workloads from the cluster, keeping its registration.</summary>
+public sealed record UninstallAspireAppRequest(string? TriggeredBy);
+
+/// <summary><paramref name="Namespaces"/> is what the server actually deleted — the caller should report
+/// this rather than whatever it predicted, so a divergence is visible instead of silent. Kubernetes
+/// deletes namespaces asynchronously, so these are <i>deleting</i>, not necessarily gone.</summary>
+public sealed record AspireUninstallResultDto(bool Applied, string Outcome, IReadOnlyList<string> Namespaces);
+
 /// <summary>Roll an Aspire app back to a previous succeeded run's manifest/version.</summary>
 public sealed record RollbackAspireDeploymentRequest(Guid TargetRunId, string? TriggeredBy);
 

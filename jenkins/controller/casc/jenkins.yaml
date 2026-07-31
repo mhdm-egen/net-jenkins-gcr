@@ -1,0 +1,97 @@
+# Jenkins Configuration as Code.
+#
+# Applied on EVERY boot from CASC_JENKINS_CONFIG=/var/jenkins_conf/casc, so this file — not the UI —
+# is the source of truth. A change here takes effect on the next controller start.
+#
+# NOTHING below is a literal secret. Every credential value arrives as an environment variable
+# supplied by the Aspire AppHost (src/Aspire/Cicd.Aspire.Host/AppHost.cs), which generates and
+# persists them into user-secrets. Project rule: NEVER commit secrets.
+
+jenkins:
+  systemMessage: >
+    cicd platform controller — provisioned by JCasC.
+    Edit jenkins/controller/casc/jenkins.yaml and restart; UI edits will be overwritten.
+  numExecutors: 2
+  mode: NORMAL
+  scmCheckoutRetryCount: 2
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID:-admin}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+  # No crumbIssuer block on purpose. JenkinsClient fetches a crumb from crumbIssuer/api/json and
+  # replays it on POSTs (src/jenkins/Jenkins.Client/JenkinsClient.cs), which needs the crumb to stay
+  # valid when calls arrive through Aspire's endpoint proxy rather than straight from the host.
+  # Older guidance sets `crumbIssuer: { standard: { excludeClientIPFromCrumb: true } }` for that, but
+  # this Jenkins rejects it — "Invalid configuration elements for type ... DefaultCrumbIssuer:
+  # excludeClientIPFromCrumb" — because core no longer binds the crumb to the client IP at all.
+  # The default issuer is therefore already proxy-safe.
+
+security:
+  # The only Job DSL this controller runs is jenkins/jobs/cicd-jobs.groovy, baked into the image from
+  # this repo. Disabling DSL script security removes the "pending script approval" gate that would
+  # otherwise block the very first seed on a fresh jenkins-home volume and require a manual click.
+  globalJobDslSecurityConfiguration:
+    useScriptSecurity: false
+
+unclassified:
+  location:
+    # Deliberately NOT named JENKINS_URL — Jenkins injects that variable into builds and it would collide.
+    url: "${JENKINS_LOCATION_URL:-http://localhost:8080/}"
+    adminAddress: "noreply@cicd.local"
+  timestamper:
+    allPipelines: true
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "rhythm-docker"
+              username: "${NEXUS_USERNAME:-admin}"
+              password: "${NEXUS_PASSWORD}"
+              description: >
+                Nexus docker registry :8082 (docker login) —
+                jenkins/publish/nexus/docker, jenkins/publish/aspire
+          - usernamePassword:
+              scope: GLOBAL
+              id: "nexus-sbom"
+              username: "${NEXUS_USERNAME:-admin}"
+              password: "${NEXUS_PASSWORD}"
+              description: >
+                Nexus REST API for SBOM + raw uploads — jenkins/scan, jenkins/publish/*.
+                NOTE docs/sbom-setup.md historically called this 'nexus-rest'; every Jenkinsfile
+                default is 'nexus-sbom', which is what this creates.
+          - usernamePassword:
+              scope: GLOBAL
+              id: "nexus-nuget"
+              username: "${NEXUS_USERNAME:-admin}"
+              password: "${NEXUS_PASSWORD}"
+              description: >
+                Nexus basic auth for `dotnet nuget push` — jenkins/publish/nexus/nuget.
+                Nexus 3.70+ removed the internal endpoint that handed out per-user NuGet API keys and
+                rejects the account password in the --api-key slot, so publishing uses basic auth via
+                a generated nuget.config. Because the password is known at JCasC time, nothing has to
+                be injected after startup.
+          - string:
+              scope: GLOBAL
+              id: "rhythm-nuget"
+              # Only used when NUGET_CREDENTIAL_ID is blanked to publish to a feed that issues real
+              # API keys (nuget.org). Left as a placeholder — set it by hand if you need that path.
+              secret: "${NEXUS_NUGET_API_KEY:-unset}"
+              description: "NuGet API key, for feeds that issue one (e.g. nuget.org). Unused for Nexus."
+
+jobs:
+  # Runs the EXISTING seed script, COPY'd to /var/jenkins_conf/jobdsl by the Dockerfile. JCasC
+  # executes Job DSL as SYSTEM outside the Groovy sandbox, so the five cicd-* pipelineJobs exist on
+  # the very first boot — no manual seed job, no "Process Job DSLs" build step, no script approval.
+  # (This is jenkins/jobs/README.md "Option B", now the default.)
+  - file: /var/jenkins_conf/jobdsl/cicd-jobs.groovy

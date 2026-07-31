@@ -43,6 +43,17 @@ services:
       retries: 12
       start_period: 20s
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
   deployment-api:
     build:
       context: ./src
@@ -53,8 +64,12 @@ services:
       ConnectionStrings__Deployment: "Server=sqlserver;Database=Deployment;User Id=sa;Password=${SA_PASSWORD:-Your_Strong_Pass123};TrustServerCertificate=True;MultipleActiveResultSets=True"
       ConnectionStrings__messaging: "amqp://${RABBITMQ_USER:-cicd}:${RABBITMQ_PASSWORD:-cicd_local_dev}@rabbitmq:5672"
       # --- Aspire cluster deploys (the image bundles aspirate + kubectl) -------------------
-      # Digest-pin source: whatever Nexus URL THIS service can reach.
-      Deployment__Nexus__RegistryV2Url: "${NEXUS_URL:-http://nexus:8081}"
+      # Digest-pin source: whatever Nexus DOCKER-V2 URL THIS service can reach.
+      # NOT ${NEXUS_URL} — that is the REST/UI connector (:8081). NexusImageDigestResolver issues
+      # GET {url}/v2/{repo}/manifests/{tag}, which only exists on the docker connector (:8082).
+      # Pointing this at :8081 fails silently: the resolver swallows errors and returns null, so
+      # digest pinning quietly degrades to a floating tag with nothing in the logs to say why.
+      Deployment__Nexus__RegistryV2Url: "${NEXUS_REGISTRY_V2_URL:-http://nexus:8082}"
       Deployment__Nexus__Username: "${NEXUS_USER:-admin}"
       Deployment__Nexus__Password: "${NEXUS_PASSWORD:-}"
       # To actually apply to a cluster, mount a kubeconfig (below) reachable FROM this
@@ -101,6 +116,23 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  metering-api:
+    build:
+      context: ./src
+      dockerfile: metering/Metering.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Database__AutoMigrate: "true"
+      ConnectionStrings__Metering: "Server=sqlserver;Database=Metering;User Id=sa;Password=${SA_PASSWORD:-Your_Strong_Pass123};TrustServerCertificate=True;MultipleActiveResultSets=True"
+      ConnectionStrings__messaging: "amqp://${RABBITMQ_USER:-cicd}:${RABBITMQ_PASSWORD:-cicd_local_dev}@rabbitmq:5672"
+    ports:
+      - "5320:8080"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
   web-admin:
     build:
       context: ./src
@@ -113,11 +145,19 @@ services:
       Jenkins__User: ${JENKINS_USER:-admin}
       # The admin UI fails to start without a Jenkins token (by design).
       Jenkins__ApiToken: ${JENKINS_API_TOKEN:?set JENKINS_API_TOKEN in .env}
+      # Redis distributed cache for the AI layer (cached CVE/DORA insights).
+      ConnectionStrings__redis: "redis:6379"
+      # Anthropic API key — empty => AI features disabled (app still runs).
+      Ai__ApiKey: ${AI_API_KEY:-}
+      # Metering service — AI token usage is POSTed here for the cost ledger.
+      Metering__Api__BaseUrl: "http://metering-api:8080"
     ports:
       - "8090:8080"
     depends_on:
       - deployment-api
       - jenkins-api
+      - redis
+      - metering-api
 
 volumes:
   sqlserver-data:

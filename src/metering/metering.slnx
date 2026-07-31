@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="../Aspire/Cicd.Aspire.ServiceDefaults/Cicd.Aspire.ServiceDefaults.csproj" />
+  <Project Path="Metering.Api/Metering.Api.csproj" />
+  <Project Path="Metering.Application/Metering.Application.csproj" />
+  <Project Path="Metering.Contracts/Metering.Contracts.csproj" />
+  <Project Path="Metering.Domain/Metering.Domain.csproj" />
+  <Project Path="Metering.Infrastructure/Metering.Infrastructure.csproj" />
+</Solution>

@@ -4,9 +4,10 @@ pipeline {
         string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Branch, tag, or ref to build')
         string(name: 'GIT_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins credentials ID for cloning a private repo (leave blank for public/anonymous access)')
         string(name: 'BUILD_CONTAINER_IMAGE', defaultValue: 'netsdk10:latest', description: 'Image for the build container')
-        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -u root -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0', description: 'Arguments for the build container')
+        string(name: 'BUILD_CONTAINER_ARGS', defaultValue: '-v /tmp/nuget:/tmp/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 --net=cicd-net -v jenkins-home:/var/jenkins_home -u root -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/trivy-cache:/root/.cache/trivy --group-add 0', description: 'Arguments for the build container')
         string(name: 'BUILD_FILE', defaultValue: 'src/app/cicd.sln', description: 'File to build (sln or csproj)')
         string(name: 'BASE_VER', defaultValue: '1.0.0', description: 'Base version (Major.Minor.Patch) used to derive PackageVersion / FileVersion / AssemblyVersion / InformationalVersion in build-info.json')
+        booleanParam(name: 'RUN_TESTS', defaultValue: false, description: 'Run dotnet test and archive a .trx. Off by default so enabling tests is a deliberate choice — a repo with failing or absent tests would otherwise start failing builds that pass today. Archiving the .trx is what makes test results available to the platform at all.')
     }
 
     options {
@@ -66,6 +67,22 @@ pipeline {
                     println "Git commit hash: ${GIT_COMMIT_HASH}"
                     println "Git commit short: ${GIT_COMMIT_SHORT}"
 
+                    // Author, subject and commit time. The domain has carried these on
+                    // SourceRevision (and the DB has had CommitAuthor/CommitMessage columns) since
+                    // the build aggregate was written, but nothing ever populated them because
+                    // build-info.json didn't record them.
+                    //
+                    // %s is the subject line, not %B: the full body is multi-line, and a one-line
+                    // subject per commit is what a release-note summary over a range actually
+                    // wants. %cI is the committer date in strict ISO-8601, which DateTimeOffset
+                    // parses without a format string.
+                    GIT_COMMIT_AUTHOR = sh(script: "git log -n 1 --pretty=format:%an", returnStdout: true).trim()
+                    GIT_COMMIT_MESSAGE = sh(script: "git log -n 1 --pretty=format:%s", returnStdout: true).trim()
+                    GIT_COMMITTED_AT = sh(script: "git log -n 1 --pretty=format:%cI", returnStdout: true).trim()
+                    println "Git commit author: ${GIT_COMMIT_AUTHOR}"
+                    println "Git commit subject: ${GIT_COMMIT_MESSAGE}"
+                    println "Git committed at: ${GIT_COMMITTED_AT}"
+
                     PACKAGE_VERSION  = "${params.BASE_VER}-ci.${env.BUILD_NUMBER}.g${GIT_COMMIT_SHORT}"
                     FILE_VERSION     = "${params.BASE_VER}.${env.BUILD_NUMBER}"
                     ASSEMBLY_VERSION = "${params.BASE_VER}.0"
@@ -91,10 +108,35 @@ pipeline {
             }
         }
 
+        // Tests are OPT-IN, not on by default. Turning them on unconditionally would change what
+        // an existing build means — a repo with failing or absent tests would start failing builds
+        // that pass today — and that is the pipeline owner's call, not a side effect of wanting the
+        // data. RUN_TESTS=true archives a .trx, which is the artifact that unblocks test-failure
+        // analysis; without it there are no test results anywhere in the platform.
         stage ('Test') {
+            when { expression { params.RUN_TESTS } }
             steps {
-                //  sh "dotnet test --no-restore --no-build -c Release ${params.BUILD_FILE} --logger trx"
-                echo "Skipping tests for now"
+                script {
+                    // Keep going on failure so the .trx is still archived — a failed test run is
+                    // exactly the case the results are wanted for, so losing them there would
+                    // defeat the point.
+                    def status = sh(
+                        script: "dotnet test --no-restore --no-build -c Release ${params.BUILD_FILE} " +
+                                "--logger 'trx;LogFileName=test-results.trx' --results-directory TestResults",
+                        returnStatus: true)
+
+                    archiveArtifacts(
+                        artifacts: 'TestResults/*.trx',
+                        allowEmptyArchive: true,
+                        fingerprint: true)
+
+                    if (status != 0) {
+                        // Mark the build unstable rather than failed: the results exist and are
+                        // worth reading, and the downstream scan/publish chain decides for itself.
+                        currentBuild.result = 'UNSTABLE'
+                        echo "Tests reported failures (exit ${status}); results archived to TestResults/."
+                    }
+                }
             }
         }
 
@@ -161,6 +203,9 @@ pipeline {
                         informationalVersion: INFO_VERSION,
                         gitCommitHash:        GIT_COMMIT_HASH,
                         gitCommitShort:       GIT_COMMIT_SHORT,
+                        gitCommitAuthor:      GIT_COMMIT_AUTHOR,
+                        gitCommitMessage:     GIT_COMMIT_MESSAGE,
+                        gitCommittedAt:       GIT_COMMITTED_AT,
                         buildNumber:          env.BUILD_NUMBER,
                         packVer:              params.BASE_VER,
                         buildFile:            params.BUILD_FILE,

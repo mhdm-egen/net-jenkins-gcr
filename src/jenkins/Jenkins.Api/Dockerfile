@@ -6,6 +6,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# Shared MSBuild settings for everything under src/ — makes a missing ProjectReference an
+# error (MSB9008) so a COPY omitted below fails here instead of as a downstream CS0246.
+COPY Directory.Build.props .
+
 # Copy csproj files first for restore-layer caching.
 COPY jenkins/Jenkins.Client/*.csproj                    jenkins/Jenkins.Client/
 COPY jenkins/Jenkins.Orchestrator.Abstractions/*.csproj jenkins/Jenkins.Orchestrator.Abstractions/
@@ -18,6 +22,7 @@ COPY jenkins/Jenkins.Api/*.csproj                       jenkins/Jenkins.Api/
 COPY deployment/Deployment.Contracts/*.csproj           deployment/Deployment.Contracts/
 COPY shared/Cicd.IntegrationEvents/*.csproj             shared/Cicd.IntegrationEvents/
 COPY shared/Cicd.Messaging/*.csproj                     shared/Cicd.Messaging/
+COPY shared/Cicd.Notifications/*.csproj                 shared/Cicd.Notifications/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/*.csproj        Aspire/Cicd.Aspire.ServiceDefaults/
 RUN dotnet restore jenkins/Jenkins.Api/Jenkins.Api.csproj
 
@@ -26,6 +31,7 @@ COPY jenkins/ jenkins/
 COPY deployment/Deployment.Contracts/ deployment/Deployment.Contracts/
 COPY shared/Cicd.IntegrationEvents/ shared/Cicd.IntegrationEvents/
 COPY shared/Cicd.Messaging/ shared/Cicd.Messaging/
+COPY shared/Cicd.Notifications/ shared/Cicd.Notifications/
 COPY Aspire/Cicd.Aspire.ServiceDefaults/ Aspire/Cicd.Aspire.ServiceDefaults/
 RUN dotnet publish jenkins/Jenkins.Api/Jenkins.Api.csproj \
     -c Release -o /app/publish --no-restore

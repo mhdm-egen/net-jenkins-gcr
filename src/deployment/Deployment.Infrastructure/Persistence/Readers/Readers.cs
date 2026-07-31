@@ -96,7 +96,18 @@ internal sealed class EfMappingReader : IMappingReader
     }
 }
 
-internal sealed class EfRunReader : IRunReader
+/// <summary>
+/// PUBLIC deliberately, unlike its siblings in this file. `GetDoraSummaryHandler` depends on this
+/// reader and is itself injected into the Wolverine handler for `WeeklyDoraDigestDue`. Wolverine
+/// generates handler code that constructs dependencies inline, and it cannot construct an internal
+/// type — it falls back to service location, which `ServiceLocationPolicy.NotAllowed` rejects. The
+/// whole handler then fails to build and the digest silently never runs: the endpoint still returns
+/// 202, nothing dead-letters, and nothing is delivered.
+///
+/// Making this internal again re-breaks the weekly digest with no compile error and no obvious
+/// runtime signal. Metering's `EfUsageLedger` is public for the same reason.
+/// </summary>
+public sealed class EfRunReader : IRunReader
 {
     private readonly DeploymentDbContext _db;
     public EfRunReader(DeploymentDbContext db) => _db = db;
@@ -123,7 +134,8 @@ internal sealed class EfRunReader : IRunReader
         (DeploymentTriggerDto)(int)r.Trigger, r.TriggeredBy, (DeploymentRunStatusDto)(int)r.Status,
         r.RemoteImageRef, r.CloudRunRevision, r.KubernetesResource, r.FailureReason,
         r.Steps.Select(s => new RunStepResultDto(s.Order, s.Kind.ToString(), s.Status, s.Detail, s.FailureKind?.ToString())).ToList(),
-        r.RequestedAtUtc, r.CompletedAtUtc, r.RolloutGreenSlot, r.RolloutActiveSlot, r.DecisionBy, r.RolloutCanaryWeight);
+        r.RequestedAtUtc, r.CompletedAtUtc, r.RolloutGreenSlot, r.RolloutActiveSlot, r.DecisionBy, r.RolloutCanaryWeight,
+        r.CommitSha, r.CommittedAtUtc);
 }
 
 internal sealed class EfAspireApplicationReader : IAspireApplicationReader
@@ -150,7 +162,9 @@ internal sealed class EfAspireApplicationReader : IAspireApplicationReader
             .FirstOrDefaultAsync(ct).ConfigureAwait(false);
 }
 
-internal sealed class EfAspireApplicationRunReader : IAspireApplicationRunReader
+/// <summary>Public for the same reason as <see cref="EfRunReader"/> — reached from the DORA
+/// digest's Wolverine handler, which cannot construct an internal type in generated code.</summary>
+public sealed class EfAspireApplicationRunReader : IAspireApplicationRunReader
 {
     private readonly DeploymentDbContext _db;
     public EfAspireApplicationRunReader(DeploymentDbContext db) => _db = db;

@@ -16,7 +16,7 @@ public sealed class NexusReconcileOptions
     public string Password { get; set; } = string.Empty;
 
     public string NuGetRepository { get; set; } = "nuget-hosted";
-    public string DockerRepository { get; set; } = "docker-hosted";
+    public string DockerRepository { get; set; } = "docker-private";
 
     /// <summary>
     /// Nexus raw (hosted) repo where the cicd-scan job uploads SBOMs, keyed by package
