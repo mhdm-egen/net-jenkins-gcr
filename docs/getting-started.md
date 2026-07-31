@@ -24,10 +24,21 @@ Everything comes up from the **Aspire AppHost** — one command starts SQL Serve
 dotnet run --project src/Aspire/Cicd.Aspire.Host
 ```
 
-The console prints an **Aspire dashboard** URL (with a login token). Open it, wait for resources to go
-green, then click the **web-admin** endpoint **from the dashboard** — that instance receives the
-Aspire-assigned API URLs. (A web-admin started on its own falls back to a fixed port and can't find the
-deployment-api.)
+The **Aspire dashboard** is pinned to <https://localhost:18888>. The console prints it with a
+one-time login token (`…/login?t=…`) — the token is regenerated each run, so copy that full line the
+first time; the browser keeps the session afterwards and the bare URL is bookmarkable.
+
+Wait for resources to go green, then click the **web-admin** endpoint **from the dashboard** — that
+instance receives the Aspire-assigned API URLs. (A web-admin started on its own falls back to a fixed
+port and can't find the deployment-api.)
+
+> **In VS Code, press F5 instead** and the dashboard opens by itself, already logged in — the
+> *Cicd Aspire AppHost (full stack)* launch configuration watches for that line and follows it.
+> `dotnet run` cannot do this: the .NET CLI applies a launch profile's environment and URLs but has
+> no browser launcher and ignores `launchBrowser`.
+>
+> Passing `--no-launch-profile` skips the profile entirely, so the dashboard goes back to a random
+> port and the AppHost runs outside Development.
 
 **Prerequisites:** Docker Desktop running (SQL Server + RabbitMQ run as containers); .NET 10 SDK. For the
 Aspire→K8s deploy + preview features, enable Kubernetes in Docker Desktop (context `docker-desktop`).

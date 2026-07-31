@@ -30,8 +30,12 @@ var jenkinsPassword = builder.AddParameter(
 // the admin UI's Docker/NuGet pages. The reconcile reader is only registered when BOTH Url and
 // Password are non-empty. These must be EAGER (fixed value) — a lazy secret AddParameter that
 // Aspire can't auto-resolve becomes an interactive prompt that blocks the referencing resource in
-// a headless `dotnet run`; builder.Configuration does NOT surface the parameter user-secrets, so we
-// read them explicitly. Override via the AppHost's user-secrets:
+// a headless `dotnet run`; builder.Configuration surfaces the parameter user-secrets ONLY when the
+// AppHost runs in Development (Aspire adds them exactly as AddUserSecrets does), so we read them
+// explicitly as well. Keep this fallback: the launch profile sets Development, but
+// `--no-launch-profile` and any non-Development run do not, and both must keep working — the two
+// sources are the same secrets store, so whichever wins returns the same value.
+// Override via the AppHost's user-secrets:
 //   dotnet user-secrets set Parameters:NexusUrl http://<nexus>:8081
 //   dotnet user-secrets set Parameters:NexusPassword <password>
 //   dotnet user-secrets set Parameters:NexusDockerHost <nexus>:8082

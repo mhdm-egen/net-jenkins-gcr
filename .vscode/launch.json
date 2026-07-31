@@ -2,10 +2,38 @@
   "version": "0.2.0",
   "configurations": [
     {
-      // cicd.web.admin — Blazor Server admin UI. The C# DevKit / C# extension
-      // picks this up as the default launch config (first entry in the list), so:
+      // Cicd Aspire AppHost — the documented entry point for the whole stack (SQL, RabbitMQ,
+      // Redis, Nexus, Jenkins, and every service). Listed FIRST so it is the default F5 target:
+      // docs/getting-started.md warns that a hand-started web-admin can't reach deployment-api,
+      // so starting the stack is almost always what you want.
+      //
+      // serverReadyAction is what actually opens the dashboard. `dotnet run` CANNOT do this — the
+      // .NET CLI applies launchSettings' env vars and URLs but has no browser launcher and ignores
+      // launchBrowser entirely. VS Code watches stdout instead, and the line Aspire prints carries
+      // the per-run login token, so the browser lands already authenticated with nothing to copy.
+      "name": "Cicd Aspire AppHost (full stack)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-apphost",
+      "program": "${workspaceFolder}/src/Aspire/Cicd.Aspire.Host/bin/Debug/net10.0/Cicd.Aspire.Host.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/src/Aspire/Cicd.Aspire.Host",
+      "stopAtEntry": false,
+      "console": "internalConsole",
+      "launchSettingsProfile": "aspire",
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "Login to the dashboard at (https?://\\S+)",
+        "uriFormat": "%s"
+      }
+    },
+    {
+      // cicd.web.admin — Blazor Server admin UI, on its own. Pick it explicitly from the launch
+      // dropdown; the AppHost above is the default F5 target.
       //   F5      → start with debugger attached (set breakpoints, inspect state)
       //   Ctrl+F5 → start without debugger (just runs the app)
+      // NOTE: started this way it gets its launchSettings ports, NOT the Aspire-injected API URLs,
+      // so it cannot reach deployment-api. Use it to debug the UI, not to exercise the platform.
       // Both share the same launchSettingsProfile so the port + env vars come
       // from Properties/launchSettings.json (currently http://localhost:8090,
       // ASPNETCORE_ENVIRONMENT=Development).

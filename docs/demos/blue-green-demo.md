@@ -13,14 +13,14 @@ all on vanilla Kubernetes, no service mesh.
 
 ## Live URLs
 
-Ports are assigned by the Aspire host per run — read them from the dashboard or process, but a
-typical local session looks like:
+The dashboard and the API ports are pinned; **web-admin's is not** — read that one from the
+dashboard each run.
 
 | Surface | URL | Use in the demo |
 | --- | --- | --- |
-| web-admin | `http://localhost:7232` | Drive everything from **Deployment → Aspire apps** |
-| deployment-api | `http://localhost:7230` | `curl` levers (optional) |
-| Aspire dashboard | `https://localhost:2469` | Traces/logs B-roll |
+| Aspire dashboard | `https://localhost:18888` | Traces/logs B-roll. Pinned; first visit needs the `?t=…` token printed on the console |
+| deployment-api | `http://localhost:7228` | `curl` levers (optional) |
+| web-admin | *(from the dashboard)* | Drive everything from **Deployment → Aspire apps** |
 
 The demo app targets the **`bg-test`** environment (`kubectl` context `docker-desktop`, base
 namespace `bgtest`). Blue-green slots land in `bgtest-blue` / `bgtest-green`.
