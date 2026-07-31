@@ -64,8 +64,12 @@ services:
       ConnectionStrings__Deployment: "Server=sqlserver;Database=Deployment;User Id=sa;Password=${SA_PASSWORD:-Your_Strong_Pass123};TrustServerCertificate=True;MultipleActiveResultSets=True"
       ConnectionStrings__messaging: "amqp://${RABBITMQ_USER:-cicd}:${RABBITMQ_PASSWORD:-cicd_local_dev}@rabbitmq:5672"
       # --- Aspire cluster deploys (the image bundles aspirate + kubectl) -------------------
-      # Digest-pin source: whatever Nexus URL THIS service can reach.
-      Deployment__Nexus__RegistryV2Url: "${NEXUS_URL:-http://nexus:8081}"
+      # Digest-pin source: whatever Nexus DOCKER-V2 URL THIS service can reach.
+      # NOT ${NEXUS_URL} — that is the REST/UI connector (:8081). NexusImageDigestResolver issues
+      # GET {url}/v2/{repo}/manifests/{tag}, which only exists on the docker connector (:8082).
+      # Pointing this at :8081 fails silently: the resolver swallows errors and returns null, so
+      # digest pinning quietly degrades to a floating tag with nothing in the logs to say why.
+      Deployment__Nexus__RegistryV2Url: "${NEXUS_REGISTRY_V2_URL:-http://nexus:8082}"
       Deployment__Nexus__Username: "${NEXUS_USER:-admin}"
       Deployment__Nexus__Password: "${NEXUS_PASSWORD:-}"
       # To actually apply to a cluster, mount a kubeconfig (below) reachable FROM this

@@ -288,6 +288,16 @@ var deployment = builder.AddProject<Projects.Deployment_Api>("deployment-api")
     .WithEnvironment("Deployment__Nexus__RegistryV2Url", nexusRegistryV2Url)
     .WithEnvironment("Deployment__Nexus__Username", nexusUsername)
     .WithEnvironment("Deployment__Nexus__Password", nexusPassword)
+    // The image-reference counterpart of ManifestBaseUrl above, and it exists for the same reason.
+    // NexusDockerHost ("nexus:8082") is RECORDED into pull references by CI because that is what
+    // build agents and cluster nodes need — but GarPush then hands that string to `crane copy`,
+    // which runs in THIS host process, where "nexus" does not resolve ("lookup nexus: no such
+    // host"). One value was serving a record purpose and a dial purpose with different answers.
+    //
+    // Taken from the registry endpoint's own host:port rather than hardcoded, so it stays correct
+    // if that endpoint moves. Only the host is swapped; repository and digest are preserved.
+    .WithEnvironment("Deployment__Nexus__DockerRegistryDialHost",
+        nexus.GetEndpoint("registry").Property(EndpointProperty.HostAndPort))
     // Derived, not independently configured — see the SlackWebhookUrl comment above.
     .WithEnvironment("Deployment__Notifications__Slack__Enabled",
         slackWebhookUrlValue.Length > 0 ? "true" : "false")
