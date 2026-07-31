@@ -33,6 +33,13 @@ config uses Docker Desktop's locked `desktop` credential store, which crane can'
 registries. The name is arbitrary (`.cicd-docker` below is just an example). Leave `DockerConfigDir`
 unset to fall back to crane's default `~/.docker` config.
 
+> **Pointing `DockerConfigDir` at `~/.docker` looks like it works and doesn't.** A `docker login`
+> stores the credential in Docker Desktop's `desktop` credsStore and leaves an *empty* `"auths"`
+> entry behind, so crane reads no credential and sends an unauthenticated request. The symptom is a
+> GarPush failure with `401 Unauthorized` on the **source**, which reads like a Nexus problem rather
+> than a config-file one. A correct `config.json` has an inline `"auth"` value for Nexus and a
+> `"credHelpers"` entry for GAR, and **no** `credsStore`.
+
 ```powershell
 # Create the (empty) dir that will hold crane's config.json — any path/name works.
 mkdir C:\Users\<you>\.cicd-docker
@@ -49,8 +56,11 @@ are one-time):
 ```powershell
 $env:DOCKER_CONFIG = "C:\Users\<you>\.cicd-docker"
 
-# Nexus (Docker) — for pulling the source image
-crane auth login <nexus-host:8082> -u <user> -p <password>
+# Nexus (Docker) — for pulling the source image.
+# Log in to the host crane actually DIALS, which is not necessarily the host recorded in the image
+# reference. Under the Aspire host that is localhost:8082 (see Deployment:Nexus:DockerRegistryDialHost);
+# under docker-compose, deployment-api is itself a container and dials nexus:8082.
+crane auth login localhost:8082 -u <user> -p <password>
 
 # GAR — register the gcloud credential helper for each region you deploy to
 gcloud auth configure-docker us-west1-docker.pkg.dev      # add us-central1-docker.pkg.dev, etc. as needed
