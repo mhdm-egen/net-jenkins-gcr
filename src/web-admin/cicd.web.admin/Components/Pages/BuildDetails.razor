@@ -1,4 +1,5 @@
 @page "/jenkins/builds/{Number:int}"
+@page "/jenkins/builds/{Job}/{Number:int}"
 @inject IBuildStore Store
 @inject JenkinsOptions JenkinsOpts
 @inject NavigationManager Nav
@@ -250,9 +251,18 @@ else if (_details is { } details)
 }
 
 @code {
-    private const string _jobName = "cicd-build";
+    private const string DefaultJob = "cicd-build";
 
     [Parameter] public int Number { get; set; }
+
+    /// <summary>
+    /// Optional route segment. Absent on the original /jenkins/builds/{Number} links (which have
+    /// always meant cicd-build), present when the builds list is showing another pipeline stage —
+    /// without it, a scan or publish run would open cicd-build's build of the same number.
+    /// </summary>
+    [Parameter] public string? Job { get; set; }
+
+    private string _jobName => string.IsNullOrWhiteSpace(Job) ? DefaultJob : Job;
 
     private bool _loading;
     private string? _error;
@@ -260,6 +270,7 @@ else if (_details is { } details)
     private BuildInfo? _buildInfo;
     private string? _buildInfoError;
     private int _lastLoadedNumber;
+    private string? _lastLoadedJob;
 
     // --- Artifact viewer state ---
     private const long MaxPreviewBytes = 2L * 1024 * 1024;   // 2 MB
@@ -277,10 +288,12 @@ else if (_details is { } details)
 
     protected override async Task OnParametersSetAsync()
     {
-        // Allow re-navigation to a different #N to re-fetch without page recreation.
-        if (Number != _lastLoadedNumber)
+        // Allow re-navigation to a different #N — or the same #N of a different job — to re-fetch
+        // without page recreation.
+        if (Number != _lastLoadedNumber || !string.Equals(_jobName, _lastLoadedJob, StringComparison.Ordinal))
         {
             _lastLoadedNumber = Number;
+            _lastLoadedJob = _jobName;
             await LoadAsync();
         }
     }
