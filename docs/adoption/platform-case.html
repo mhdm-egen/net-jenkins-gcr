@@ -1,0 +1,754 @@
+<!doctype html>
+<!--
+  The adoption case as a single self-contained page — open it in any browser, no build step and no
+  network access required. Same content as the markdown decks in this folder:
+  deck-leadership.md, deck-engineers.md, deck-platform-ops.md and adoption-plan.md, which stay the
+  source of truth for review in a PR. This file is the one to present from or send to someone.
+
+  Light/dark follow the OS setting via prefers-color-scheme.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hours → minutes, in every environment</title>
+
+<style>
+  /* Minimal reset — the hosted version gets one from its wrapper; standalone needs its own. */
+  html { -webkit-text-size-adjust: 100%; }
+  img, svg { max-width: 100%; height: auto; }
+</style>
+
+<style>
+  :root {
+    --ink:        #131A22;
+    --ink-2:      #2C3A47;
+    --ink-3:      #5A6B7A;
+    --paper:      #F5F7F8;
+    --paper-2:    #FFFFFF;
+    --rule:       #D8DFE3;
+    --accent:     #0E7C86;
+    --accent-2:   #14A0AC;
+    --accent-dim: #0E7C8618;
+    --inert:      #97A4AE;
+    --inert-bg:   #97A4AE22;
+    --warn:       #9A6B2F;
+    --warn-bg:    #9A6B2F1A;
+
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink:        #E8EDF0;
+      --ink-2:      #B7C3CC;
+      --ink-3:      #8494A0;
+      --paper:      #0E141A;
+      --paper-2:    #161F27;
+      --rule:       #27333D;
+      --accent:     #3FBCC6;
+      --accent-2:   #5FD3DC;
+      --accent-dim: #3FBCC622;
+      --inert:      #63737F;
+      --inert-bg:   #63737F2E;
+      --warn:       #D6A560;
+      --warn-bg:    #D6A56022;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink:#E8EDF0; --ink-2:#B7C3CC; --ink-3:#8494A0;
+    --paper:#0E141A; --paper-2:#161F27; --rule:#27333D;
+    --accent:#3FBCC6; --accent-2:#5FD3DC; --accent-dim:#3FBCC622;
+    --inert:#63737F; --inert-bg:#63737F2E; --warn:#D6A560; --warn-bg:#D6A56022;
+  }
+  :root[data-theme="light"] {
+    --ink:#131A22; --ink-2:#2C3A47; --ink-3:#5A6B7A;
+    --paper:#F5F7F8; --paper-2:#FFFFFF; --rule:#D8DFE3;
+    --accent:#0E7C86; --accent-2:#14A0AC; --accent-dim:#0E7C8618;
+    --inert:#97A4AE; --inert-bg:#97A4AE22; --warn:#9A6B2F; --warn-bg:#9A6B2F1A;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.62;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 62rem; margin: 0 auto; padding: 0 1.5rem 5rem; }
+
+  /* ---------- masthead ---------- */
+  .masthead { padding: 4.5rem 0 2rem; border-bottom: 1px solid var(--rule); }
+  .eyebrow {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 1.4rem;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 600; text-wrap: balance;
+    font-size: clamp(2.1rem, 5.2vw, 3.4rem); line-height: 1.1;
+    letter-spacing: -.015em; margin: 0 0 1.1rem;
+  }
+  h1 .fast { color: var(--accent); }
+  .standfirst {
+    font-size: 1.1rem; color: var(--ink-2); max-width: 40rem; margin: 0;
+    text-wrap: pretty;
+  }
+
+  /* ---------- the log-scale duration comparison ---------- */
+  .gauge { margin: 2.75rem 0 .75rem; display: flex; flex-direction: column; gap: 1.15rem; }
+  .gauge-row { display: grid; grid-template-columns: 11rem 1fr; gap: 1rem; align-items: center; }
+  .gauge-label { font-size: .86rem; color: var(--ink-2); }
+  .gauge-track { display: flex; flex-direction: column; gap: .4rem; }
+  .bar { display: flex; align-items: center; gap: .6rem; }
+  .bar-fill { height: .72rem; border-radius: 1px; }
+  .bar.old .bar-fill { background: var(--inert); }
+  .bar.new .bar-fill { background: var(--accent); }
+  .bar-time {
+    font-family: var(--mono); font-size: .8rem; font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .bar.old .bar-time { color: var(--ink-3); }
+  .bar.new .bar-time { color: var(--accent); font-weight: 600; }
+  .scale-note {
+    font-family: var(--mono); font-size: .7rem; color: var(--ink-3);
+    letter-spacing: .04em; margin: .2rem 0 0;
+  }
+
+  /* ---------- audience switcher ---------- */
+  .switcher {
+    position: sticky; top: 0; z-index: 10; background: var(--paper);
+    border-bottom: 1px solid var(--rule); margin-top: 2.5rem;
+    display: flex; gap: .25rem; overflow-x: auto; padding: .5rem 0;
+  }
+  .switcher button {
+    font-family: var(--mono); font-size: .74rem; letter-spacing: .09em;
+    text-transform: uppercase; white-space: nowrap;
+    background: none; border: 0; border-bottom: 2px solid transparent;
+    color: var(--ink-3); padding: .55rem .85rem; cursor: pointer;
+  }
+  .switcher button:hover { color: var(--ink); }
+  .switcher button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  .switcher button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- panels ---------- */
+  .panel { padding-top: 2.75rem; }
+  .panel[hidden] { display: none; }
+  .panel-intro { color: var(--ink-2); max-width: 44rem; margin: 0 0 2rem; }
+
+  h2 {
+    font-family: var(--serif); font-weight: 600; font-size: 1.62rem;
+    letter-spacing: -.01em; text-wrap: balance; margin: 2.6rem 0 .9rem;
+  }
+  h3 {
+    font-family: var(--sans); font-weight: 650; font-size: .95rem;
+    letter-spacing: .01em; margin: 1.8rem 0 .6rem;
+  }
+  p { margin: 0 0 1rem; max-width: 44rem; text-wrap: pretty; }
+  ul { margin: 0 0 1rem; padding-left: 1.1rem; max-width: 44rem; }
+  li { margin-bottom: .5rem; }
+  strong { font-weight: 650; }
+  code {
+    font-family: var(--mono); font-size: .875em;
+    background: var(--inert-bg); padding: .1em .35em; border-radius: 2px;
+  }
+
+  /* ---------- tables ---------- */
+  .table-scroll { overflow-x: auto; margin: 1.2rem 0 1.6rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; min-width: 34rem; }
+  th, td { text-align: left; padding: .62rem .8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--ink-3); font-weight: 500;
+    border-bottom-color: var(--ink-3);
+  }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.was { color: var(--ink-3); }
+  td.now { color: var(--accent); font-weight: 600; }
+  .measured {
+    font-family: var(--mono); font-size: .64rem; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--accent);
+    background: var(--accent-dim); padding: .16em .45em; border-radius: 2px;
+    white-space: nowrap;
+  }
+
+  /* ---------- caveat ---------- */
+  .caveat {
+    border-left: 3px solid var(--warn); background: var(--warn-bg);
+    padding: 1rem 1.15rem; margin: 1.8rem 0; border-radius: 0 3px 3px 0;
+  }
+  .caveat p { margin: 0; max-width: none; font-size: .93rem; }
+  .caveat p + p { margin-top: .7rem; }
+  .caveat-head {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--warn); display: block; margin-bottom: .45rem;
+  }
+
+  /* ---------- phases: a genuine ordered sequence ---------- */
+  .phases { display: flex; flex-direction: column; gap: 0; margin: 1.5rem 0 2rem; }
+  .phase {
+    display: grid; grid-template-columns: 3.2rem 1fr; gap: 1.2rem;
+    padding: 1.35rem 0; border-top: 1px solid var(--rule);
+  }
+  .phase:last-child { border-bottom: 1px solid var(--rule); }
+  .phase-n {
+    font-family: var(--mono); font-size: 1.5rem; font-weight: 600;
+    color: var(--accent); line-height: 1; padding-top: .15rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .phase-body h3 { margin-top: 0; font-size: 1.02rem; }
+  .phase-body p { font-size: .94rem; margin-bottom: .6rem; }
+  .phase-meta {
+    font-family: var(--mono); font-size: .72rem; color: var(--ink-3);
+    letter-spacing: .04em; display: block; margin-bottom: .5rem;
+  }
+  .exit {
+    font-size: .89rem; border-left: 2px solid var(--accent);
+    padding-left: .8rem; color: var(--ink-2); margin: .7rem 0 0; max-width: 42rem;
+  }
+  .exit b { color: var(--accent); font-family: var(--mono); font-size: .7rem;
+            letter-spacing: .1em; text-transform: uppercase; display: block; margin-bottom: .2rem; }
+
+  .skills-note {
+    font-family: var(--mono); font-size: .74rem; color: var(--accent);
+    letter-spacing: .03em; margin-top: .55rem;
+  }
+
+  footer {
+    margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+    font-size: .85rem; color: var(--ink-3);
+  }
+  footer p { max-width: 46rem; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .bar-fill { transition: width .5s ease; }
+  }
+  @media (max-width: 34rem) {
+    .gauge-row { grid-template-columns: 1fr; gap: .4rem; }
+    .phase { grid-template-columns: 2.2rem 1fr; gap: .9rem; }
+  }
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">CI/CD platform · the case for adoption</p>
+    <h1>9–13 hours →<br><span class="fast">30–45 minutes</span></h1>
+    <p class="standfirst">
+      400 projects, one deployable artifact, four environments — each paying its own package-and-deploy
+      cost today. <strong>The first 15–20× needs no code restructuring at all.</strong> It comes from
+      replacing the VM bake with a container build, and promoting one pinned artifact instead of
+      re-packaging four times.
+    </p>
+
+    <div class="gauge">
+      <div class="gauge-row">
+        <span class="gauge-label">Commit → dev/test</span>
+        <div class="gauge-track">
+          <div class="bar old"><span class="bar-fill" style="width:88%"></span><span class="bar-time">2–3 hours <span style="opacity:.7">+ 30–45 min compile</span></span></div>
+          <div class="bar new"><span class="bar-fill" style="width:44%"></span><span class="bar-time">25–40 min <span style="opacity:.7">no code changes</span></span></div>
+        </div>
+      </div>
+      <div class="gauge-row">
+        <span class="gauge-label">Promote → qa</span>
+        <div class="gauge-track">
+          <div class="bar old"><span class="bar-fill" style="width:88%"></span><span class="bar-time">another full cycle</span></div>
+          <div class="bar new"><span class="bar-fill" style="width:22%"></span><span class="bar-time">~2 min <span style="opacity:.7">no rebuild</span></span></div>
+        </div>
+      </div>
+      <div class="gauge-row">
+        <span class="gauge-label">Promote → cert</span>
+        <div class="gauge-track">
+          <div class="bar old"><span class="bar-fill" style="width:88%"></span><span class="bar-time">another full cycle</span></div>
+          <div class="bar new"><span class="bar-fill" style="width:22%"></span><span class="bar-time">~2 min <span style="opacity:.7">no rebuild</span></span></div>
+        </div>
+      </div>
+      <div class="gauge-row">
+        <span class="gauge-label">Promote → prod</span>
+        <div class="gauge-track">
+          <div class="bar old"><span class="bar-fill" style="width:88%"></span><span class="bar-time">another full cycle</span></div>
+          <div class="bar new"><span class="bar-fill" style="width:22%"></span><span class="bar-time">~2 min <span style="opacity:.7">no rebuild</span></span></div>
+        </div>
+      </div>
+      <p class="scale-note">
+        Bars are on a logarithmic scale — at true scale the lower bar would be roughly one pixel, which is
+        the point. Today each environment pays the full cycle again; here, only the first one builds.
+      </p>
+    </div>
+  </header>
+
+  <nav class="switcher" role="tablist" aria-label="Choose an audience">
+    <button role="tab" id="tab-lead" aria-controls="p-lead" aria-selected="true">Leadership</button>
+    <button role="tab" id="tab-dev" aria-controls="p-dev" aria-selected="false">Engineers</button>
+    <button role="tab" id="tab-ops" aria-controls="p-ops" aria-selected="false">Platform &amp; Ops</button>
+    <button role="tab" id="tab-plan" aria-controls="p-plan" aria-selected="false">Adoption plan</button>
+  </nav>
+
+  <!-- ================= LEADERSHIP ================= -->
+  <section class="panel" id="p-lead" role="tabpanel" aria-labelledby="tab-lead">
+    <p class="panel-intro">
+      The short version: the same work, released in a day instead of a fortnight, with audit evidence
+      produced automatically rather than assembled by hand.
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>&nbsp;</th><th>Today</th><th>Step 1 — no code changes</th><th>Step 2 — modular</th></tr></thead>
+        <tbody>
+          <tr><td>Compile</td><td class="num was">30–45 min</td><td class="num now">15–30 min</td><td>2–5 min</td></tr>
+          <tr><td>Containerise + scan</td><td class="num was">—</td><td class="num now">5–8 min</td><td>2–3 min</td></tr>
+          <tr><td>Reach dev/test</td><td class="num was">2–3 h</td><td class="num now">~2 min</td><td>~2 min</td></tr>
+          <tr><td>Reach qa, cert, prod</td><td class="num was">6–9 h</td><td class="num now">~6 min total</td><td>~6 min total</td></tr>
+          <tr><td><strong>Commit → running in prod</strong></td><td class="num was"><strong>9–13 hours</strong></td><td class="num now"><strong>30–45 min</strong></td><td><strong>12–16 min</strong></td></tr>
+          <tr><td>Deploy approval</td><td class="num was">days</td><td class="num now">in-product gate</td><td>in-product gate</td></tr>
+          <tr><td>Rollback</td><td class="num was">manual, hours</td><td class="num now">one click</td><td>one click</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p><strong>The per-environment row is the real story.</strong> Today every environment pays the whole
+      30–45 minute compile plus the 2–3 hour package-and-deploy, again. Here, environments after the
+      first cost only a deploy — the artifact is already built and pinned to a digest, so promotion runs
+      bit-identical artifacts elsewhere with no second build. <strong>That row does not move if the
+      codebase doubles.</strong></p>
+
+    <div class="caveat">
+      <span class="caveat-head">Test execution is excluded from every figure, on both sides</span>
+      <p>The suites live outside the main solution, so they are not part of the build being measured —
+        and not part of today's numbers either. The ratio stays fair; the absolute figures are
+        build-and-deploy only.</p>
+      <p>When test time is known, add it to both columns. It lands on the <strong>build</strong> row and
+        leaves the promotion rows untouched — which is where most of the four-environment gain comes
+        from. Wiring the existing suites in as a build gate is a follow-on opportunity, not a
+        prerequisite.</p>
+    </div>
+
+    <h2>What agility actually looks like</h2>
+    <ul>
+      <li><strong>Containers replace machine images.</strong> An artifact is built once, pinned to a
+        digest, and the <em>same bytes</em> move through dev/test → qa → cert → prod. No re-baking, no
+        "works in qa" — there is nothing left to drift.</li>
+      <li><strong>Environments stop being scarce.</strong> A VM environment is a standing cost, so we
+        ration them. Containers make one cheap enough to create per pull request and delete when it
+        closes — stakeholders review working software instead of a description of it.</li>
+      <li><strong>Capacity follows demand.</strong> Kubernetes and Cloud Run schedule onto shared nodes
+        and scale to zero. We stop paying 24×7 for peak capacity used at 10am.</li>
+      <li><strong>Recovery is a decision, not a project.</strong> Rolling back redeploys the previous
+        digest — one click, seconds — instead of rebuilding an image and re-running an apply.</li>
+      <li><strong>Evidence is a by-product.</strong> A CycloneDX bill of materials and a CVE scan on
+        every build, tied to the exact commit — useful when <em>cert</em> means what it usually means.</li>
+      <li><strong>DORA measured, not estimated</strong> — lead time, deploy frequency, change failure
+        rate, time to restore, computed from real runs.</li>
+    </ul>
+
+    <h2>AI is built into the pipeline, not bolted beside it</h2>
+    <p>Speed only converts into agility if people don't stall. Most of the delay after a fast build
+      isn't the machine — it's someone reading logs to work out what happened. That is where AI sits
+      here: at every point where a person would otherwise go and find out.</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Stage</th><th>What it does for us</th></tr></thead>
+        <tbody>
+          <tr><td>Build fails</td><td>Names the cause from the failing job's output — no scrolling thousands of lines</td></tr>
+          <tr><td>Security scan</td><td>Explains each CVE in the context of the package that pulled it in</td></tr>
+          <tr><td>Dependencies change</td><td>Compares two builds' bills of materials and narrates what actually matters</td></tr>
+          <tr><td>Licences</td><td>A ship / don't-ship call, in priority order</td></tr>
+          <tr><td>Deploy fails</td><td>Turns the failure into a specific fix, grounded in the deploy target</td></tr>
+          <tr><td>Running ≠ deployed</td><td>Separates "not rolled out yet" from "changed out of band"</td></tr>
+          <tr><td>Release time</td><td>Release notes across a range of builds, grouped by theme</td></tr>
+          <tr><td>Every week</td><td>Narrates the DORA four to Slack automatically</td></tr>
+          <tr><td>Any question</td><td>"Ask the platform" answers from live data, showing which sources it used</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>The governance answers, before they're asked</h3>
+    <ul>
+      <li><strong>It cannot act.</strong> The assistant has <strong>no write tools</strong> — fifteen
+        read-only ones. A suggested action is a <em>link to the real button</em>, validated against the
+        same guard that renders it. Never a shortcut around it.</li>
+      <li><strong>Every call is metered and costed</strong> per feature and per model, with an advisory
+        month-to-date budget bar. The budget warns; it never blocks.</li>
+      <li><strong>It degrades to nothing.</strong> No API key and the AI actions don't appear — the
+        platform runs exactly as it would without them.</li>
+      <li><strong>It refuses rather than invents.</strong> Release notes decline to summarise a range
+        with no recorded commit messages instead of producing confident fiction.</li>
+    </ul>
+
+    <h2>What it asks of us</h2>
+    <ul>
+      <li><strong>A skills gap, not a technology gap.</strong> The team has not yet built or operated a
+        modernised .NET application, nor used a pipeline like this. The adoption plan is built around
+        closing that rather than assuming it away.</li>
+      <li><strong>A period of running both pipelines</strong>, until the last component leaves the old one.</li>
+      <li><strong>The modularity work itself</strong> — that's Step 2's 3×, not Step 1's 15–20×.</li>
+    </ul>
+
+    <div class="caveat">
+      <span class="caveat-head">One figure is still an estimate</span>
+      <p>The platform's own pipeline measures <strong>3 min 06 s</strong> commit to running, but on a
+        small sample app. The figures above are scaled estimates for our system, deliberately
+        conservative.</p>
+      <p><strong>Full-solution build time for 400 projects on modern .NET is assumed at 15–30 min and
+        has not been measured.</strong> Part of that gain may come from the port itself rather than the
+        platform — worth not over-claiming. It is cheap to settle: build the ported solution once and
+        time it.</p>
+    </div>
+
+    <h2>The ask</h2>
+    <p>Point CI at the existing repository — no code changes, no deploy changes — and review real
+      numbers for our own code in 30 days.</p>
+  </section>
+
+  <!-- ================= ENGINEERS ================= -->
+  <section class="panel" id="p-dev" role="tabpanel" aria-labelledby="tab-dev" hidden>
+    <p class="panel-intro">You stop waiting. That's the whole pitch.</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>What you do</th><th>Today</th><th>Here</th></tr></thead>
+        <tbody>
+          <tr><td>Find out if it compiles</td><td class="was">30–45 min, often queued</td><td class="now">minutes, not hours</td></tr>
+          <tr><td>Find out if you added a CVE</td><td class="was">later, or never</td><td class="now">every build</td></tr>
+          <tr><td>Show someone your work</td><td class="was">merge it, or queue for the shared box</td><td class="now">its own URL per PR</td></tr>
+          <tr><td>Deploy it</td><td class="was">raise a ticket, wait days</td><td class="now">click Deploy</td></tr>
+          <tr><td>It broke in production</td><td class="was">page someone, dig through logs</td><td class="now">one-click rollback</td></tr>
+          <tr><td>Find out why it broke</td><td class="was">scroll thousands of log lines</td><td class="now">ask in plain English</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>AI does the log-reading</h2>
+    <p>A fast build only helps if you aren't then stuck working out what it means. The platform puts an
+      explanation next to the thing that failed, at every stage:</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>When</th><th>What you get</th></tr></thead>
+        <tbody>
+          <tr><td>Build fails</td><td>The cause, from the failing job's console output — it picks the failing job and reads the log tail so you don't have to</td></tr>
+          <tr><td>Deploy fails</td><td>A specific fix, grounded in the deploy target and the typed failure — not generic advice</td></tr>
+          <tr><td>An Aspire deploy looks unhealthy</td><td>The warnings behind it, on a succeeded run as well as a failed one</td></tr>
+          <tr><td>A CVE appears on your SBOM</td><td>What it means <em>for the package that pulled it in</em></td></tr>
+          <tr><td>Dependencies changed</td><td>Added / removed / upgraded / downgraded, licence changes, CVE delta — narrated in priority order</td></tr>
+          <tr><td>Running ≠ what you deployed</td><td>Whether it just hasn't rolled out, or changed out of band — and whether redeploying overwrites someone's work</td></tr>
+          <tr><td>Writing up a release</td><td>Release notes across a range of builds, grouped by theme</td></tr>
+          <tr><td>Any question</td><td><strong>Ask the platform</strong> — answers from live data, and shows which tools it used to get there</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p><strong>It cannot touch your system.</strong> Fifteen read-only tools; no write tool exists. When
+      it suggests an action you get a <em>link to the real button</em>, validated against the same guard
+      that renders it — so you are always the one who clicks.</p>
+
+    <h2>The parts that matter when this is all new</h2>
+    <p>The platform is built so that <em>not knowing yet</em> is survivable:</p>
+    <ul>
+      <li><strong>A bad build can't reach users.</strong> New versions go to a parallel environment and
+        must prove healthy before taking traffic. If they don't, they're deleted automatically — and the
+        old version never stopped serving.</li>
+      <li><strong>Rollback is one click</strong>, to the exact image that was running. Not a rebuild,
+        not a guess.</li>
+      <li><strong>Your PR gets a real environment</strong>, isolated, deleted automatically. Break it
+        freely.</li>
+      <li><strong>Production still needs a human.</strong> Protected environments hold the deploy until
+        someone approves; rejecting applies nothing.</li>
+    </ul>
+
+    <div class="caveat">
+      <span class="caveat-head">What you'll actually need to learn</span>
+      <p>We're not pretending there's nothing. Three things: <strong>containers</strong> (what an image
+        is, why we pin by digest, why the app can't write to local disk); <strong>reading a deployment
+        instead of a server</strong> (pods, restarts, health, logs); and that <strong>configuration and
+        secrets come from the environment</strong>, not a <code>web.config</code> on a box.</p>
+      <p>You won't be asked to learn these alone, or in production first.</p>
+    </div>
+  </section>
+
+  <!-- ================= PLATFORM / OPS ================= -->
+  <section class="panel" id="p-ops" role="tabpanel" aria-labelledby="tab-ops" hidden>
+    <p class="panel-intro">The pipeline, swapped part for part — and an honest account of what this
+      asks of us.</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Stage</th><th>Today</th><th>Here</th><th>Measured</th></tr></thead>
+        <tbody>
+          <tr><td>Compile</td><td class="was">monolith build, 30–45 min</td><td>per-repo job, commit-pinned</td><td class="num now">44 s</td></tr>
+          <tr><td>Security</td><td class="was">separate, after the fact</td><td>SBOM · NuGet CVE gate · Trivy image scan</td><td class="num now">64 s</td></tr>
+          <tr><td>Package</td><td class="was">Packer bakes a VM, hours</td><td>container, copy-not-compile, non-root</td><td class="num now">35 s</td></tr>
+          <tr><td>Artifact store</td><td class="was">VM images</td><td>Nexus — NuGet, Docker, raw SBOMs</td><td></td></tr>
+          <tr><td>Deploy</td><td class="was">Terraform Enterprise apply</td><td>Kubernetes (Aspirate) or Cloud Run</td><td class="num now">5 s / 64 s</td></tr>
+          <tr><td>Rollback</td><td class="was">rebuild or restore</td><td>redeploy the prior digest</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>What grows as the system grows — and what doesn't</h2>
+    <p>The measured figures are a sample app. The useful question isn't whether they hold, but which
+      terms scale:</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Stage</th><th>Scales with</th><th>Growth</th></tr></thead>
+        <tbody>
+          <tr><td>Compile</td><td>changed projects, LOC</td><td class="was">linear — but divisible by agents, and only what changed</td></tr>
+          <tr><td>Tests</td><td>test count in changed scope</td><td class="was">linear — usually the dominant term</td></tr>
+          <tr><td>Container build</td><td>publish output size</td><td>sub-linear — layer caching</td></tr>
+          <tr><td>SBOM + CVE scan</td><td>dependency count</td><td class="now">near-flat</td></tr>
+          <tr><td>Image pull</td><td>image size</td><td class="now">near-flat after first pull</td></tr>
+          <tr><td>Health gate</td><td><em>nothing</em></td><td class="now">fixed ceiling: 120 s</td></tr>
+          <tr><td>Promotion to next env</td><td><em>nothing</em></td><td class="now">zero build — same digest</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Both of the last two are verified in code rather than assumed: the health gate polls every 5 s
+      against a hard 120-second deadline, and promotion creates a run against a different environment
+      using the app's <em>existing</em> manifest and version. Deploy duration is bounded by readiness,
+      not by codebase size.</p>
+
+    <h2>What Terraform Enterprise keeps</h2>
+    <p>This does <strong>not</strong> replace infrastructure-as-code. TFE still owns clusters, networks,
+      databases and IAM — the things that change monthly. What moves off it is <strong>application
+      rollout</strong>, which changes hourly. Those two cadences should never have shared a tool.</p>
+
+    <h2>Operational properties worth knowing</h2>
+    <ul>
+      <li><strong>Digest-pinned and immutable.</strong> Deploys reference <code>@sha256:…</code>, so what
+        was tested is bit-identical to what ships. No "the tag moved".</li>
+      <li><strong>Blue-green with a health gate.</strong> The new version lands in a parallel namespace
+        and must pass health before cutover; if it fails, that namespace is deleted and the old one never
+        stopped serving. It's a namespace flip, <em>not</em> weighted traffic splitting — the honest
+        trade for running on vanilla Kubernetes with no service mesh.</li>
+      <li><strong>Event-driven handoff.</strong> CI publishes facts to RabbitMQ; the deployment service
+        reacts. Neither calls the other. A SQL outbox/inbox makes it idempotent across retries.</li>
+      <li><strong>Drift detection</strong> compares what's running against what we deployed.</li>
+      <li><strong>Preview environments</strong> per PR, torn down on close, TTL-swept if the webhook is
+        missed.</li>
+    </ul>
+
+    <h2>The AI layer — how it's wired, and what constrains it</h2>
+    <p>One SDK call site behind an interface, with token usage captured at the boundary and fanned out
+      to an OpenTelemetry meter and a usage ledger. <strong>No API key and the AI actions simply don't
+      render</strong> — the platform runs unchanged without them.</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Property</th><th>Detail</th></tr></thead>
+        <tbody>
+          <tr><td>Read-only by construction</td><td>15 read tools. <strong>There is no write tool.</strong> It cannot mutate state even if asked</td></tr>
+          <tr><td>Suggestions are links, not shortcuts</td><td>A proposed action is validated against the same status guard that renders the real button, and surfaced as a link to it</td></tr>
+          <tr><td>Grounded, not free-associating</td><td>Failure triage reads the failing job's log tail; deploy triage reads the typed failure kind and the target; CVE explanation reads the affected package</td></tr>
+          <tr><td>Cached</td><td>Explanations are Redis-cached; tool definitions + system prompt form one stable ~3,087-token cached prefix</td></tr>
+          <tr><td>Metered</td><td>Every call rated into a ledger by model and by feature — idempotent ingest, versioned rate table</td></tr>
+          <tr><td>Budgeted, advisorily</td><td>Month-to-date spend bar with a warning threshold. It warns; it never blocks or disables</td></tr>
+          <tr><td>Refuses rather than invents</td><td>Release notes decline a range with no recorded commit messages rather than producing fiction</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Practical consequence: the AI layer is <strong>optional infrastructure</strong>. It fails soft,
+      costs are attributable per feature, and nothing in the build or deploy path depends on it.</p>
+
+    <div class="caveat">
+      <span class="caveat-head">Honest caveats</span>
+      <p><strong>Windows/.NET Framework components can't use the Linux container path</strong> until
+        they're ported — they stay on Packer/TFE, so we run both pipelines for a period.</p>
+      <p><strong>The platform repo has no automated test suite.</strong> Verification to date has been
+        manual against a running system. If we depend on this in production, that gap needs closing.</p>
+      <p><strong>Two known issues are documented and unfixed:</strong> deleted Aspire apps orphan their
+        run history, and build attribution doesn't check the Git URL — so two repos sharing a CI job name
+        would each claim every run.</p>
+    </div>
+  </section>
+
+  <!-- ================= ADOPTION PLAN ================= -->
+  <section class="panel" id="p-plan" role="tabpanel" aria-labelledby="tab-plan" hidden>
+    <p class="panel-intro">
+      The technology is not the risk. The risk is asking people to operate an unfamiliar runtime, on an
+      unfamiliar pipeline, on a codebase mid-port — in production. So this plan sequences by
+      <strong>how much new skill each step demands</strong>, not by technical convenience.
+    </p>
+
+    <h2>Two rules every phase obeys</h2>
+    <ul>
+      <li><strong>Value before skill.</strong> Each phase pays for itself using skills the team already has.</li>
+      <li><strong>Guardrails before autonomy.</strong> The safety net is switched on <em>before</em> the
+        step that needs it — never after an incident proves it was needed.</li>
+    </ul>
+
+    <div class="phases">
+      <div class="phase">
+        <span class="phase-n">0</span>
+        <div class="phase-body">
+          <h3>Turn on the safety net</h3>
+          <span class="phase-meta">Nobody's workflow changes</span>
+          <p>Mark production and staging protected so deploys park for approval. Confirm blue-green with
+            the health gate. Enable preview environments with a TTL. Wire notifications.</p>
+          <p class="exit"><b>Exit</b>A deliberately broken deploy is attempted in a scratch environment
+            and the platform rolls it back on its own, in front of the team. That demonstration is the
+            point — it's what makes later phases feel survivable.</p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <span class="phase-n">1</span>
+        <div class="phase-body">
+          <h3>CI only, on the repo we already have</h3>
+          <span class="phase-meta">Weeks 1–4 · new skills required: none</span>
+          <p>Point CI at the existing monolith. Change nothing about how it deploys — it keeps going out
+            via Packer and TFE exactly as today. The team gains faster compile feedback, an SBOM and CVE
+            scan on every build, and build history tied to commit and author.</p>
+          <p class="skills-note">This is the highest-value, lowest-risk step available — and the one most
+            teams skip.</p>
+          <p class="exit"><b>Exit</b>Every merge produces a build, an SBOM and a scan, and the team trusts
+            the results enough to act on them.</p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <span class="phase-n">2</span>
+        <div class="phase-body">
+          <h3>Containerise the monolith, deploy to dev/test only</h3>
+          <span class="phase-meta">Weeks 4–12 · introduces exactly three new skills</span>
+          <p>There is no modular service to pilot with — 400 projects produce one artifact. So the pilot
+            is the monolith itself, containerised and deployed to dev/test, while qa/cert/prod stay on
+            Packer and TFE. <strong>This is where the 15–20× lands, and it needs no decomposition.</strong>
+            One platform-literate engineer is paired with the team throughout — not a hand-off.</p>
+          <p class="skills-note">Expect this phase to be dominated by .NET Framework containerisation
+            questions — IIS assumptions, local disk writes, session state — not by the platform.</p>
+          <p class="exit"><b>Exit</b>The team deploys the monolith to dev/test unaided and can diagnose a
+            failed deploy without escalating. If they can't, stay in this phase — don't advance on a date.</p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <span class="phase-n">3</span>
+        <div class="phase-body">
+          <h3>Promote through qa and cert</h3>
+          <span class="phase-meta">Weeks 10–18 · overlaps Phase 2</span>
+          <p>Extend up the chain — dev/test → qa → cert — leaving production on the old path. This is the
+            phase that proves the central claim: <strong>promotion rebuilds nothing.</strong> The artifact
+            tested in dev/test is the one that reaches cert, in about two minutes per environment instead
+            of a fresh 2–3 hour package-and-deploy. Measure it here and put the real number in the deck.</p>
+          <p class="skills-note">Per-PR previews come on here too, if the monolith can stand up in one —
+            a single large artifact may make them expensive. Defer to Phase 5 rather than forcing it.</p>
+          <p class="exit"><b>Exit</b>qa and cert are fed by promotion, and nobody re-packages to move
+            between environments.</p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <span class="phase-n">4</span>
+        <div class="phase-body">
+          <h3>Production, behind an approval gate</h3>
+          <span class="phase-meta">Weeks 16–24</span>
+          <p>Business hours, pairing engineer present, rollback rehearsed <em>before</em> it's needed. Run
+            it a full month before starting Phase 5 — the point is to meet a real production surprise
+            while the support structure still exists.</p>
+          <p class="skills-note">Raise release cadence deliberately, not automatically. The platform makes
+            deploy-on-every-merge possible; whether to enable it is a separate decision.</p>
+          <p class="exit"><b>Exit</b>One month in production, including at least one rollback or incident
+            handled by the team.</p>
+        </div>
+      </div>
+
+      <div class="phase">
+        <span class="phase-n">5</span>
+        <div class="phase-body">
+          <h3>Modularity — the second increment</h3>
+          <span class="phase-meta">Month 6 onward · a further ~3×</span>
+          <p>Phases 1–4 deliver 15–20× with <strong>no code restructuring</strong>. Phase 5 attacks the
+            only large term left — the build — by turning one artifact into ~10–20 independently
+            buildable and deployable ones. A typical change then rebuilds one component instead of 400
+            projects: <strong>30–45 min → 12–16 min</strong>.</p>
+          <p>Target the <em>depth</em> of the dependency graph, not the project count: if everything
+            references one shared library, a change to it rebuilds all 400 however the pipeline is
+            configured. Extract one component at a time, each running Phases 2–4 in miniature.</p>
+          <p class="skills-note">Only retire Packer/TFE for a component once it is fully across — running
+            both pipelines is a real ongoing cost. Terraform Enterprise keeps the infrastructure.</p>
+        </div>
+      </div>
+    </div>
+
+    <h2>Two honest notes on enablement</h2>
+    <ul>
+      <li><strong>The AI features genuinely lower the floor.</strong> "Explain this failure", "explain this
+        CVE", and asking the platform questions in plain English shorten the distance between an unfamiliar
+        symptom and a plausible cause. They do not substitute for understanding — a team that leans on them
+        exclusively will be unable to handle the case the model gets wrong.</li>
+      <li><strong>Buy some expertise for the first six months.</strong> A team learning modern .NET,
+        containers, Kubernetes and a new pipeline simultaneously, with no experienced practitioner
+        alongside, is the single most likely way this fails. One embedded hire or contractor is cheaper
+        than the incident that otherwise teaches the lesson.</li>
+    </ul>
+
+    <h2>What this plan deliberately does not do</h2>
+    <ul>
+      <li><strong>No big-bang cutover.</strong> The old pipeline runs until the last component leaves it.</li>
+      <li><strong>No production deploy before Phase 4.</strong> Skill is built where mistakes are cheap.</li>
+      <li><strong>No date-driven advancement.</strong> Every exit is a demonstrated capability. If a team
+        can't deploy unaided, the answer is another week of pairing — not a green tick.</li>
+    </ul>
+
+    <h2>What to decide now</h2>
+    <ul>
+      <li>Which repository gets Phase 1 — recommendation: the monolith, because it needs no porting and
+        proves value immediately.</li>
+      <li>Which team owns the Phase 2 containerisation, and who pairs with them.</li>
+      <li>Who is the embedded expert for the first six months — hire, contract, or develop internally.</li>
+      <li>Whether we fund the platform's own test suite before it carries production traffic.</li>
+    </ul>
+    <p>The first two can be decided this week. The platform is ready for Phase 1 today.</p>
+  </section>
+
+  <footer>
+    <p><strong>Measured, on a sample application, 31 July 2026:</strong> Jenkins job history
+      (<code>cicd-build</code> 43.6 s, <code>cicd-scan</code> 64.2 s,
+      <code>cicd-publish-nexus-nuget</code> 38.4 s, <code>cicd-publish-nexus-docker</code> 34.5 s —
+      successful builds only) and the deployment service's run records (Kubernetes 5.4 s average over
+      7 runs; Cloud Run 63.8 s over 2). Derived: full CI chain 3 min 01 s, commit → running 3 min 06 s.</p>
+    <p><strong>Targets quoted above are deliberately more conservative than what we measured</strong>,
+      because the sample app is small and has no test suite. Phase 1 replaces every estimate with a
+      measurement against our own repository — that is its purpose.</p>
+    <p>Change-failure rate is deliberately omitted: the sandbox's figure reflects failures induced on
+      purpose during testing and would misrepresent quality.</p>
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+
+    function select(tab) {
+      tabs.forEach(function (t) {
+        var panel = document.getElementById(t.getAttribute('aria-controls'));
+        var on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        panel.hidden = !on;
+      });
+    }
+
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () { select(tab); });
+      tab.addEventListener('keydown', function (e) {
+        var next = null;
+        if (e.key === 'ArrowRight') next = tabs[(i + 1) % tabs.length];
+        if (e.key === 'ArrowLeft') next = tabs[(i - 1 + tabs.length) % tabs.length];
+        if (next) { e.preventDefault(); next.focus(); select(next); }
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>

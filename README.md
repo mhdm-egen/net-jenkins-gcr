@@ -227,6 +227,7 @@ See the full, PR-referenced catalog in **[docs/features.md](docs/features.md)**.
 
 | Doc | What |
 | --- | --- |
+| [docs/adoption/](docs/adoption/) | Proposing and rolling this out — per-audience decks with measured numbers, plus a skills-first adoption plan |
 | [docs/platform-pitch.md](docs/platform-pitch.md) | The leadership pitch deck — problem, DORA, ROI, adoption |
 | [docs/architecture.md](docs/architecture.md) | Full architecture, components, and diagrams |
 | [docs/features.md](docs/features.md) | Complete feature catalog, by area, with PR references |
