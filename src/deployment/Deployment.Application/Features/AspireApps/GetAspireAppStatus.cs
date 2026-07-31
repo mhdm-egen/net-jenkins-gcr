@@ -41,7 +41,17 @@ public sealed class GetAspireAppStatusHandler
 
         var env = await _envs.GetByIdAsync(app.EnvironmentId, ct).ConfigureAwait(false);
         var context = env?.KubernetesContext;
-        var ns = env?.KubernetesNamespace;
+        var baseNs = env?.KubernetesNamespace;
+
+        // Blue-green workloads live in '{baseNs}-{ActiveSlot}'; the base namespace is only ever a prefix
+        // and may hold a DIFFERENT app entirely, so reading it would report someone else's workloads as
+        // this app's. Null slot = nothing of this app is live, which is not the same as "namespace empty".
+        var blueGreen = app.Strategy == Contracts.Mappings.RolloutStrategyDto.BlueGreen;
+        var ns = blueGreen
+            ? (string.IsNullOrWhiteSpace(baseNs) || string.IsNullOrWhiteSpace(app.ActiveSlot)
+                ? null
+                : $"{baseNs}-{app.ActiveSlot}")
+            : baseNs;
 
         // Last successful run = what's actually running.
         var runs = await _runs.ListAsync(app.Id, ct).ConfigureAwait(false);
@@ -56,17 +66,23 @@ public sealed class GetAspireAppStatusHandler
             && (!string.Equals(app.ManifestSource, lastDeploy.ManifestSource, StringComparison.Ordinal)
                 || !string.Equals(app.Version, lastDeploy.Version, StringComparison.Ordinal));
 
-        var cluster = string.IsNullOrWhiteSpace(ns)
+        var cluster = string.IsNullOrWhiteSpace(baseNs)
             ? new ClusterWorkloadsDto(false, "No Kubernetes namespace is configured for this app's environment.",
                 WorkloadHealthDto.Unknown, Array.Empty<WorkloadStatusDto>())
-            : await _cluster.GetAsync(context, ns!, ct).ConfigureAwait(false);
+            : string.IsNullOrWhiteSpace(ns)
+                // Reachable, because the cluster is fine — there is simply no slot to look at. Reporting
+                // this as unreachable would read like an outage.
+                ? new ClusterWorkloadsDto(true, "Nothing is deployed — this blue-green app has no active slot yet.",
+                    WorkloadHealthDto.Unknown, Array.Empty<WorkloadStatusDto>())
+                : await _cluster.GetAsync(context, ns, ct).ConfigureAwait(false);
 
         // Image drift: what each workload runs now vs. the image the last successful run recorded deploying.
         var (workloads, hasImageDrift) = ApplyImageDrift(cluster.Workloads, lastDeploy?.DeployedImages);
 
-        // Browsable URL, if an Ingress was stamped for this namespace's frontend (best-effort).
+        // Browsable URL, if an Ingress was stamped for this namespace's frontend (best-effort). Uses the
+        // slot namespace too — the Ingress is stamped where the workloads actually run.
         var url = cluster.Reachable && !string.IsNullOrWhiteSpace(ns)
-            ? await _ingress.GetFrontendUrlAsync(context, ns!, ct).ConfigureAwait(false)
+            ? await _ingress.GetFrontendUrlAsync(context, ns, ct).ConfigureAwait(false)
             : null;
 
         return new AspireAppStatusDto(
