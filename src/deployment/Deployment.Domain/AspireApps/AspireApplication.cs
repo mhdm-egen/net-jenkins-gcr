@@ -101,11 +101,23 @@ public sealed class AspireApplication : AggregateRoot<Guid>
     }
 
     /// <summary>Record which slot's namespace is now live (set on a successful blue-green promotion or a
-    /// bootstrap deploy).</summary>
-    public void SetActiveSlot(string slot, DateTimeOffset occurredAtUtc)
+    /// bootstrap deploy). Null/blank clears it, meaning nothing of this app is live.</summary>
+    public void SetActiveSlot(string? slot, DateTimeOffset occurredAtUtc)
     {
         ActiveSlot = string.IsNullOrWhiteSpace(slot) ? null : slot.Trim();
         UpdatedAtUtc = occurredAtUtc;
+    }
+
+    /// <summary>
+    /// The app's namespaces have been deleted from the cluster. Clears <see cref="ActiveSlot"/>: leaving a
+    /// stale slot behind would make the next blue-green deploy pick its green slot relative to a namespace
+    /// that no longer exists, and would have the status view point at nothing.
+    /// </summary>
+    public void MarkUninstalled(IReadOnlyList<string> namespaces, DateTimeOffset occurredAtUtc)
+    {
+        ActiveSlot = null;
+        UpdatedAtUtc = occurredAtUtc;
+        RaiseEvent(new AspireApplicationUninstalled(Id, Name, namespaces, occurredAtUtc));
     }
 
     /// <summary>True when a CI publish on <paramref name="branch"/> targets the main deploy (vs. a preview).

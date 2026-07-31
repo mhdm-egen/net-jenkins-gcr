@@ -1,4 +1,6 @@
 using FluentValidation;
+using Microsoft.Extensions.Logging;
+using Deployment.Application.Abstractions;
 using Deployment.Contracts.AspireApps;
 using Deployment.Domain.Abstractions;
 using Deployment.Domain.AspireApps;
@@ -112,17 +114,48 @@ public sealed class SetAspireAutoDeployHandler
 
 public sealed record DeleteAspireApplicationCommand(Guid ApplicationId);
 
+/// <summary>
+/// Deletes the app record AND its workloads. The cluster teardown runs first and deliberately is not
+/// optional: this handler used to remove only the database row, which left the namespace running with
+/// nothing in the platform still pointing at it.
+/// </summary>
 public sealed class DeleteAspireApplicationHandler
 {
     private readonly IAspireApplicationRepository _apps;
+    private readonly IEnvironmentRepository _envs;
+    private readonly IAspireApplicationRunReader _runs;
+    private readonly INamespaceManager _namespaces;
     private readonly IUnitOfWork _uow;
-    public DeleteAspireApplicationHandler(IAspireApplicationRepository apps, IUnitOfWork uow)
-    { _apps = apps; _uow = uow; }
+    private readonly ILogger<DeleteAspireApplicationHandler> _logger;
+
+    public DeleteAspireApplicationHandler(
+        IAspireApplicationRepository apps, IEnvironmentRepository envs, IAspireApplicationRunReader runs,
+        INamespaceManager namespaces, IUnitOfWork uow, ILogger<DeleteAspireApplicationHandler> logger)
+    { _apps = apps; _envs = envs; _runs = runs; _namespaces = namespaces; _uow = uow; _logger = logger; }
 
     public async Task HandleAsync(DeleteAspireApplicationCommand cmd, CancellationToken ct = default)
     {
         var app = await _apps.GetByIdAsync(cmd.ApplicationId, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Aspire application {cmd.ApplicationId} not found.");
+
+        var runs = await _runs.ListAsync(app.Id, ct).ConfigureAwait(false);
+        if (AspireNamespaceResolver.HasRunInFlight(runs))
+            throw new InvalidOperationException($"'{app.Name}' has a deployment in progress. Wait for it to finish before deleting the app.");
+
+        // A non-Kubernetes environment can't have namespaces to remove, so the record delete still
+        // proceeds — only a live cluster target makes teardown a precondition.
+        var env = await _envs.GetByIdAsync(app.EnvironmentId, ct).ConfigureAwait(false);
+        if (env is not null && !string.IsNullOrWhiteSpace(env.KubernetesContext) && !string.IsNullOrWhiteSpace(env.KubernetesNamespace))
+        {
+            var namespaces = AspireNamespaceResolver.Resolve(app, env, runs);
+            foreach (var ns in namespaces)
+                await _namespaces.DeleteNamespaceAsync(env.KubernetesContext, ns, ct).ConfigureAwait(false);
+
+            if (namespaces.Count > 0)
+                _logger.LogInformation("[aspire] {App} deleted — namespaces {Namespaces} removed from {Context}.",
+                    app.Name, string.Join(", ", namespaces), env.KubernetesContext);
+        }
+
         _apps.Remove(app);
         await _uow.SaveChangesAsync(ct).ConfigureAwait(false);
     }

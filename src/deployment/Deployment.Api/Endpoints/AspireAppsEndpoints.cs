@@ -36,6 +36,21 @@ public static class AspireAppsEndpoints
             catch (InvalidOperationException ex) { return Results.Problem(title: "Cannot delete", detail: ex.Message, statusCode: 409); }
         });
 
+        // Removes the app's workloads from the cluster but keeps the registration, so it can be
+        // redeployed. Distinct from DELETE, which also drops the record.
+        g.MapPost("{id:guid}/uninstall", async (Guid id, UninstallAspireAppRequest? body, UninstallAspireApplicationHandler h, CancellationToken ct) =>
+        {
+            var result = await h.HandleAsync(new UninstallAspireApplicationCommand(id, body?.TriggeredBy), ct);
+            var dto = new AspireUninstallResultDto(result.Applied, result.Outcome, result.Namespaces);
+            return result.Outcome switch
+            {
+                "app-not-found" => Results.Problem(title: "Not found", detail: "Aspire application not found.", statusCode: 404),
+                "deploy-in-progress" => Results.Problem(title: "Cannot uninstall", detail: "A deployment is in progress. Wait for it to finish.", statusCode: 409),
+                "environment-not-kubernetes" => Results.Problem(title: "Cannot uninstall", detail: "This app's environment has no Kubernetes target.", statusCode: 409),
+                _ => Results.Ok(dto),
+            };
+        });
+
         g.MapPost("{id:guid}/deploy", async (Guid id, TriggerAspireDeploymentRequest body, RequestAspireDeploymentHandler h, CancellationToken ct) =>
         {
             var result = await h.HandleAsync(new RequestAspireDeploymentCommand(id, body.TriggeredBy), ct);
