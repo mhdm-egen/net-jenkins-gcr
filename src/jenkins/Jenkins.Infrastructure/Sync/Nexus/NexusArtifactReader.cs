@@ -63,14 +63,26 @@ public sealed class NexusArtifactReader : INexusArtifactReader, IDisposable
                 Tags: new[] { packageVersion }));
         }
 
-        // --- Docker: the image tagged with the commit short (fallback ci-N) ---
+        // --- Docker: match ONLY on tags that identify this build unambiguously ---
+        //
+        // The publish job pushes four tags per image (jenkins/publish/nexus/docker/Jenkinsfile):
+        // a floating one, "ci-{N}", the commit short, and "{N}-{commit}". Only the last two are
+        // safe to match on here.
+        //
+        // "ci-{N}" is NOT: build numbers are per-job, so cicd-build #7 and cicd-aspire-publish #7
+        // both push "ci-7". Falling back to it attached another job's images to this build — and
+        // because the sync service latched on the first non-empty result, the real container was
+        // never picked up and its mapping never auto-deployed. Prefer "{N}-{commit}", which the
+        // Jenkinsfile calls "a combined immutable build+commit handle".
         if (!string.IsNullOrWhiteSpace(_options.DockerRegistryHost))
         {
-            var tag = commitShort;
+            var tag = $"{ciBuildNumber}-{commitShort}";
             var dockerComponents = await SearchAsync(_options.DockerRepository, tag, cancellationToken).ConfigureAwait(false);
             if (dockerComponents.Count == 0)
             {
-                tag = $"ci-{ciBuildNumber}";
+                // Older images predate the combined tag; the commit short is still unambiguous
+                // enough, since a commit belongs to exactly one repository.
+                tag = commitShort;
                 dockerComponents = await SearchAsync(_options.DockerRepository, tag, cancellationToken).ConfigureAwait(false);
             }
 

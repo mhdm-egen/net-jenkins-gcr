@@ -219,20 +219,32 @@ public sealed class JenkinsBuildSyncService : BackgroundService
                         new ReconcileBuildArtifactsCommand(summary.Id, specs), ct).ConfigureAwait(false);
                     if (result.TotalArtifacts > 0)
                     {
-                        _reconciled.Add(summary.Id);
                         _noArtifactsLogged.Remove(summary.Id);
-                        _logger.LogInformation("[reconcile] {Job}#{Number}: +{Added} artifact(s) ({Total} total)",
-                            repo.CiJobName, build.Number, result.Added, result.TotalArtifacts);
+
+                        // Latch only once a tick brings nothing new. The publish jobs land images
+                        // several minutes after the build goes green, and a multi-container build
+                        // pushes them one at a time — latching on the first non-empty result froze
+                        // the artifact list early and silently lost whatever arrived afterwards,
+                        // including the container an auto-deploy mapping was waiting for.
+                        if (result.Added == 0)
+                        {
+                            _reconciled.Add(summary.Id);
+                        }
+                        else
+                        {
+                            _logger.LogInformation("[reconcile] {Job}#{Number}: +{Added} artifact(s) ({Total} total)",
+                                repo.CiJobName, build.Number, result.Added, result.TotalArtifacts);
+                        }
                     }
                 }
                 else if (_noArtifactsLogged.Add(summary.Id))
                 {
                     // Visible (once per build) so a tag/repo mismatch isn't silent. The reader searches
-                    // the docker repo for a component tagged with the commit-short (fallback ci-<build#>).
+                    // the docker repo for '{build#}-{commit}', falling back to the commit short.
                     _logger.LogInformation(
                         "[reconcile] {Job}#{Number}: no Nexus artifacts found yet (version '{Version}', commit '{Commit}'). " +
-                        "Will retry each tick. Verify the image was pushed to Nexus tagged '{Commit}' or 'ci-{Number}'.",
-                        repo.CiJobName, build.Number, info.PackageVersion, commitShort, commitShort, build.Number);
+                        "Will retry each tick. Verify the image was pushed to Nexus tagged '{Number}-{Commit}' or '{Commit}'.",
+                        repo.CiJobName, build.Number, info.PackageVersion, commitShort, build.Number, commitShort);
                 }
             }
             catch (Exception ex) when (_noArtifactsLogged.Add(summary.Id))
